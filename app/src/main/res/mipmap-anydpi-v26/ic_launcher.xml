@@ -1,41 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
-    <background android:drawableНарешті логер відпрацював як треба і видав конкретні помилки! Ми на фінішній прямій — це вже не проблеми з налаштуванням середовища чи плагінів, а звичайне збочування ресурсів Android.
-
-Ось 3 чіткі помилки з вашого скріншоту:
-1. `resource mipmap/ic_launcher not found` — у маніфесті вказано іконку, якої немає серед файлів.
-2. `resource mipmap/ic_launcher_round not found` — кругла іконка також відсутня.
-3. `resource android:style/Theme.Material.NoTitleBar not found` — у маніфесті прописано базову тему, яку не підтягує сучасний Compose.
-
----
-
-### 🛠 Виправляємо все за один крок
-
-Спрощуємо `AndroidManifest.xml` (прибираємо посилання на відсутні іконки та старі теми) і створюємо базову тему в коді.
-
-Виконайте в Termux:
-
-#### Крок 1. Оновлюємо `AndroidManifest.xml`
-```bash
-cat << 'EOF' > app/src/main/AndroidManifest.xml
-<?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="[http://schemas.android.com/apk/res/android](http://schemas.android.com/apk/res/android)">
-
-    <uses-permission android:name="android.permission.INTERNET" />
-
-    <application
-        android:allowBackup="true"
-        android:label="News Aggregator"
-        android:supportsRtl="true"
-        android:theme="@android:style/Theme.Material.Light.NoActionBar">
-        <activity
-            android:name=".MainActivity"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-        </activity>
-    </application>
-
-</manifest>
+    <background android:drawable="@color/black" />
+    <foreground android:drawable="@drawable/ic_launcher_foreground" />
+</adaptive-icon>
