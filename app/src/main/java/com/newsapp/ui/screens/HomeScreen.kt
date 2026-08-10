@@ -1,5 +1,6 @@
 package com.newsapp.ui.screens
 
+import android.util.Log
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -21,6 +22,7 @@ fun HomeScreen(viewModel: NewsViewModel) {
     val isLoading by viewModel.isLoading.collectAsState()
 
     LaunchedEffect(Unit) {
+        Log.d("HomeScreen", "[LOG] HomeScreen змонтовано, викликаємо loadNews")
         viewModel.loadNews()
     }
 
@@ -43,11 +45,13 @@ fun HomeScreen(viewModel: NewsViewModel) {
                     contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    // Тепер items() імпортовано правильно, помилки типу Int не буде
                     items(items = newsList) { news ->
                         NewsCard(
                             news = news, 
-                            onSendClick = { viewModel.sendNews(news) }
+                            onSendClick = { 
+                                Log.d("HomeScreen", "[LOG] Клік по кнопці рерайту: ${news.title}")
+                                viewModel.sendNews(news) 
+                            }
                         )
                     }
                 }

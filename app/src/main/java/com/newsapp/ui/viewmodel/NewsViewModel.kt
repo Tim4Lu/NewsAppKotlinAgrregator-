@@ -29,6 +29,7 @@ class NewsViewModel : ViewModel() {
             _isLoading.value = true
             try {
                 _newsList.value = repository.fetchNews()
+                Log.d("NewsViewModel", "[LOG] Успішно завантажено новин: ${_newsList.value.size}")
             } catch (e: Exception) {
                 Log.e("NewsViewModel", "[LOG] Помилка завантаження: ${e.message}")
             }
