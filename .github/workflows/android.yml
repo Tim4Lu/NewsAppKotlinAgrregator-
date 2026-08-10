@@ -21,7 +21,7 @@ jobs:
       uses: gradle/actions/setup-gradle@v4
 
     - name: Build Debug APK
-      run: gradle assembleDebug --info
+      run: gradle assembleDebug --quiet --console=plain
 
     - name: Upload APK
       uses: actions/upload-artifact@v4
