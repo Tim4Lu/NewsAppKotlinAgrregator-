@@ -13,27 +13,32 @@ import java.io.StringReader
 class NewsRepository {
     private val client = HttpClient(CIO)
     
-    // Список джерел для прикладу (можна додавати свої)
+    // Нові профільні джерела: Космос та Технології
     private val rssUrls = listOf(
-        "https://www.pravda.com.ua/rss/view_news/",
-        "https://tsn.ua/rss/full.rss"
+        "https://www.nasa.gov/rss/dyn/breaking_news.rss", // Свіжі новини NASA
+        "https://www.space.com/feeds/all",                // Space.com
+        "https://itc.ua/ua/rss/",                         // Український IT та технології
+        "https://tech.liga.net/rss"                       // Технології на ЛІГА.net
     )
 
     suspend fun fetchNews(): List<NewsItem> {
         val allNews = mutableListOf<NewsItem>()
-        Log.d("NewsRepository", "[LOG] Початок завантаження реальних новин...")
+        Log.d("NewsRepository", "[LOG] Початок завантаження новин про космос і технології...")
         
         for (url in rssUrls) {
             try {
+                Log.d("NewsRepository", "[LOG] Стукаємось у джерело: $url")
                 val response: HttpResponse = client.get(url)
                 val xmlString = response.bodyAsText()
                 val parsedNews = parseRss(xmlString)
                 allNews.addAll(parsedNews)
-                Log.d("NewsRepository", "[LOG] Завантажено ${parsedNews.size} новин з $url")
+                Log.d("NewsRepository", "[LOG] Успішно завантажено ${parsedNews.size} новин з $url")
             } catch (e: Exception) {
                 Log.e("NewsRepository", "[LOG] Помилка завантаження з $url: ${e.message}")
             }
         }
+        
+        Log.d("NewsRepository", "[LOG] Загалом зібрано новин: ${allNews.size}")
         return allNews
     }
 
@@ -70,9 +75,8 @@ class NewsRepository {
                     }
                     XmlPullParser.END_TAG -> {
                         if (tagName.equals("item", ignoreCase = true)) {
-                            // Очищаємо опис від HTML-тегів для красивого відображення
                             val cleanDescription = currentDescription.replace(Regex("<[^>]*>"), "").trim()
-                            newsList.add(NewsItem(currentTitle, cleanDescription, currentLink))
+                            newsList.add(NewsItem(title = currentTitle, description = cleanDescription, link = currentLink))
                             inItem = false
                         }
                     }
