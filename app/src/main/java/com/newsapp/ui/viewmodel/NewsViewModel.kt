@@ -25,7 +25,7 @@ class NewsViewModel : ViewModel() {
 
     fun loadNews() {
         viewModelScope.launch {
-            Log.d("NewsViewModel", "[LOG] Початок завантаження новин...")
+            Log.d("NewsViewModel", "[LOG] Початок завантаження космічних новин...")
             _isLoading.value = true
             try {
                 _newsList.value = repository.fetchNews()
