@@ -3,6 +3,7 @@ package com.newsapp.ui.viewmodel
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.newsapp.data.LogManager
 import com.newsapp.data.TelegramBotService
 import com.newsapp.data.api.AiRewriter
 import com.newsapp.model.NewsItem
@@ -46,6 +47,7 @@ class NewsViewModel : ViewModel() {
         if (_newsList.value.isEmpty()) _isLoading.value = true
 
         viewModelScope.launch(Dispatchers.IO) {
+            LogManager.log("ViewModel", "Завантаження RSS...")
             val rawNews = mutableListOf<NewsItem>()
 
             for (url in rssUrls) {
@@ -54,7 +56,9 @@ class NewsViewModel : ViewModel() {
                     if (response.status.value in 200..299) {
                         rawNews.addAll(parseRss(response.bodyAsText(), URL(url).host))
                     }
-                } catch (e: Exception) { /* ігноруємо для стабільності */ }
+                } catch (e: Exception) {
+                    LogManager.log("ViewModel_ERR", "Помилка RSS: ${e.message}")
+                }
             }
 
             if (rawNews.isNotEmpty()) {
@@ -63,13 +67,70 @@ class NewsViewModel : ViewModel() {
                 }
                 _isLoading.value = false
 
-                aiRewriter.processAllNewsWithAi(rawNews) { finishedItem ->
-                    _newsList.value = _newsList.value.map { current ->
-                        if (current.id == finishedItem.id || current.title == finishedItem.title) finishedItem else current
-                    }
-                }
+                // Запускаємо фоновий скрейпінг og:image та тексту статті + ШІ
+                processNewsWithScraperAndAi(rawNews)
             } else {
                 _isLoading.value = false
+            }
+        }
+    }
+
+    // Точна реалізація твоєї функції scrapeNasaArticle
+    private suspend fun scrapeArticle(url: String): Pair<String, String?> {
+        try {
+            LogManager.log("Scraper", "Скрейпінг сторінки: ${url.take(30)}...")
+            val response: HttpResponse = client.get(url) {
+                header(HttpHeaders.UserAgent, "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+            }
+            val html = response.bodyAsText()
+
+            // 1. Шукаємо зображення (og:image) ПЕРЕД тим, як чистити HTML
+            val ogImageRegex = Regex("<meta[^>]+property=[\"']og:image[\"'][^>]+content=[\"']([^\"']+)[\"']", RegexOption.IGNORE_CASE)
+            var imageUrl = ogImageRegex.find(html)?.groupValues?.get(1)
+
+            // Якщо og:image немає, шукаємо звичайний тег img
+            if (imageUrl.isNullOrEmpty()) {
+                val imgRegex = Regex("<img[^>]+src=[\"']([^\"']+)[\"']", RegexOption.IGNORE_CASE)
+                imageUrl = imgRegex.find(html)?.groupValues?.get(1)
+            }
+
+            // 2. Прибираємо блоки-сміття
+            val cleanHtml = html.replace(Regex("<(nav|header|footer|script|style|button|aside|noscript)[^>]*>[\\s\\S]*?<\\/\\1>", RegexOption.IGNORE_CASE), "")
+
+            // 3. Беремо абзаци <p> більше 50 символів
+            val pTags = Regex("<p[^>]*>([^<]{50,})<\\/p>", RegexOption.IGNORE_CASE).findAll(cleanHtml).map { it.groupValues[1] }.toList()
+
+            val validParagraphs = pTags
+                .map { it.replace(Regex("<[^>]*>"), "").trim() }
+                .filter { t ->
+                    t.length > 100 &&
+                    t.contains(".") &&
+                    !Regex("menu|login|copyright|privacy|contact|subscribe|home|search", RegexOption.IGNORE_CASE).containsMatchIn(t)
+                }
+
+            val scrapedText = validParagraphs.take(4).joinToString("\n\n")
+
+            return Pair(if (scrapedText.length >= 200) scrapedText else "", imageUrl)
+        } catch (e: Exception) {
+            LogManager.log("Scraper_ERR", "Помилка скрейпінгу: ${e.message}")
+            return Pair("", null)
+        }
+    }
+
+    private suspend fun processNewsWithScraperAndAi(rawNews: List<NewsItem>) {
+        val updatedList = rawNews.map { item ->
+            // Викликаємо скрейпер для кожної статті за її посиланням
+            val (fullText, scrapedImage) = scrapeArticle(item.link)
+            item.copy(
+                description = if (fullText.isNotEmpty()) fullText else item.description,
+                image = scrapedImage ?: item.image
+            )
+        }
+
+        // Передаємо оновлені новини із реальним фото та текстом до ШІ
+        aiRewriter.processAllNewsWithAi(updatedList) { finishedItem ->
+            _newsList.value = _newsList.value.map { current ->
+                if (current.id == finishedItem.id || current.title == finishedItem.title) finishedItem else current
             }
         }
     }
@@ -101,7 +162,6 @@ class NewsViewModel : ViewModel() {
             var title: String? = null
             var link: String? = null
             var desc: String? = null
-            var image = ""
             var insideItem = false
             var currentTag = ""
 
@@ -110,16 +170,10 @@ class NewsViewModel : ViewModel() {
                     XmlPullParser.START_TAG -> {
                         currentTag = parser.name?.lowercase() ?: ""
                         if (currentTag == "item" || currentTag == "entry") {
-                            insideItem = true; title = null; link = null; desc = null; image = ""
-                        } else if (insideItem) {
-                            if (currentTag == "link") {
-                                val href = parser.getAttributeValue(null, "href")
-                                if (!href.isNullOrEmpty()) link = href
-                            } else if (currentTag.contains("enclosure") || currentTag.contains("content") || currentTag.contains("thumbnail")) {
-                                // Агресивний пошук лінка на картинку в атрибутах URL
-                                val urlAttr = parser.getAttributeValue(null, "url") ?: parser.getAttributeValue("", "url")
-                                if (!urlAttr.isNullOrEmpty() && (image.isEmpty() || currentTag == "enclosure")) image = urlAttr
-                            }
+                            insideItem = true; title = null; link = null; desc = null
+                        } else if (insideItem && currentTag == "link") {
+                            val href = parser.getAttributeValue(null, "href")
+                            if (!href.isNullOrEmpty()) link = href
                         }
                     }
                     XmlPullParser.TEXT -> {
@@ -127,7 +181,7 @@ class NewsViewModel : ViewModel() {
                             when (currentTag) {
                                 "title" -> title = (title ?: "") + parser.text
                                 "link" -> if (link.isNullOrEmpty()) link = parser.text
-                                "description", "summary", "content" -> desc = (desc ?: "") + parser.text
+                                "description", "summary" -> desc = (desc ?: "") + parser.text
                             }
                         }
                     }
@@ -135,12 +189,7 @@ class NewsViewModel : ViewModel() {
                         val name = parser.name ?: ""
                         if (name.equals("item", true) || name.equals("entry", true)) {
                             if (!title.isNullOrEmpty()) {
-                                // Якщо картинки немає в XML, шукаємо в HTML тегу <img>
-                                if (image.isEmpty() && !desc.isNullOrEmpty()) {
-                                    val imgMatch = Regex("<img[^>]+src\\s*=\\s*['\"]([^'\"]+)['\"]").find(desc!!)
-                                    if (imgMatch != null) image = imgMatch.groupValues[1]
-                                }
-                                items.add(NewsItem(title!!.trim(), link?.trim() ?: "", desc?.replace(Regex("<.*?>"), "")?.trim() ?: "", sourceName, image))
+                                items.add(NewsItem(title!!.trim(), link?.trim() ?: "", desc?.replace(Regex("<.*?>"), "")?.trim() ?: "", sourceName))
                             }
                             insideItem = false
                         }
