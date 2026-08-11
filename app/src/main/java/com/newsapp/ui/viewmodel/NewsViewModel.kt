@@ -35,6 +35,9 @@ class NewsViewModel : ViewModel() {
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
+    private val _errorMessage = MutableStateFlow<String?>(null)
+    val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
+
     private val _showLimitError = MutableStateFlow(false)
     val showLimitError: StateFlow<Boolean> = _showLimitError.asStateFlow()
 
@@ -60,76 +63,91 @@ class NewsViewModel : ViewModel() {
     fun fetchAndProcessNews() {
         viewModelScope.launch(Dispatchers.IO) {
             _isLoading.value = true
+            _errorMessage.value = null
             Log.d(TAG, "=== START: ПОЧАТОК ЗАВАНТАЖЕННЯ НОВИН ===")
 
-            try {
-                val rawNews = mutableListOf<NewsItem>()
+            val rawNews = mutableListOf<NewsItem>()
+            val errorsList = mutableListOf<String>()
 
-                for (url in rssUrls) {
-                    try {
-                        Log.d(TAG, "NETWORK -> Запит: $url")
-                        val response: HttpResponse = client.get(url) {
-                            header(HttpHeaders.UserAgent, "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-                        }
-                        
-                        Log.d(TAG, "NETWORK -> Відповідь від $url: Код status=${response.status}")
-                        val xmlBody = response.bodyAsText()
-                        Log.d(TAG, "NETWORK -> Отримано XML розміром: ${xmlBody.length} символів")
-
-                        val parsedItems = parseRss(xmlBody)
-                        Log.d(TAG, "PARSER -> Розпарсено новин з $url: ${parsedItems.size}")
-                        rawNews.addAll(parsedItems)
-
-                    } catch (e: Exception) {
-                        Log.e(TAG, "NETWORK_ERROR -> Не вдалося завантажити $url", e)
+            for (url in rssUrls) {
+                try {
+                    Log.d(TAG, "NETWORK -> Запит до $url")
+                    val response: HttpResponse = client.get(url) {
+                        header(HttpHeaders.UserAgent, "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
                     }
-                }
-
-                Log.d(TAG, "RAW_SUMMARY -> Загальна кількість сирих новин: ${rawNews.size}")
-
-                if (rawNews.isEmpty()) {
-                    Log.e(TAG, "DIAGNOSTIC -> Порожній список! Всі RSS джерела повернули 0 новин або заблокували запити.")
-                }
-
-                val processedNews = mutableListOf<NewsItem>()
-
-                for (item in rawNews) {
-                    Log.d(TAG, "AI_REWRITE -> Обробка: ${item.title}")
                     
-                    var translatedTitle: String? = null
-                    var translatedDesc: String? = null
+                    val status = response.status.value
+                    Log.d(TAG, "NETWORK -> Відповідь від $url: Код HTTP $status")
 
-                    try {
-                        translatedTitle = aiRewriter.rewrite(item.title, "Ukrainian")
-                        translatedDesc = aiRewriter.rewrite(item.description, "Ukrainian")
-                    } catch (limitEx: LimitExceededException) {
-                        Log.e(TAG, "LIMIT_EXCEEDED -> Вичерпано ліміт API!", limitEx)
-                        _showLimitError.value = true
-                    } catch (aiEx: Exception) {
-                        Log.e(TAG, "AI_ERROR -> Помилка рерайту для: ${item.title}", aiEx)
+                    if (status in 200..299) {
+                        val xmlBody = response.bodyAsText()
+                        Log.d(TAG, "NETWORK -> XML довжина: ${xmlBody.length} символів")
+                        val parsedItems = parseRss(xmlBody)
+                        
+                        if (parsedItems.isNotEmpty()) {
+                            rawNews.addAll(parsedItems)
+                            Log.d(TAG, "PARSER -> Отримано ${parsedItems.size} новин з $url")
+                        } else {
+                            val err = "RSS порожній або збій парсингу [HTTP $status]: $url"
+                            errorsList.add(err)
+                            Log.w(TAG, "PARSER_WARN -> $err")
+                        }
+                    } else {
+                        val err = "Помилка сервера HTTP $status: $url"
+                        errorsList.add(err)
+                        Log.e(TAG, "NETWORK_ERROR -> $err")
                     }
 
-                    if (!translatedTitle.isNullOrEmpty()) {
-                        val localizedItem = item.copy(
+                } catch (e: Exception) {
+                    val err = "${e.javaClass.simpleName}: ${e.message ?: "Збій мережі"} ($url)"
+                    errorsList.add(err)
+                    Log.e(TAG, "FETCH_ERROR -> $err", e)
+                }
+            }
+
+            if (rawNews.isEmpty()) {
+                val combinedError = if (errorsList.isNotEmpty()) {
+                    "Не вдалося завантажити новини:\n" + errorsList.joinToString("\n")
+                } else {
+                    "Помилка: Жодне джерело RSS не повернуло новин"
+                }
+                _errorMessage.value = combinedError
+                Log.e(TAG, "CRITICAL -> $combinedError")
+                _isLoading.value = false
+                return@launch
+            }
+
+            val processedNews = mutableListOf<NewsItem>()
+
+            for (item in rawNews) {
+                var translatedTitle: String? = null
+                var translatedDesc: String? = null
+
+                try {
+                    translatedTitle = aiRewriter.rewrite(item.title, "Ukrainian")
+                    translatedDesc = aiRewriter.rewrite(item.description, "Ukrainian")
+                } catch (limitEx: LimitExceededException) {
+                    Log.e(TAG, "LIMIT_EXCEEDED -> Вичерпано ліміт AI API!", limitEx)
+                    _showLimitError.value = true
+                } catch (aiEx: Exception) {
+                    Log.e(TAG, "AI_ERROR -> Помилка рерайту для: ${item.title}", aiEx)
+                }
+
+                if (!translatedTitle.isNullOrEmpty()) {
+                    processedNews.add(
+                        item.copy(
                             title = translatedTitle,
                             description = if (!translatedDesc.isNullOrEmpty()) translatedDesc else item.description
                         )
-                        processedNews.add(localizedItem)
-                        Log.d(TAG, "AI_SUCCESS -> Перекладено: ${localizedItem.title}")
-                    } else {
-                        Log.w(TAG, "AI_FALLBACK -> AI не повернув текст. Виводимо оригінал: ${item.title}")
-                        processedNews.add(item)
-                    }
+                    )
+                } else {
+                    processedNews.add(item)
                 }
-
-                _newsList.value = processedNews
-                Log.d(TAG, "=== FINISH: Успішно оновлено стейт. Новин всього: ${processedNews.size} ===")
-
-            } catch (e: Exception) {
-                Log.e(TAG, "CRITICAL -> Загальний збій у fetchAndProcessNews", e)
-            } finally {
-                _isLoading.value = false
             }
+
+            _newsList.value = processedNews
+            Log.d(TAG, "=== FINISH: Успішно завантажено новин: ${processedNews.size} ===")
+            _isLoading.value = false
         }
     }
 
