@@ -3,8 +3,9 @@ package com.newsapp.ui.viewmodel
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.newsapp.AiRewriter
-import com.newsapp.NewsItem
+import com.newsapp.data.AiRewriter
+import com.newsapp.data.TelegramBotService
+import com.newsapp.model.NewsItem
 import io.ktor.client.*
 import io.ktor.client.engine.cio.*
 import io.ktor.client.request.*
@@ -32,6 +33,7 @@ class NewsViewModel : ViewModel() {
 
     private val client = HttpClient(CIO)
     private val aiRewriter = AiRewriter()
+    private val telegramBotService = TelegramBotService()
 
     private val rssUrls = listOf(
         "https://www.nasa.gov/rss/dyn/breaking_news.rss",
@@ -39,6 +41,10 @@ class NewsViewModel : ViewModel() {
         "https://phys.org/rss-feed/space-news/",
         "https://www.sciencedaily.com/rss/space_time.xml"
     )
+
+    fun loadNews() {
+        fetchAndProcessNews()
+    }
 
     fun fetchAndProcessNews() {
         viewModelScope.launch(Dispatchers.IO) {
@@ -72,8 +78,8 @@ class NewsViewModel : ViewModel() {
                     var translatedDesc: String? = null
 
                     try {
-                        translatedTitle = aiRewriter.rewrite(item.title, "Translate and rewrite strictly in Ukrainian language")
-                        translatedDesc = aiRewriter.rewrite(item.description, "Translate and rewrite strictly in Ukrainian language")
+                        translatedTitle = aiRewriter.rewrite(item.title, "Ukrainian")
+                        translatedDesc = aiRewriter.rewrite(item.description, "Ukrainian")
                     } catch (aiEx: Exception) {
                         Log.e(TAG, "AI_REWRITE_EXCEPTION: Помилка під час виклику aiRewriter", aiEx)
                     }
@@ -86,25 +92,28 @@ class NewsViewModel : ViewModel() {
                         processedNews.add(localizedItem)
                         Log.d(TAG, "AI_REWRITE: Успішно перекладено українською: ${localizedItem.title}")
                     } else {
-                        Log.e(TAG, "AI_REWRITE: Помилка AI-перекладу (null/empty), залишаємо оригінал: ${item.title}")
+                        Log.e(TAG, "AI_REWRITE: Помилка AI-перекладу, залишаємо оригінал: ${item.title}")
                         processedNews.add(item)
                     }
                 }
 
                 _newsList.value = processedNews
-                Log.d(TAG, "FINISH: Список оновлено. Всього україномовних новин у стейті: ${processedNews.size}")
+                Log.d(TAG, "FINISH: Список оновлено. Всього україномовних новин: ${processedNews.size}")
 
             } catch (e: Exception) {
                 Log.e(TAG, "CRITICAL: Загальна помилка у fetchAndProcessNews", e)
             } finally {
                 _isLoading.value = false
-                Log.d(TAG, "END: Процес завершено, індикатор завантаження вимкнено.")
+                Log.d(TAG, "END: Процес завершено.")
             }
         }
     }
 
-    fun shareToTikTok(newsItem: NewsItem) {
-        Log.d(TAG, "TIKTOK_SHARE: Публікація -> ${newsItem.title}")
+    fun sendNews(newsItem: NewsItem) {
+        viewModelScope.launch(Dispatchers.IO) {
+            Log.d(TAG, "TELEGRAM_ACTION: Запуск відправки в Telegram -> ${newsItem.title}")
+            telegramBotService.sendNewsToChannel(newsItem)
+        }
     }
 
     private fun parseRss(xml: String): List<NewsItem> {

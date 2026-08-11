@@ -1,6 +1,5 @@
 package com.newsapp.ui.screens
 
-import android.util.Log
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -12,8 +11,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.newsapp.model.NewsItem
 import com.newsapp.ui.viewmodel.NewsViewModel
-import com.newsapp.data.model.NewsItem
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -22,37 +21,29 @@ fun HomeScreen(viewModel: NewsViewModel) {
     val isLoading by viewModel.isLoading.collectAsState()
 
     LaunchedEffect(Unit) {
-        Log.d("HomeScreen", "[LOG] HomeScreen змонтовано, викликаємо loadNews")
         viewModel.loadNews()
     }
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("News Aggregator") },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                    titleContentColor = MaterialTheme.colorScheme.primary
-                )
-            )
+            TopAppBar(title = { Text("Новини Космосу та Науки") })
         }
     ) { paddingValues ->
-        Box(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues)
+        ) {
             if (isLoading) {
                 CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
             } else {
                 LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    items(items = newsList) { news ->
-                        NewsCard(
-                            news = news, 
-                            onSendClick = { 
-                                Log.d("HomeScreen", "[LOG] Клік по кнопці рерайту: ${news.title}")
-                                viewModel.sendNews(news) 
-                            }
-                        )
+                    items(newsList) { item ->
+                        NewsCard(newsItem = item, onSendTelegramClick = { viewModel.sendNews(item) })
                     }
                 }
             }
@@ -61,21 +52,18 @@ fun HomeScreen(viewModel: NewsViewModel) {
 }
 
 @Composable
-fun NewsCard(news: NewsItem, onSendClick: () -> Unit) {
+fun NewsCard(newsItem: NewsItem, onSendTelegramClick: () -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
-            Text(text = news.title, style = MaterialTheme.typography.titleMedium)
+            Text(text = newsItem.title, style = MaterialTheme.typography.titleMedium)
             Spacer(modifier = Modifier.height(8.dp))
-            Text(text = news.description ?: "", style = MaterialTheme.typography.bodyMedium)
-            Spacer(modifier = Modifier.height(12.dp))
-            Button(
-                onClick = onSendClick,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("Рерайт та Відправити")
+            Text(text = newsItem.description, style = MaterialTheme.typography.bodyMedium)
+            Spacer(modifier = Modifier.height(8.dp))
+            Button(onClick = onSendTelegramClick) {
+                Text("Опублікувати в Telegram")
             }
         }
     }
