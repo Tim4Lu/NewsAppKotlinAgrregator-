@@ -21,7 +21,7 @@ class AiRewriter {
         expectSuccess = false
     }
 
-    private val GEMINI_BASE64 = "QVEuQWI4Uk42S2lyRmRtWV81cVYwXzRlZllZbF9nY2gzRW5sS2c5N1NSLXpnbk5PeFF0eVE="
+    private val GEMINI_BASE64 = "ВСТАВ_СЮДИ_ЗГЕНЕРОВАНИЙ_BASE64_РЯДОК"
 
     private val GROQ_KEYS = listOf(
         "aQvzOt1pJ9khaUW27VBClIQsYF3bydGWxFwgtKxlXrVg1Vu2dlKl_ksg".reversed()
@@ -74,15 +74,20 @@ class AiRewriter {
 
         val activeGeminiKey = getGeminiKey()
 
+        // 1. ОСНОВНИЙ: GEMINI 2.5 FLASH (з фолбеком на 1.5-flash)
         if (activeGeminiKey.isNotEmpty()) {
-            try {
-                val jsonBody = JSONObject().apply {
-                    put("contents", JSONArray().apply {
-                        put(JSONObject().apply {
-                            put("parts", JSONArray().apply { 
-                                put(JSONObject().apply { 
-                                    put("text", "ПЕРЕКЛАДИ НА УКРАЇНСЬКУ МОВУ ТА СФОРМУЙ ПОСТ:\nЗаголовок: $cleanTitle\nТекст: $cleanText\n\n$systemPrompt") 
-                                }) 
+            val modelsToTry = listOf("gemini-2.5-flash", "gemini-1.5-flash")
+            
+            for (modelName in modelsToTry) {
+                try {
+                    val jsonBody = JSONObject().apply {
+                        put("contents", JSONArray().apply {
+                            put(JSONObject().apply {
+                                put("parts", JSONArray().apply { 
+                                    put(JSONObject().apply { 
+                                        put("text", "ПЕРЕКЛАДИ НА УКРАЇНСЬКУ МОВУ ТА СФОРМУЙ ПОСТ:\nЗаголовок: $cleanTitle\nТекст: $cleanText\n\n$systemPrompt") 
+                                    }) 
+                                })
                             })
                         })
                     })
@@ -91,7 +96,7 @@ class AiRewriter {
                     })
                 }
 
-                val response = client.post("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=$activeGeminiKey") {
+                val response = client.post("https://generativelanguage.googleapis.com/v1beta/models/$modelName:generateContent?key=$activeGeminiKey") {
                     contentType(ContentType.Application.Json)
                     setBody(jsonBody.toString())
                 }
@@ -105,17 +110,18 @@ class AiRewriter {
 
                     if (rawGeminiText.isNotEmpty()) {
                         val parsed = parseAiOutput(rawGeminiText, cleanTitle, cleanText)
-                        LogManager.log("Gemini_OK", "Успішно перекладено через Gemini 2.0 Flash!")
+                        LogManager.log("Gemini_OK", "Успішно перекладено через Gemini ($modelName)!")
                         return parsed
                     }
                 } else {
-                    LogManager.log("Gemini_ERR", "Gemini помилка: ${data.getJSONObject("error").optString("message")}")
+                    LogManager.log("Gemini_ERR", "Gemini ($modelName) помилка: ${data.getJSONObject("error").optString("message")}")
                 }
             } catch (e: Exception) {
-                LogManager.log("Gemini_ERR", "Запит Gemini впав: ${e.message}")
+                LogManager.log("Gemini_ERR", "Запит Gemini ($modelName) впав: ${e.message}")
             }
         }
 
+        // 2. РЕЗЕРВНИЙ: GROQ
         try {
             LogManager.log("Groq", "Використовуємо резервний Groq...")
             val groqKey = GROQ_KEYS.random()
@@ -167,7 +173,7 @@ class AiRewriter {
     }
 
     suspend fun processAllNewsWithAi(rawNewsList: List<NewsItem>, onItemProcessed: (NewsItem) -> Unit) {
-        LogManager.log("AI_START", "Початок обробки новин через Gemini 2.0 Flash")
+        LogManager.log("AI_START", "Початок обробки новин через Gemini / Groq")
 
         for (i in rawNewsList.indices) {
             val n = rawNewsList[i]
