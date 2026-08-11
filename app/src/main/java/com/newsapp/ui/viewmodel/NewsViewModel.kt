@@ -18,7 +18,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import org.xmlpull.v1.XmlPullParser
 import org.xmlpull.v1.XmlPullParserFactory
 import java.io.StringReader
 import java.net.URL
@@ -56,7 +55,6 @@ class NewsViewModel : ViewModel() {
     )
 
     init {
-        // Автоматично завантажуємо новини при старті
         loadNews()
     }
 
@@ -65,15 +63,12 @@ class NewsViewModel : ViewModel() {
     }
 
     fun loadNews() {
-        // Якщо список вже є, не показуємо лоадер на весь екран, робимо оновлення у фоні
         if (_newsList.value.isEmpty()) {
             _isLoading.value = true
         }
         _errorMessage.value = null
 
         viewModelScope.launch(Dispatchers.IO) {
-            Log.d(TAG, "=== START: Завантаження новин у фоні ===")
-
             val rawNews = mutableListOf<NewsItem>()
 
             for (url in rssUrls) {
@@ -87,7 +82,7 @@ class NewsViewModel : ViewModel() {
                         rawNews.addAll(parsedItems)
                     }
                 } catch (e: Exception) {
-                    Log.e(TAG, "NETWORK_ERROR -> Не вдалося завантажити $url", e)
+                    Log.e(TAG, "NETWORK_ERROR", e)
                 }
             }
 
@@ -98,39 +93,30 @@ class NewsViewModel : ViewModel() {
             }
 
             if (rawNews.isNotEmpty()) {
+                // Одразу виводимо сирий список зі статусом "В черзі"
                 val initialData = rawNews.map { 
-                    it.copy(status = "В черзі", description = "Обробка ШІ...", telegramCaption = "Обробка...") 
+                    it.copy(status = "В черзі", description = "Очікування черги ШІ...", telegramCaption = "Обробка...") 
                 }
                 
-                // Зберігаємо первинні дані на екран одразу
                 if (_newsList.value.isEmpty()) {
                     _newsList.value = initialData
                 }
                 _isLoading.value = false
 
-                // Фонова AI обробка
-                processNewsInBackground(initialData)
+                // Запускаємо послідовну обробку по черзі
+                aiRewriter.processAllNewsWithAi(rawNews) { finishedItem ->
+                    // Лямбда викликається одразу для КОЖНОЇ готової новини
+                    _newsList.value = _newsList.value.map { current ->
+                        if (current.id == finishedItem.id || current.title == finishedItem.title) {
+                            finishedItem
+                        } else {
+                            current
+                        }
+                    }
+                }
             } else {
                 _isLoading.value = false
             }
-        }
-    }
-
-    private suspend fun processNewsInBackground(rawData: List<NewsItem>) {
-        try {
-            Log.d(TAG, "[BG_PROCESS] Фонова обробка ШІ...")
-            val processed = aiRewriter.processAllNewsWithAi(rawData)
-            
-            // Оновлюємо стан без втрати вже відредагованих користувачем даних
-            _newsList.value = _newsList.value.map { current ->
-                val updated = processed.find { it.id == current.id }
-                if (updated != null && current.status == "В черзі") {
-                    updated.copy(status = "Готово")
-                } else current
-            }
-            Log.d(TAG, "[BG_PROCESS] Фонове оновлення завершено")
-        } catch (e: Exception) {
-            Log.e(TAG, "[BG_ERR] Помилка фонової обробки", e)
         }
     }
 
@@ -145,7 +131,7 @@ class NewsViewModel : ViewModel() {
             if (it.id == id) {
                 val newCaption = "🚀 <b>${it.title}</b>\n\n$newText\n\n• <b>Джерело:</b> ${it.source}"
                 it.copy(description = newText, telegramCaption = newCaption)
-            } else it
+            } else item@{ it }
         }
     }
 
@@ -204,7 +190,7 @@ class NewsViewModel : ViewModel() {
                                         title = currentTitle!!.trim(),
                                         link = currentLink?.trim() ?: "",
                                         description = currentDesc?.trim() ?: "",
-                                            source = sourceName
+                                        source = sourceName
                                     )
                                 )
                             }

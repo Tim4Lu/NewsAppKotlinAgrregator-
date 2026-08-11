@@ -85,7 +85,6 @@ class AiRewriter {
             val data = JSONObject(responseText)
 
             if (data.has("error") || !data.has("choices")) {
-                Log.w("AiRewriter", "[GROQ_REJECT] Грок відмовив або ліміт вичерпано. Переходимо на резерв.")
                 return null
             }
 
@@ -108,22 +107,23 @@ class AiRewriter {
             return Pair(finalTitle, finalText)
 
         } catch (e: Exception) {
-            Log.e("AiRewriter", "[GROQ_CATCH_ERROR] Помилка Groq: ${e.message}")
             return null
         }
     }
 
-    suspend fun processAllNewsWithAi(rawNewsList: List<NewsItem>): List<NewsItem> {
-        val finalResults = mutableListOf<NewsItem>()
+    // СУВОРЕ ПОСЛІДОВНЕ ВИКОНАННЯ (ПО ОДНІЙ НОВИНІ)
+    suspend fun processAllNewsWithAi(
+        rawNewsList: List<NewsItem>, 
+        onItemProcessed: (NewsItem) -> Unit
+    ) {
         val fallbackImg = "https://images.unsplash.com/photo-1451187580459-43490279c0fa?q=80&w=800&auto=format&fit=crop"
 
         for (i in rawNewsList.indices) {
             val n = rawNewsList[i]
-            Log.d("AiRewriter", "[AI_BATCH] Обробка [${i + 1}/${rawNewsList.size}]: ${n.title.take(30)}...")
+            Log.d("AiRewriter", "[QUEUE] Обробка новини ${i + 1} з ${rawNewsList.size}")
 
             if (i > 0) {
-                Log.d("AiRewriter", "[AI_QUEUE] Очікуємо відновлення лімітів API...")
-                delay(2500)
+                delay(2000) // Пауза між запитами, щоб не зловити ліміт (Rate Limit)
             }
 
             var geminiTitleDraft = n.title
@@ -179,7 +179,7 @@ class AiRewriter {
                     if (gTextMatch != null) geminiTextDraft = gTextMatch.groupValues[1].trim()
                 }
             } catch (e: Exception) {
-                Log.w("AiRewriter", "[GEMINI_ERR] Помилка Gemini, лишаємо оригінал для Грока")
+                // Якщо Gemini впав, використовуємо оригінал для Грока
             }
 
             val processedResult = verifyWithGroqEditor(geminiTextDraft, geminiTitleDraft)
@@ -187,13 +187,7 @@ class AiRewriter {
             var displayTitle = geminiTitleDraft
             var displayText = geminiTextDraft
 
-            if (processedResult == null) {
-                if (geminiTextDraft == n.description) {
-                    Log.d("AiRewriter", "[AI_FILTER] Новину відхилено (немає перекладу або сміття): ${n.title}")
-                    continue
-                }
-                Log.d("AiRewriter", "[AI_FALLBACK] Groq ліміт! Беремо чистий короткий переклад від Gemini для: ${displayTitle}")
-            } else {
+            if (processedResult != null) {
                 displayTitle = processedResult.first
                 displayText = processedResult.second
             }
@@ -201,16 +195,17 @@ class AiRewriter {
             displayTitle = displayTitle.replace("**", "").replace("*", "")
             displayText = displayText.replace("**", "").replace("*", "")
 
-            finalResults.add(
-                n.copy(
-                    id = "${n.source}-${UUID.randomUUID()}",
-                    title = displayTitle,
-                    description = displayText,
-                    image = if (n.image.isEmpty()) fallbackImg else n.image,
-                    telegramCaption = "🚀 <b>$displayTitle</b>\n\n$displayText\n\n• <b>Джерело:</b> ${n.source}"
-                )
+            val finishedItem = n.copy(
+                id = "${n.source}-${UUID.randomUUID()}",
+                title = displayTitle,
+                description = displayText,
+                image = if (n.image.isEmpty()) fallbackImg else n.image,
+                status = "Готово",
+                telegramCaption = "🚀 <b>$displayTitle</b>\n\n$displayText\n\n• <b>Джерело:</b> ${n.source}"
             )
+
+            // ВІДПРАВЛЯЄМО КОЖНУ ГОТОВУ НОВИНУ НА ЕКРАН ОДРАЗУ
+            onItemProcessed(finishedItem)
         }
-        return finalResults
     }
 }
