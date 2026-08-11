@@ -70,6 +70,7 @@ class NewsViewModel : ViewModel() {
         _errorMessage.value = null
 
         viewModelScope.launch(Dispatchers.IO) {
+            Log.d(TAG, "=== ПОЧАТОК ЗАВАНТАЖЕННЯ RSS ===")
             val rawNews = mutableListOf<NewsItem>()
 
             for (url in rssUrls) {
@@ -80,10 +81,11 @@ class NewsViewModel : ViewModel() {
                     if (response.status.value in 200..299) {
                         val host = URL(url).host
                         val parsedItems = parseRss(response.bodyAsText(), host)
+                        Log.d(TAG, "Знайдено ${parsedItems.size} новин з $host")
                         rawNews.addAll(parsedItems)
                     }
                 } catch (e: Exception) {
-                    Log.e(TAG, "NETWORK_ERROR", e)
+                    Log.e(TAG, "NETWORK_ERROR для $url", e)
                 }
             }
 
@@ -103,15 +105,20 @@ class NewsViewModel : ViewModel() {
                 }
                 _isLoading.value = false
 
-                // Послідовна обробка ШІ
-                aiRewriter.processAllNewsWithAi(rawNews) { finishedItem ->
-                    _newsList.value = _newsList.value.map { current ->
-                        if (current.id == finishedItem.id || current.title == finishedItem.title) {
-                            finishedItem
-                        } else {
-                            current
+                Log.d(TAG, "=== ЗАПУСК ШІ ОБРОБКИ ДЛЯ ${rawNews.size} НОВИН ===")
+                try {
+                    aiRewriter.processAllNewsWithAi(rawNews) { finishedItem ->
+                        Log.d(TAG, "ШІ обробив новину: ${finishedItem.title.take(25)}")
+                        _newsList.value = _newsList.value.map { current ->
+                            if (current.id == finishedItem.id || current.title == finishedItem.title) {
+                                finishedItem
+                            } else {
+                                current
+                            }
                         }
                     }
+                } catch (e: Exception) {
+                    Log.e(TAG, "ПОМИЛКА ШІ ОБРОБКИ", e)
                 }
             } else {
                 _isLoading.value = false
@@ -143,7 +150,6 @@ class NewsViewModel : ViewModel() {
         }
     }
 
-    // Покращений парсер із витягуванням картинок та повного тексту
     private fun parseRss(xml: String, sourceName: String): List<NewsItem> {
         val items = mutableListOf<NewsItem>()
         try {
@@ -198,7 +204,6 @@ class NewsViewModel : ViewModel() {
                         val name = parser.name ?: ""
                         if (name.equals("item", ignoreCase = true) || name.equals("entry", ignoreCase = true)) {
                             if (!currentTitle.isNullOrEmpty()) {
-                                // Якщо картинки не було в тегах, спробуємо знайти її в HTML опису
                                 if (currentImage.isEmpty() && !currentDesc.isNullOrEmpty()) {
                                     val imgMatch = Regex("src=\"(https?://[^\"]+)\"").find(currentDesc!!)
                                     if (imgMatch != null) {
