@@ -19,9 +19,24 @@ import com.newsapp.ui.viewmodel.NewsViewModel
 fun HomeScreen(viewModel: NewsViewModel) {
     val newsList by viewModel.newsList.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
+    val showLimitError by viewModel.showLimitError.collectAsState()
 
     LaunchedEffect(Unit) {
         viewModel.loadNews()
+    }
+
+    // Вспливаюче вікно про закінчення ліміту
+    if (showLimitError) {
+        AlertDialog(
+            onDismissRequest = { viewModel.dismissLimitError() },
+            title = { Text("Увага") },
+            text = { Text("У вас закінчився ліміт") },
+            confirmButton = {
+                TextButton(onClick = { viewModel.dismissLimitError() }) {
+                    Text("OK")
+                }
+            }
+        )
     }
 
     Scaffold(
@@ -36,6 +51,12 @@ fun HomeScreen(viewModel: NewsViewModel) {
         ) {
             if (isLoading) {
                 CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
+            } else if (newsList.isEmpty()) {
+                Text(
+                    text = "Не вдалося завантажити новини",
+                    modifier = Modifier.align(Alignment.Center),
+                    style = MaterialTheme.typography.bodyLarge
+                )
             } else {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),

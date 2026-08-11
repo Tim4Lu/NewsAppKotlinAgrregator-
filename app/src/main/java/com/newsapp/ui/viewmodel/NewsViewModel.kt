@@ -31,6 +31,10 @@ class NewsViewModel : ViewModel() {
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
+    // Стейт для вспливаючого вікна помилки
+    private val _showLimitError = MutableStateFlow(false)
+    val showLimitError: StateFlow<Boolean> = _showLimitError.asStateFlow()
+
     private val client = HttpClient(CIO)
     private val aiRewriter = AiRewriter()
     private val telegramBotService = TelegramBotService()
@@ -44,6 +48,10 @@ class NewsViewModel : ViewModel() {
 
     fun loadNews() {
         fetchAndProcessNews()
+    }
+
+    fun dismissLimitError() {
+        _showLimitError.value = false
     }
 
     fun fetchAndProcessNews() {
@@ -82,6 +90,9 @@ class NewsViewModel : ViewModel() {
                         translatedDesc = aiRewriter.rewrite(item.description, "Ukrainian")
                     } catch (aiEx: Exception) {
                         Log.e(TAG, "AI_REWRITE_EXCEPTION: Помилка під час виклику aiRewriter", aiEx)
+                        if (aiEx.message?.contains("429") == true || aiEx.message?.contains("limit") == true) {
+                            _showLimitError.value = true
+                        }
                     }
 
                     if (!translatedTitle.isNullOrEmpty()) {
@@ -92,13 +103,14 @@ class NewsViewModel : ViewModel() {
                         processedNews.add(localizedItem)
                         Log.d(TAG, "AI_REWRITE: Успішно перекладено українською: ${localizedItem.title}")
                     } else {
-                        Log.e(TAG, "AI_REWRITE: Помилка AI-перекладу, залишаємо оригінал: ${item.title}")
+                        Log.e(TAG, "AI_REWRITE: Помилка AI-перекладу, відображаємо оригінал: ${item.title}")
+                        // Якщо AI видав помилку чи вичерпано ліміт — показуємо оригінал, щоб екран не був білим!
                         processedNews.add(item)
                     }
                 }
 
                 _newsList.value = processedNews
-                Log.d(TAG, "FINISH: Список оновлено. Всього україномовних новин: ${processedNews.size}")
+                Log.d(TAG, "FINISH: Список оновлено. Всього новин: ${processedNews.size}")
 
             } catch (e: Exception) {
                 Log.e(TAG, "CRITICAL: Загальна помилка у fetchAndProcessNews", e)
