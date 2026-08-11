@@ -1,6 +1,6 @@
 package com.newsapp.data.api
 
-import android.util.Log
+import com.newsapp.data.LogManager
 import com.newsapp.model.NewsItem
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
@@ -40,23 +40,22 @@ class AiRewriter {
         val apiKey = getKey("GROQ") ?: return null
 
         try {
+            LogManager.log("Groq", "Запит до Groq Llama-3...")
             val systemPrompt = """
                 Ти — шеф-редактор новинного науково-історичного Telegram-каналу. Твоє завдання — перетворити надану чернетку на короткий, соковитий пост "по суті".
 
                 ЖОРСТКІ ПРАВИЛА СТИЛЮ (АНТИ-ШІ ВОДА):
                 1. ОБ'ЄМ: Максимально лаконічно, строго до 500-600 символів. Жодної води, вступних фраз чи роздумів. Одразу перейди до фактів.
                 2. СТРУКТУРА ПОСТУ:
-                   - Перше речення: Найголовніший факт або сенсація (Що і де знайшли / Що саме створили).
-                   - Далі маркований список (використовуй емодзі '•'): 2-3 найважливіші технічні або історичні деталi (конкретні цифри, факти, як це працює, чому це унікально). 
-                   - ЖОРСТКЕ ТАБУ НА ЗІРОЧКИ: Ніколи не використовуй зірочки ** для виділення тексту! Замість цього бери ключові фрази та важливі назви в українські лапки (« »).
-                   - Фінальне речення: Короткий підсумок про значення або подальшу долю знахідки.
+                   - Перше речення: Найголовніший факт або сенсація.
+                   - Далі маркований список (використовуй '•'): 2-3 найважливіші деталi.
+                   - ЖОРСТКЕ ТАБУ НА ЗІРОЧКИ: Ніколи не використовуй зірочки ** для виділення тексту!
+                   - Фінальне речення: Короткий підсумок.
                 3. МОВА: Тільки якісна, жива українська мова.
 
-                ФОРМАТ ВІДПОВІДІ (ДОТРИМУЙСЯ МАРКЕРІВ):
-                ЗАГОЛОВОК: (Короткий заголовок українською з 1 тематичним емодзі)
-                ТЕКСТ: (Короткий структурований пост строго за правилами вище)
-
-                *Якщо вхідний текст містить лише технічне меню чи сміття, поверни ТІЛЬКИ ОДНЕ СЛОВО: ПОМИЛКА.
+                ФОРМАТ ВІДПОВІДІ:
+                ЗАГОЛОВОК: (Короткий заголовок з 1 емодзі)
+                ТЕКСТ: (Короткий структурований пост)
             """.trimIndent()
 
             val jsonBody = JSONObject().apply {
@@ -85,127 +84,123 @@ class AiRewriter {
             val data = JSONObject(responseText)
 
             if (data.has("error") || !data.has("choices")) {
+                LogManager.log("Groq_ERR", "Відповідь Groq містить помилку або ліміт")
                 return null
             }
 
             val aiResponse = data.getJSONArray("choices").getJSONObject(0)
                 .getJSONObject("message").getString("content").trim()
 
-            if (aiResponse.contains("ПОМИЛКА")) {
-                return null
-            }
-
             val titleMatch = Regex("ЗАГОЛОВОК:\\s*(.*?)\\n", RegexOption.IGNORE_CASE).find(aiResponse)
             val textMatch = Regex("ТЕКСТ:\\s*([\\s\\S]*)", RegexOption.IGNORE_CASE).find(aiResponse)
 
-            var finalTitle = titleMatch?.groupValues?.get(1)?.trim() ?: title
-            var finalText = textMatch?.groupValues?.get(1)?.trim() ?: text
+            val finalTitle = (titleMatch?.groupValues?.get(1)?.trim() ?: title)
+                .replace("**", "").replace("*", "")
+            val finalText = (textMatch?.groupValues?.get(1)?.trim() ?: text)
+                .replace("**", "").replace("*", "")
 
-            finalTitle = finalTitle.replace(Regex("\\*\\*(.*?)\\*\\*"), "«$1»").replace("*", "")
-            finalText = finalText.replace(Regex("\\*\\*(.*?)\\*\\*"), "«$1»").replace("*", "")
-
+            LogManager.log("Groq_OK", "Успішно редаговано через Groq")
             return Pair(finalTitle, finalText)
-
         } catch (e: Exception) {
+            LogManager.log("Groq_ERR", "Збій Groq: ${e.message}")
             return null
         }
     }
 
-    // СУВОРЕ ПОСЛІДОВНЕ ВИКОНАННЯ (ПО ОДНІЙ НОВИНІ)
     suspend fun processAllNewsWithAi(
-        rawNewsList: List<NewsItem>, 
+        rawNewsList: List<NewsItem>,
         onItemProcessed: (NewsItem) -> Unit
     ) {
-        val fallbackImg = "https://images.unsplash.com/photo-1451187580459-43490279c0fa?q=80&w=800&auto=format&fit=crop"
+        val fallbackImages = listOf(
+            "https://images.unsplash.com/photo-1451187580459-43490279c0fa?q=80&w=800&auto=format&fit=crop",
+            "https://images.unsplash.com/photo-1506703719100-a0f3a48c0f86?q=80&w=800&auto=format&fit=crop"
+        )
+
+        LogManager.log("AI_START", "Початок обробки ${rawNewsList.size} новин")
 
         for (i in rawNewsList.indices) {
             val n = rawNewsList[i]
-            Log.d("AiRewriter", "[QUEUE] Обробка новини ${i + 1} з ${rawNewsList.size}")
+            LogManager.log("AI_QUEUE", "[$i/${rawNewsList.size}] Обробка: ${n.title.take(20)}...")
 
-            if (i > 0) {
-                delay(2000) // Пауза між запитами, щоб не зловити ліміт (Rate Limit)
-            }
-
-            var geminiTitleDraft = n.title
-            var geminiTextDraft = n.description
-            val geminiKey = getKey("GEMINI")
+            if (i > 0) delay(1500)
 
             try {
-                val prompt = """
-                    Ти — редактор стрічки новин. Переклади українською мовою та зроби сухий, короткий виклад статті "по суті" без води.
-                    Формат відповідь строго такий:
-                    ЗАГОЛОВОК_УКР: (короткий переклад заголовка з 1 емодзі)
-                    ТЕКСТ_УКР: (короткий текст до 3-4 речень, головні факти)
+                var geminiTitleDraft = n.title
+                var geminiTextDraft = n.description
+                val geminiKey = getKey("GEMINI")
 
-                    Оригінал заголовка: ${n.title}
-                    Оригінал тексту: ${n.description}
-                """.trimIndent()
+                try {
+                    val prompt = """
+                        Переклади українською мовою та зроби сухий, короткий виклад статті "по суті".
+                        Формат відповіді:
+                        ЗАГОЛОВОК_УКР: (короткий заголовок)
+                        ТЕКСТ_УКР: (короткий текст до 3-4 речень)
 
-                val jsonBody = JSONObject().apply {
-                    val contents = JSONArray().apply {
-                        put(JSONObject().apply {
-                            val parts = JSONArray().apply {
-                                put(JSONObject().apply {
-                                    put("text", prompt)
+                        Оригінал заголовка: ${n.title}
+                        Оригінал тексту: ${n.description}
+                    """.trimIndent()
+
+                    val jsonBody = JSONObject().apply {
+                        val contents = JSONArray().apply {
+                            put(JSONObject().apply {
+                                put("parts", JSONArray().apply {
+                                    put(JSONObject().apply { put("text", prompt) })
                                 })
-                            }
-                            put("parts", parts)
-                        })
+                            })
+                        }
+                        put("contents", contents)
                     }
-                    put("contents", contents)
-                    put("generationConfig", JSONObject().apply { put("temperature", 0.4) })
+
+                    val response = client.post("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=$geminiKey") {
+                        contentType(ContentType.Application.Json)
+                        setBody(jsonBody.toString())
+                    }
+
+                    val responseText = response.bodyAsText()
+                    val data = JSONObject(responseText)
+
+                    val rawGeminiText = data.optJSONArray("candidates")
+                        ?.optJSONObject(0)
+                        ?.optJSONObject("content")
+                        ?.optJSONArray("parts")
+                        ?.optJSONObject(0)
+                        ?.optString("text", "") ?: ""
+
+                    if (rawGeminiText.isNotEmpty()) {
+                        val gTitleMatch = Regex("ЗАГОЛОВОК_УКР:\\s*(.*?)\\n", RegexOption.IGNORE_CASE).find(rawGeminiText)
+                        val gTextMatch = Regex("ТЕКСТ_УКР:\\s*([\\s\\S]*)", RegexOption.IGNORE_CASE).find(rawGeminiText)
+
+                        if (gTitleMatch != null) geminiTitleDraft = gTitleMatch.groupValues[1].trim()
+                        if (gTextMatch != null) geminiTextDraft = gTextMatch.groupValues[1].trim()
+                        LogManager.log("Gemini_OK", "Успішний переклад Gemini")
+                    } else {
+                        LogManager.log("Gemini_WARN", "Gemini повернув пусту відповідь")
+                    }
+                } catch (e: Exception) {
+                    LogManager.log("Gemini_ERR", "Помилка Gemini: ${e.message}")
                 }
 
-                val response = client.post("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=$geminiKey") {
-                    contentType(ContentType.Application.Json)
-                    setBody(jsonBody.toString())
-                }
+                val groqResult = verifyWithGroqEditor(geminiTextDraft, geminiTitleDraft)
 
-                val responseText = response.bodyAsText()
-                val data = JSONObject(responseText)
+                val finalTitle = groqResult?.first ?: geminiTitleDraft
+                val finalText = groqResult?.second ?: geminiTextDraft
 
-                val rawGeminiText = data.optJSONArray("candidates")
-                    ?.optJSONObject(0)
-                    ?.optJSONObject("content")
-                    ?.optJSONArray("parts")
-                    ?.optJSONObject(0)
-                    ?.optString("text", "") ?: ""
+                val imageToUse = if (n.image.startsWith("http")) n.image else fallbackImages.random()
 
-                if (rawGeminiText.isNotEmpty()) {
-                    val gTitleMatch = Regex("ЗАГОЛОВОК_УКР:\\s*(.*?)\\n", RegexOption.IGNORE_CASE).find(rawGeminiText)
-                    val gTextMatch = Regex("ТЕКСТ_УКР:\\s*([\\s\\S]*)", RegexOption.IGNORE_CASE).find(rawGeminiText)
+                val finishedItem = n.copy(
+                    title = finalTitle,
+                    description = finalText,
+                    image = imageToUse,
+                    status = "Готово",
+                    telegramCaption = "🚀 <b>$finalTitle</b>\n\n$finalText\n\n• <b>Джерело:</b> ${n.source}"
+                )
 
-                    if (gTitleMatch != null) geminiTitleDraft = gTitleMatch.groupValues[1].trim()
-                    if (gTextMatch != null) geminiTextDraft = gTextMatch.groupValues[1].trim()
-                }
+                LogManager.log("AI_ITEM_DONE", "Новина готова і відправлена у UI!")
+                onItemProcessed(finishedItem)
+
             } catch (e: Exception) {
-                // Якщо Gemini впав, використовуємо оригінал для Грока
+                LogManager.log("AI_FATAL", "Загальна помилка елемента: ${e.message}")
             }
-
-            val processedResult = verifyWithGroqEditor(geminiTextDraft, geminiTitleDraft)
-
-            var displayTitle = geminiTitleDraft
-            var displayText = geminiTextDraft
-
-            if (processedResult != null) {
-                displayTitle = processedResult.first
-                displayText = processedResult.second
-            }
-
-            displayTitle = displayTitle.replace("**", "").replace("*", "")
-            displayText = displayText.replace("**", "").replace("*", "")
-
-            val finishedItem = n.copy(
-                id = "${n.source}-${UUID.randomUUID()}",
-                title = displayTitle,
-                description = displayText,
-                image = if (n.image.isEmpty()) fallbackImg else n.image,
-                status = "Готово",
-                telegramCaption = "🚀 <b>$displayTitle</b>\n\n$displayText\n\n• <b>Джерело:</b> ${n.source}"
-            )
-
-            // ВІДПРАВЛЯЄМО КОЖНУ ГОТОВУ НОВИНУ НА ЕКРАН ОДРАЗУ
-            onItemProcessed(finishedItem)
         }
     }
 }
