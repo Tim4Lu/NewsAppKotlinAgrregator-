@@ -21,7 +21,6 @@ class AiRewriter {
         expectSuccess = false
     }
 
-    // Твій робочий токен з AI Studio (розбитий через Base64 для GitHub)
     private val T1 = "QVEuQWI4Uk42S0tKQTA2bElwWWhPNTNB"
     private val T2 = "blBMZi1NZ255S0RDTXo0eGlMVTdvRHc4Z2dwb0E="
 
@@ -76,7 +75,6 @@ class AiRewriter {
 
         val token = getDecodedToken()
 
-        // 1. GEMINI 3.6 FLASH (Стандартний API)
         if (token.isNotEmpty()) {
             try {
                 val jsonBody = JSONObject().apply {
@@ -94,7 +92,6 @@ class AiRewriter {
                     })
                 }
 
-                // Використовуємо актуальну і дозволену модель gemini-3.6-flash
                 val url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=$token"
 
                 val response = client.post(url) {
@@ -103,41 +100,31 @@ class AiRewriter {
                 }
 
                 val responseText = response.bodyAsText()
-                
-                // Логуємо сиру відповідь для залізобетонного контролю
-                LogManager.log("Gemini_RAW", responseText.replace("\n", "").take(250))
+                val data = JSONObject(responseText)
 
-                try {
-                    val data = JSONObject(responseText)
-                    if (!data.has("error")) {
-                        // Правильний парсинг стандартної структури (candidates -> content -> parts -> text)
-                        val rawGeminiText = data.optJSONArray("candidates")
-                            ?.optJSONObject(0)
-                            ?.optJSONObject("content")
-                            ?.optJSONArray("parts")
-                            ?.optJSONObject(0)
-                            ?.optString("text", "") ?: ""
+                if (!data.has("error")) {
+                    val rawGeminiText = data.optJSONArray("candidates")
+                        ?.optJSONObject(0)
+                        ?.optJSONObject("content")
+                        ?.optJSONArray("parts")
+                        ?.optJSONObject(0)
+                        ?.optString("text", "") ?: ""
 
-                        if (rawGeminiText.isNotEmpty()) {
-                            val parsed = parseAiOutput(rawGeminiText, cleanTitle, cleanText)
-                            LogManager.log("Gemini_OK", "Успішно перекладено через Gemini 3.6 Flash!")
-                            return parsed
-                        } else {
-                            LogManager.log("Gemini_ERR", "Порожня відповідь (немає тексту в candidates)")
-                        }
-                    } else {
-                        val errMessage = data.getJSONObject("error").optString("message", "Unknown error")
-                        LogManager.log("Gemini_ERR", "Помилка API: $errMessage")
+                    if (rawGeminiText.isNotEmpty()) {
+                        val parsed = parseAiOutput(rawGeminiText, cleanTitle, cleanText)
+                        LogManager.log("Gemini_OK", "Успішно перекладено через Gemini!")
+                        return parsed
                     }
-                } catch (e: Exception) {
-                    LogManager.log("Gemini_ERR", "Крах парсингу JSON: ${e.message}")
+                } else {
+                    val errMessage = data.getJSONObject("error").optString("message", "Unknown error")
+                    LogManager.log("Gemini_ERR", "Помилка API: $errMessage")
                 }
             } catch (e: Exception) {
-                LogManager.log("Gemini_ERR", "Мережевий запит впав: ${e.message ?: e.toString()}")
+                LogManager.log("Gemini_ERR", "Запит Gemini впав: ${e.message}")
             }
         }
 
-        // 2. GROQ (Резервний)
+        // РЕЗЕРВНИЙ GROQ
         try {
             LogManager.log("Groq", "Використовуємо резервний Groq...")
             val groqKey = GROQ_KEYS.random()
@@ -162,7 +149,7 @@ class AiRewriter {
             val data = JSONObject(response.bodyAsText())
             if (data.has("choices")) {
                 val aiResponse = data.getJSONArray("choices").getJSONObject(0).getJSONObject("message").getString("content").trim()
-                LogManager.log("Groq_OK", "Резервний переклад через Groq")
+                LogManager.log("Groq_OK", "Резервний переклад через Groq успішний")
                 return parseAiOutput(aiResponse, cleanTitle, cleanText)
             }
         } catch (e: Exception) {
@@ -188,34 +175,48 @@ class AiRewriter {
         return Pair(finalTitle, finalText)
     }
 
+    // РОЗБИВКА НА ПАКЕТИ (БІЛЬШЕ КОНТРОЛЮ)
     suspend fun processAllNewsWithAi(rawNewsList: List<NewsItem>, onItemProcessed: (NewsItem) -> Unit) {
-        LogManager.log("AI_START", "Початок обробки новин через Gemini")
+        LogManager.log("AI_START", "Початок пакетної обробки новин (ліміт пачок)")
 
-        for (i in rawNewsList.indices) {
-            val n = rawNewsList[i]
-            LogManager.log("AI_QUEUE", "[$i/${rawNewsList.size}] Переклад: ${n.title.take(20)}...")
+        // Розбиваємо загальний список на порції (пачки по 10 штук, щоб безпечно влазити в ліміт)
+        val chunks = rawNewsList.chunked(10)
 
-            if (i > 0) delay(3500)
+        for ((chunkIndex, chunk) in chunks.withIndex()) {
+            LogManager.log("AI_BATCH", "Обробка пачки ${chunkIndex + 1} з ${chunks.size}...")
 
-            try {
-                val result = processWithGeminiOrGroq(n.description, n.title)
+            for ((itemIndex, n) in chunk.withIndex()) {
+                LogManager.log("AI_QUEUE", "Елемент ${itemIndex + 1}/${chunk.size} в пачці...")
 
-                if (result != null) {
-                    val (finalTitle, finalText) = result
-                    val telegramFormattedCaption = "$finalTitle\n\n$finalText\n\n• <b>Джерело:</b> ${n.source}"
+                try {
+                    val result = processWithGeminiOrGroq(n.description, n.title)
 
-                    val finishedItem = n.copy(
-                        title = finalTitle,
-                        description = finalText,
-                        status = "Готово",
-                        telegramCaption = telegramFormattedCaption
-                    )
-                    onItemProcessed(finishedItem)
-                } else {
-                    LogManager.log("AI_WARN", "Пропущено новину")
+                    if (result != null) {
+                        val (finalTitle, finalText) = result
+                        val telegramFormattedCaption = "$finalTitle\n\n$finalText\n\n• <b>Джерело:</b> ${n.source}"
+
+                        val finishedItem = n.copy(
+                            title = finalTitle,
+                            description = finalText,
+                            status = "Готово",
+                            telegramCaption = telegramFormattedCaption
+                        )
+                        onItemProcessed(finishedItem)
+                    } else {
+                        LogManager.log("AI_WARN", "Пропущено новину")
+                    }
+                } catch (e: Exception) {
+                    LogManager.log("AI_FATAL", "Помилка елемента: ${e.message}")
                 }
-            } catch (e: Exception) {
-                LogManager.log("AI_FATAL", "Помилка елемента: ${e.message}")
+
+                // Пауза між кожним запитом усередині пачки
+                delay(3500)
+            }
+
+            // Якщо це не остання пачка, робимо більшу паузу на 15 секунд перед наступною партією
+            if (chunkIndex < chunks.size - 1) {
+                LogManager.log("AI_PAUSE", "Пауза 15 секунд перед наступною пачкою для оновлення лімітів...")
+                delay(15000)
             }
         }
     }
