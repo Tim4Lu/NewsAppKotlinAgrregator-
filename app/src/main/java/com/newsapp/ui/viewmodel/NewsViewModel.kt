@@ -41,12 +41,16 @@ class NewsViewModel : ViewModel() {
     private val _showLimitError = MutableStateFlow(false)
     val showLimitError: StateFlow<Boolean> = _showLimitError.asStateFlow()
 
-    private val client = HttpClient(CIO)
+    // Вмикаємо автоматичний перехід за редіректами (для виправлення 301 помилок)
+    private val client = HttpClient(CIO) {
+        followRedirects = true
+    }
+    
     private val aiRewriter = AiRewriter()
     private val telegramBotService = TelegramBotService()
 
     private val rssUrls = listOf(
-        "https://www.nasa.gov/rss/dyn/breaking_news.rss",
+        "https://www.nasa.gov/news-release/feed/", // Оновлений робочий RSS NASA
         "https://www.space.com/feeds/all",
         "https://phys.org/rss-feed/space-news/",
         "https://www.sciencedaily.com/rss/space_time.xml"
@@ -81,7 +85,6 @@ class NewsViewModel : ViewModel() {
 
                     if (status in 200..299) {
                         val xmlBody = response.bodyAsText()
-                        Log.d(TAG, "NETWORK -> XML довжина: ${xmlBody.length} символів")
                         val parsedItems = parseRss(xmlBody)
                         
                         if (parsedItems.isNotEmpty()) {
@@ -90,18 +93,15 @@ class NewsViewModel : ViewModel() {
                         } else {
                             val err = "RSS порожній або збій парсингу [HTTP $status]: $url"
                             errorsList.add(err)
-                            Log.w(TAG, "PARSER_WARN -> $err")
                         }
                     } else {
                         val err = "Помилка сервера HTTP $status: $url"
                         errorsList.add(err)
-                        Log.e(TAG, "NETWORK_ERROR -> $err")
                     }
 
                 } catch (e: Exception) {
                     val err = "${e.javaClass.simpleName}: ${e.message ?: "Збій мережі"} ($url)"
                     errorsList.add(err)
-                    Log.e(TAG, "FETCH_ERROR -> $err", e)
                 }
             }
 
@@ -112,7 +112,6 @@ class NewsViewModel : ViewModel() {
                     "Помилка: Жодне джерело RSS не повернуло новин"
                 }
                 _errorMessage.value = combinedError
-                Log.e(TAG, "CRITICAL -> $combinedError")
                 _isLoading.value = false
                 return@launch
             }
@@ -127,10 +126,9 @@ class NewsViewModel : ViewModel() {
                     translatedTitle = aiRewriter.rewrite(item.title, "Ukrainian")
                     translatedDesc = aiRewriter.rewrite(item.description, "Ukrainian")
                 } catch (limitEx: LimitExceededException) {
-                    Log.e(TAG, "LIMIT_EXCEEDED -> Вичерпано ліміт AI API!", limitEx)
                     _showLimitError.value = true
                 } catch (aiEx: Exception) {
-                    Log.e(TAG, "AI_ERROR -> Помилка рерайту для: ${item.title}", aiEx)
+                    Log.e(TAG, "AI_ERROR -> Помилка рерайту", aiEx)
                 }
 
                 if (!translatedTitle.isNullOrEmpty()) {
@@ -146,22 +144,22 @@ class NewsViewModel : ViewModel() {
             }
 
             _newsList.value = processedNews
-            Log.d(TAG, "=== FINISH: Успішно завантажено новин: ${processedNews.size} ===")
             _isLoading.value = false
         }
     }
 
     fun sendNews(newsItem: NewsItem) {
         viewModelScope.launch(Dispatchers.IO) {
-            Log.d(TAG, "TELEGRAM -> Відправка: ${newsItem.title}")
             telegramBotService.sendNewsToChannel(newsItem)
         }
     }
 
+    // Повністю переписаний парсер, який правильно читає тексти всередині тегів та розуміє формат Atom/RSS
     private fun parseRss(xml: String): List<NewsItem> {
         val items = mutableListOf<NewsItem>()
         try {
             val factory = XmlPullParserFactory.newInstance()
+            factory.isNamespaceAware = true
             val parser = factory.newPullParser()
             parser.setInput(StringReader(xml))
 
@@ -170,40 +168,54 @@ class NewsViewModel : ViewModel() {
             var currentLink: String? = null
             var currentDesc: String? = null
             var insideItem = false
+            var currentTag = "" // Відстежуємо, в якому тегу ми зараз знаходимося
 
             while (eventType != XmlPullParser.END_DOCUMENT) {
-                val name = parser.name
                 when (eventType) {
                     XmlPullParser.START_TAG -> {
-                        if (name.equals("item", ignoreCase = true)) {
+                        val name = parser.name ?: ""
+                        currentTag = name.lowercase()
+                        
+                        if (currentTag == "item" || currentTag == "entry") {
                             insideItem = true
+                            currentTitle = null
+                            currentLink = null
+                            currentDesc = null
+                        } else if (insideItem && currentTag == "link") {
+                            // Формат Atom тримає посилання в атрибуті href
+                            val href = parser.getAttributeValue(null, "href")
+                            if (!href.isNullOrEmpty()) {
+                                currentLink = href
+                            }
                         }
                     }
                     XmlPullParser.TEXT -> {
                         if (insideItem) {
-                            when {
-                                name.equals("title", ignoreCase = true) -> currentTitle = parser.text
-                                name.equals("link", ignoreCase = true) -> currentLink = parser.text
-                                name.equals("description", ignoreCase = true) -> currentDesc = parser.text
+                            val text = parser.text ?: ""
+                            if (text.isNotBlank()) {
+                                when (currentTag) {
+                                    "title" -> currentTitle = (currentTitle ?: "") + text
+                                    "link" -> if (currentLink.isNullOrEmpty()) currentLink = text
+                                    "description", "summary", "content" -> currentDesc = (currentDesc ?: "") + text
+                                }
                             }
                         }
                     }
                     XmlPullParser.END_TAG -> {
-                        if (name.equals("item", ignoreCase = true)) {
+                        val name = parser.name ?: ""
+                        if (name.equals("item", ignoreCase = true) || name.equals("entry", ignoreCase = true)) {
                             if (!currentTitle.isNullOrEmpty()) {
                                 items.add(
                                     NewsItem(
-                                        title = currentTitle.trim(),
+                                        title = currentTitle!!.trim(),
                                         link = currentLink?.trim() ?: "",
                                         description = currentDesc?.trim() ?: ""
                                     )
                                 )
                             }
-                            currentTitle = null
-                            currentLink = null
-                            currentDesc = null
                             insideItem = false
                         }
+                        currentTag = "" // Скидаємо тег
                     }
                 }
                 eventType = parser.next()
