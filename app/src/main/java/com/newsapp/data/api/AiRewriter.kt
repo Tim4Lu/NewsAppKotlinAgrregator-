@@ -40,38 +40,27 @@ class AiRewriter {
         val apiKey = getKey("GROQ") ?: return null
 
         try {
-            LogManager.log("Groq", "Запит до Groq Llama-3...")
             val systemPrompt = """
-                Ти — шеф-редактор новинного науково-історичного Telegram-каналу. Твоє завдання — перетворити надану чернетку на короткий, соковитий пост "по суті".
-
-                ЖОРСТКІ ПРАВИЛА СТИЛЮ (АНТИ-ШІ ВОДА):
-                1. ОБ'ЄМ: Максимально лаконічно, строго до 500-600 символів. Жодної води, вступних фраз чи роздумів. Одразу перейди до фактів.
-                2. СТРУКТУРА ПОСТУ:
-                   - Перше речення: Найголовніший факт або сенсація.
-                   - Далі маркований список (використовуй '•'): 2-3 найважливіші деталi.
-                   - ЖОРСТКЕ ТАБУ НА ЗІРОЧКИ: Ніколи не використовуй зірочки ** для виділення тексту!
-                   - Фінальне речення: Короткий підсумок.
-                3. МОВА: Тільки якісна, жива українська мова.
-
-                ФОРМАТ ВІДПОВІДІ:
-                ЗАГОЛОВОК: (Короткий заголовок з 1 емодзі)
-                ТЕКСТ: (Короткий структурований пост)
+                Ти — шеф-редактор новинного Telegram-каналу. Твоє завдання — перетворити чернетку на короткий пост.
+                1. ОБ'ЄМ: Строго до 500-600 символів. Одразу до фактів.
+                2. СТРУКТУРА:
+                   - Перше речення: Головний факт.
+                   - Далі маркований список ('•'): 2-3 деталi.
+                   - ЖОРСТКЕ ТАБУ НА ЗІРОЧКИ: Ніколи не використовуй зірочки **!
+                   - Фінальне речення: Підсумок.
+                3. МОВА: Тільки українська.
+                ФОРМАТ:
+                ЗАГОЛОВОК: (Заголовок з 1 емодзі)
+                ТЕКСТ: (Текст)
             """.trimIndent()
 
             val jsonBody = JSONObject().apply {
                 put("model", "llama-3.3-70b-versatile")
                 put("temperature", 0.4)
-                val messages = JSONArray().apply {
-                    put(JSONObject().apply {
-                        put("role", "system")
-                        put("content", systemPrompt)
-                    })
-                    put(JSONObject().apply {
-                        put("role", "user")
-                        put("content", "Оригінальний заголовок: $title\nЧернетка тексту: $text")
-                    })
-                }
-                put("messages", messages)
+                put("messages", JSONArray().apply {
+                    put(JSONObject().apply { put("role", "system"); put("content", systemPrompt) })
+                    put(JSONObject().apply { put("role", "user"); put("content", "Заголовок: $title\nТекст: $text") })
+                })
             }
 
             val response = client.post("https://api.groq.com/openai/v1/chat/completions") {
@@ -80,13 +69,8 @@ class AiRewriter {
                 setBody(jsonBody.toString())
             }
 
-            val responseText = response.bodyAsText()
-            val data = JSONObject(responseText)
-
-            if (data.has("error") || !data.has("choices")) {
-                LogManager.log("Groq_ERR", "Відповідь Groq містить помилку або ліміт")
-                return null
-            }
+            val data = JSONObject(response.bodyAsText())
+            if (data.has("error") || !data.has("choices")) return null
 
             val aiResponse = data.getJSONArray("choices").getJSONObject(0)
                 .getJSONObject("message").getString("content").trim()
@@ -94,12 +78,9 @@ class AiRewriter {
             val titleMatch = Regex("ЗАГОЛОВОК:\\s*(.*?)\\n", RegexOption.IGNORE_CASE).find(aiResponse)
             val textMatch = Regex("ТЕКСТ:\\s*([\\s\\S]*)", RegexOption.IGNORE_CASE).find(aiResponse)
 
-            val finalTitle = (titleMatch?.groupValues?.get(1)?.trim() ?: title)
-                .replace("**", "").replace("*", "")
-            val finalText = (textMatch?.groupValues?.get(1)?.trim() ?: text)
-                .replace("**", "").replace("*", "")
+            val finalTitle = (titleMatch?.groupValues?.get(1)?.trim() ?: title).replace("**", "").replace("*", "")
+            val finalText = (textMatch?.groupValues?.get(1)?.trim() ?: text).replace("**", "").replace("*", "")
 
-            LogManager.log("Groq_OK", "Успішно редаговано через Groq")
             return Pair(finalTitle, finalText)
         } catch (e: Exception) {
             LogManager.log("Groq_ERR", "Збій Groq: ${e.message}")
@@ -107,10 +88,7 @@ class AiRewriter {
         }
     }
 
-    suspend fun processAllNewsWithAi(
-        rawNewsList: List<NewsItem>,
-        onItemProcessed: (NewsItem) -> Unit
-    ) {
+    suspend fun processAllNewsWithAi(rawNewsList: List<NewsItem>, onItemProcessed: (NewsItem) -> Unit) {
         val fallbackImages = listOf(
             "https://images.unsplash.com/photo-1451187580459-43490279c0fa?q=80&w=800&auto=format&fit=crop",
             "https://images.unsplash.com/photo-1506703719100-a0f3a48c0f86?q=80&w=800&auto=format&fit=crop"
@@ -122,7 +100,11 @@ class AiRewriter {
             val n = rawNewsList[i]
             LogManager.log("AI_QUEUE", "[$i/${rawNewsList.size}] Обробка: ${n.title.take(20)}...")
 
-            if (i > 0) delay(1500)
+            // АНТИБЛОКУВАННЯ: 4.5 секунди паузи, щоб обійти ліміт 15 запитів/хвилину
+            if (i > 0) {
+                LogManager.log("AI_WAIT", "Чекаємо 4.5с для обходу лімітів...")
+                delay(4500)
+            }
 
             try {
                 var geminiTitleDraft = n.title
@@ -131,24 +113,20 @@ class AiRewriter {
 
                 try {
                     val prompt = """
-                        Переклади українською мовою та зроби сухий, короткий виклад статті "по суті".
-                        Формат відповіді:
+                        Переклади українською та зроби сухий виклад "по суті".
                         ЗАГОЛОВОК_УКР: (короткий заголовок)
                         ТЕКСТ_УКР: (короткий текст до 3-4 речень)
 
-                        Оригінал заголовка: ${n.title}
-                        Оригінал тексту: ${n.description}
+                        Заголовок: ${n.title}
+                        Текст: ${n.description}
                     """.trimIndent()
 
                     val jsonBody = JSONObject().apply {
-                        val contents = JSONArray().apply {
+                        put("contents", JSONArray().apply {
                             put(JSONObject().apply {
-                                put("parts", JSONArray().apply {
-                                    put(JSONObject().apply { put("text", prompt) })
-                                })
+                                put("parts", JSONArray().apply { put(JSONObject().apply { put("text", prompt) }) })
                             })
-                        }
-                        put("contents", contents)
+                        })
                     }
 
                     val response = client.post("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=$geminiKey") {
@@ -156,32 +134,26 @@ class AiRewriter {
                         setBody(jsonBody.toString())
                     }
 
-                    val responseText = response.bodyAsText()
-                    val data = JSONObject(responseText)
+                    val data = JSONObject(response.bodyAsText())
+                    if (data.has("error")) {
+                        LogManager.log("Gemini_LIMIT", "Помилка/Ліміт Gemini: ${data.getJSONObject("error").optString("message")}")
+                    }
 
-                    val rawGeminiText = data.optJSONArray("candidates")
-                        ?.optJSONObject(0)
-                        ?.optJSONObject("content")
-                        ?.optJSONArray("parts")
-                        ?.optJSONObject(0)
-                        ?.optString("text", "") ?: ""
+                    val rawGeminiText = data.optJSONArray("candidates")?.optJSONObject(0)?.optJSONObject("content")
+                        ?.optJSONArray("parts")?.optJSONObject(0)?.optString("text", "") ?: ""
 
                     if (rawGeminiText.isNotEmpty()) {
                         val gTitleMatch = Regex("ЗАГОЛОВОК_УКР:\\s*(.*?)\\n", RegexOption.IGNORE_CASE).find(rawGeminiText)
                         val gTextMatch = Regex("ТЕКСТ_УКР:\\s*([\\s\\S]*)", RegexOption.IGNORE_CASE).find(rawGeminiText)
-
                         if (gTitleMatch != null) geminiTitleDraft = gTitleMatch.groupValues[1].trim()
                         if (gTextMatch != null) geminiTextDraft = gTextMatch.groupValues[1].trim()
-                        LogManager.log("Gemini_OK", "Успішний переклад Gemini")
-                    } else {
-                        LogManager.log("Gemini_WARN", "Gemini повернув пусту відповідь")
+                        LogManager.log("Gemini_OK", "Успішний переклад")
                     }
                 } catch (e: Exception) {
-                    LogManager.log("Gemini_ERR", "Помилка Gemini: ${e.message}")
+                    LogManager.log("Gemini_ERR", "Мережева помилка Gemini")
                 }
 
                 val groqResult = verifyWithGroqEditor(geminiTextDraft, geminiTitleDraft)
-
                 val finalTitle = groqResult?.first ?: geminiTitleDraft
                 val finalText = groqResult?.second ?: geminiTextDraft
 
@@ -195,11 +167,10 @@ class AiRewriter {
                     telegramCaption = "🚀 <b>$finalTitle</b>\n\n$finalText\n\n• <b>Джерело:</b> ${n.source}"
                 )
 
-                LogManager.log("AI_ITEM_DONE", "Новина готова і відправлена у UI!")
                 onItemProcessed(finishedItem)
 
             } catch (e: Exception) {
-                LogManager.log("AI_FATAL", "Загальна помилка елемента: ${e.message}")
+                LogManager.log("AI_FATAL", "Загальна помилка: ${e.message}")
             }
         }
     }
