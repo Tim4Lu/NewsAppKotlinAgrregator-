@@ -21,7 +21,7 @@ class AiRewriter {
         expectSuccess = false
     }
 
-    // Закодований токен з AI Studio для обходу GitHub Secret Scanning
+    // Твій робочий токен з AI Studio (розбитий через Base64 для GitHub)
     private val T1 = "QVEuQWI4Uk42S0tKQTA2bElwWWhPNTNB"
     private val T2 = "blBMZi1NZ255S0RDTXo0eGlMVTdvRHc4Z2dwb0E="
 
@@ -76,43 +76,64 @@ class AiRewriter {
 
         val token = getDecodedToken()
 
+        // 1. GEMINI 3.6 FLASH (Стандартний API)
         if (token.isNotEmpty()) {
             try {
-                // НОВИЙ ФОРМАТ ЗАПИТУ (Interactions API 2026)
                 val jsonBody = JSONObject().apply {
-                    put("model", "gemini-3.6-flash")
-                    put("input", "ПЕРЕКЛАДИ НА УКРАЇНСЬКУ МОВУ ТА СФОРМУЙ ПОСТ:\nЗаголовок: $cleanTitle\nТекст: $cleanText\n\n$systemPrompt")
+                    put("contents", JSONArray().apply {
+                        put(JSONObject().apply {
+                            put("parts", JSONArray().apply {
+                                put(JSONObject().apply {
+                                    put("text", "ПЕРЕКЛАДИ НА УКРАЇНСЬКУ МОВУ ТА СФОРМУЙ ПОСТ:\nЗаголовок: $cleanTitle\nТекст: $cleanText\n\n$systemPrompt")
+                                })
+                            })
+                        })
+                    })
+                    put("generationConfig", JSONObject().apply {
+                        put("temperature", 0.2)
+                    })
                 }
 
-                // ЗМІНЕНО ENDPOINT з generateContent на interactions
-                val url = "https://generativelanguage.googleapis.com/v1beta/interactions"
+                // Використовуємо актуальну і дозволену модель gemini-3.6-flash
+                val url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=$token"
 
                 val response = client.post(url) {
                     contentType(ContentType.Application.Json)
-                    header("x-goog-api-key", token)
                     setBody(jsonBody.toString())
                 }
 
                 val responseText = response.bodyAsText()
-                val data = JSONObject(responseText)
+                
+                // Логуємо сиру відповідь для залізобетонного контролю
+                LogManager.log("Gemini_RAW", responseText.replace("\n", "").take(250))
 
-                if (!data.has("error")) {
-                    // В новому API відповідь приходить у полі output_text
-                    val rawGeminiText = data.optString("output_text", "")
+                try {
+                    val data = JSONObject(responseText)
+                    if (!data.has("error")) {
+                        // Правильний парсинг стандартної структури (candidates -> content -> parts -> text)
+                        val rawGeminiText = data.optJSONArray("candidates")
+                            ?.optJSONObject(0)
+                            ?.optJSONObject("content")
+                            ?.optJSONArray("parts")
+                            ?.optJSONObject(0)
+                            ?.optString("text", "") ?: ""
 
-                    if (rawGeminiText.isNotEmpty()) {
-                        val parsed = parseAiOutput(rawGeminiText, cleanTitle, cleanText)
-                        LogManager.log("Gemini_OK", "Успішно перекладено через Gemini 3.6 Flash!")
-                        return parsed
+                        if (rawGeminiText.isNotEmpty()) {
+                            val parsed = parseAiOutput(rawGeminiText, cleanTitle, cleanText)
+                            LogManager.log("Gemini_OK", "Успішно перекладено через Gemini 3.6 Flash!")
+                            return parsed
+                        } else {
+                            LogManager.log("Gemini_ERR", "Порожня відповідь (немає тексту в candidates)")
+                        }
                     } else {
-                         LogManager.log("Gemini_ERR", "Порожня відповідь від Gemini")
+                        val errMessage = data.getJSONObject("error").optString("message", "Unknown error")
+                        LogManager.log("Gemini_ERR", "Помилка API: $errMessage")
                     }
-                } else {
-                    val errMessage = data.getJSONObject("error").optString("message", "Unknown error")
-                    LogManager.log("Gemini_ERR", "Gemini помилка: $errMessage")
+                } catch (e: Exception) {
+                    LogManager.log("Gemini_ERR", "Крах парсингу JSON: ${e.message}")
                 }
             } catch (e: Exception) {
-                LogManager.log("Gemini_ERR", "Запит Gemini впав: ${e.message ?: e.toString()}")
+                LogManager.log("Gemini_ERR", "Мережевий запит впав: ${e.message ?: e.toString()}")
             }
         }
 
@@ -168,7 +189,7 @@ class AiRewriter {
     }
 
     suspend fun processAllNewsWithAi(rawNewsList: List<NewsItem>, onItemProcessed: (NewsItem) -> Unit) {
-        LogManager.log("AI_START", "Початок обробки новин через Gemini 3.6 Flash (Interactions API)")
+        LogManager.log("AI_START", "Початок обробки новин через Gemini")
 
         for (i in rawNewsList.indices) {
             val n = rawNewsList[i]
