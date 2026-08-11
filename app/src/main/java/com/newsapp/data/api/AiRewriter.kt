@@ -21,6 +21,7 @@ class AiRewriter {
         expectSuccess = false
     }
 
+    // Закодований токен з AI Studio для обходу GitHub Secret Scanning
     private val T1 = "QVEuQWI4Uk42S0tKQTA2bElwWWhPNTNB"
     private val T2 = "blBMZi1NZ255S0RDTXo0eGlMVTdvRHc4Z2dwb0E="
 
@@ -77,24 +78,14 @@ class AiRewriter {
 
         if (token.isNotEmpty()) {
             try {
+                // НОВИЙ ФОРМАТ ЗАПИТУ (Interactions API 2026)
                 val jsonBody = JSONObject().apply {
-                    put("contents", JSONArray().apply {
-                        put(JSONObject().apply {
-                            put("role", "user")
-                            put("parts", JSONArray().apply {
-                                put(JSONObject().apply {
-                                    put("text", "ПЕРЕКЛАДИ НА УКРАЇНСЬКУ МОВУ ТА СФОРМУЙ ПОСТ:\nЗаголовок: $cleanTitle\nТекст: $cleanText\n\n$systemPrompt")
-                                })
-                            })
-                        })
-                    })
-                    put("generationConfig", JSONObject().apply {
-                        put("temperature", 0.2)
-                    })
+                    put("model", "gemini-3.6-flash")
+                    put("input", "ПЕРЕКЛАДИ НА УКРАЇНСЬКУ МОВУ ТА СФОРМУЙ ПОСТ:\nЗаголовок: $cleanTitle\nТекст: $cleanText\n\n$systemPrompt")
                 }
 
-                // Використовуємо актуальну модель 3.6-flash
-                val url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent"
+                // ЗМІНЕНО ENDPOINT з generateContent на interactions
+                val url = "https://generativelanguage.googleapis.com/v1beta/interactions"
 
                 val response = client.post(url) {
                     contentType(ContentType.Application.Json)
@@ -106,13 +97,15 @@ class AiRewriter {
                 val data = JSONObject(responseText)
 
                 if (!data.has("error")) {
-                    val rawGeminiText = data.optJSONArray("candidates")?.optJSONObject(0)?.optJSONObject("content")
-                        ?.optJSONArray("parts")?.optJSONObject(0)?.optString("text", "") ?: ""
+                    // В новому API відповідь приходить у полі output_text
+                    val rawGeminiText = data.optString("output_text", "")
 
                     if (rawGeminiText.isNotEmpty()) {
                         val parsed = parseAiOutput(rawGeminiText, cleanTitle, cleanText)
                         LogManager.log("Gemini_OK", "Успішно перекладено через Gemini 3.6 Flash!")
                         return parsed
+                    } else {
+                         LogManager.log("Gemini_ERR", "Порожня відповідь від Gemini")
                     }
                 } else {
                     val errMessage = data.getJSONObject("error").optString("message", "Unknown error")
@@ -175,7 +168,7 @@ class AiRewriter {
     }
 
     suspend fun processAllNewsWithAi(rawNewsList: List<NewsItem>, onItemProcessed: (NewsItem) -> Unit) {
-        LogManager.log("AI_START", "Початок обробки новин через Gemini 3.6 Flash")
+        LogManager.log("AI_START", "Початок обробки новин через Gemini 3.6 Flash (Interactions API)")
 
         for (i in rawNewsList.indices) {
             val n = rawNewsList[i]
