@@ -1,6 +1,7 @@
 package com.newsapp.data.api
 
 import android.text.Html
+import android.util.Base64
 import com.newsapp.data.LogManager
 import com.newsapp.model.NewsItem
 import io.ktor.client.HttpClient
@@ -20,12 +21,20 @@ class AiRewriter {
         expectSuccess = false
     }
 
-    // Вставити новий ключ від Gemini сюди (записаний задом наперед для захисту від ботів)
-    private val RAW_GEMINI_KEY = "Ayia7irCMaPjFNl682qnYF2OzBs6mxWxY5OpMgnlU8-I6NR8bA.QA".reversed()
+    private val GEMINI_BASE64 = "QVEuQWI4Uk42S2lyRmRtWV81cVYwXzRlZllZbF9nY2gzRW5sS2c5N1NSLXpnbk5PeFF0eVE="
 
     private val GROQ_KEYS = listOf(
         "aQvzOt1pJ9khaUW27VBClIQsYF3bydGWxFwgtKxlXrVg1Vu2dlKl_ksg".reversed()
     )
+
+    private fun getGeminiKey(): String {
+        return try {
+            if (GEMINI_BASE64.isEmpty() || GEMINI_BASE64.contains("ВСТАВ")) ""
+            else String(Base64.decode(GEMINI_BASE64, Base64.DEFAULT)).trim()
+        } catch (e: Exception) {
+            ""
+        }
+    }
 
     private fun cleanHtmlArtifacts(text: String): String {
         return try {
@@ -37,7 +46,7 @@ class AiRewriter {
          .trim()
     }
 
-    suspend fun processWithGemini(text: String, title: String): Pair<String, String>? {
+    suspend fun processWithGeminiOrGroq(text: String, title: String): Pair<String, String>? {
         val cleanTitle = cleanHtmlArtifacts(title)
         val cleanText = cleanHtmlArtifacts(text).take(1200)
 
@@ -63,17 +72,16 @@ class AiRewriter {
             Підсумок українською.
         """.trimIndent()
 
-        val activeGeminiKey = RAW_GEMINI_KEY.reversed()
+        val activeGeminiKey = getGeminiKey()
 
-        // 1. ОСНОВНА ОБРОБКА: GEMINI 2.0 FLASH
-        if (activeGeminiKey.isNotEmpty() && !activeGeminiKey.contains("ТВІЙ_НОВИЙ_КЛЮЧ")) {
+        if (activeGeminiKey.isNotEmpty()) {
             try {
                 val jsonBody = JSONObject().apply {
                     put("contents", JSONArray().apply {
                         put(JSONObject().apply {
                             put("parts", JSONArray().apply { 
                                 put(JSONObject().apply { 
-                                    put("text", "Оригінальний заголовок: $cleanTitle\nОригінальний текст: $cleanText\n\n$systemPrompt") 
+                                    put("text", "ПЕРЕКЛАДИ НА УКРАЇНСЬКУ МОВУ ТА СФОРМУЙ ПОСТ:\nЗаголовок: $cleanTitle\nТекст: $cleanText\n\n$systemPrompt") 
                                 }) 
                             })
                         })
@@ -108,7 +116,6 @@ class AiRewriter {
             }
         }
 
-        // 2. РЕЗЕРВНИЙ ФОЛБЕК: GROQ
         try {
             LogManager.log("Groq", "Використовуємо резервний Groq...")
             val groqKey = GROQ_KEYS.random()
@@ -117,7 +124,10 @@ class AiRewriter {
                 put("temperature", 0.2)
                 put("messages", JSONArray().apply {
                     put(JSONObject().apply { put("role", "system"); put("content", systemPrompt) })
-                    put(JSONObject().apply { put("role", "user"); put("content", "Оригінал: $cleanTitle\n$cleanText") })
+                    put(JSONObject().apply { 
+                        put("role", "user")
+                        put("content", "ПЕРЕКЛАДИ ЦЕЙ ТЕКСТ НА УКРАЇНСЬКУ МОВУ ТА ЗРОБИ ПОСТ У ВКАЗАНОМУ ФОРМАТІ:\nЗаголовок: $cleanTitle\nТекст: $cleanText") 
+                    })
                 })
             }
 
@@ -166,7 +176,7 @@ class AiRewriter {
             if (i > 0) delay(3500)
 
             try {
-                val result = processWithGemini(n.description, n.title)
+                val result = processWithGeminiOrGroq(n.description, n.title)
 
                 if (result != null) {
                     val (finalTitle, finalText) = result
