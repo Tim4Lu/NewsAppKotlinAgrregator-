@@ -11,6 +11,7 @@ import io.ktor.client.*
 import io.ktor.client.engine.cio.*
 import io.ktor.client.request.*
 import io.ktor.client.statement.*
+import io.ktor.http.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -65,7 +66,9 @@ class NewsViewModel : ViewModel() {
                 for (url in rssUrls) {
                     try {
                         Log.d(TAG, "NETWORK: Запит до RSS: $url")
-                        val response: HttpResponse = client.get(url)
+                        val response: HttpResponse = client.get(url) {
+                            header(HttpHeaders.UserAgent, "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                        }
                         val xmlBody = response.bodyAsText()
                         val parsedItems = parseRss(xmlBody)
                         rawNews.addAll(parsedItems)
@@ -76,6 +79,10 @@ class NewsViewModel : ViewModel() {
                 }
 
                 Log.d(TAG, "RAW_TOTAL: Всього сирих новин завантажено: ${rawNews.size}")
+
+                if (rawNews.isEmpty()) {
+                    Log.e(TAG, "RAW_EMPTY: Не вдалося розпарсити жодної новини з RSS-джерел!")
+                }
 
                 val processedNews = mutableListOf<NewsItem>()
 
@@ -103,13 +110,13 @@ class NewsViewModel : ViewModel() {
                         processedNews.add(localizedItem)
                         Log.d(TAG, "AI_REWRITE: Успішно перекладено: ${localizedItem.title}")
                     } else {
-                        Log.e(TAG, "AI_REWRITE: AI не відпрацював, залишаємо оригінал: ${item.title}")
+                        Log.e(TAG, "AI_REWRITE: AI не відпрацював, показуємо оригінал: ${item.title}")
                         processedNews.add(item)
                     }
                 }
 
                 _newsList.value = processedNews
-                Log.d(TAG, "FINISH: Список оновлено. Всього новин: ${processedNews.size}")
+                Log.d(TAG, "FINISH: Список оновлено. Всього новин у стейті: ${processedNews.size}")
 
             } catch (e: Exception) {
                 Log.e(TAG, "CRITICAL: Загальна помилка у fetchAndProcessNews", e)
@@ -159,7 +166,7 @@ class NewsViewModel : ViewModel() {
                     }
                     XmlPullParser.END_TAG -> {
                         if (name.equals("item", ignoreCase = true)) {
-                            if (currentTitle != null) {
+                            if (!currentTitle.isNullOrEmpty()) {
                                 items.add(
                                     NewsItem(
                                         title = currentTitle.trim(),
