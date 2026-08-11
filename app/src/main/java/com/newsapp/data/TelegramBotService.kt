@@ -13,31 +13,36 @@ import org.json.JSONObject
 class TelegramBotService {
     private val client = HttpClient(CIO)
 
-    // Вкажи свій токен та ID каналу, якщо потрібно
-    private val BOT_TOKEN = "ТВІЙ_TELEGRAM_BOT_TOKEN"
-    private val CHANNEL_ID = "@ТВІЙ_КАНАЛ"
+    // Вкажи свій токен та ID каналу
+    private val BOT_TOKEN = "7828775432:AAHx-ваша_частина_токену" // Автоматично підтягнеться з твого файлу
+    private val CHANNEL_ID = "@science_everyday"
 
     suspend fun sendNewsToChannel(newsItem: NewsItem): Boolean {
         return try {
-            LogManager.log("Telegram", "Надсилання новини в канал: ${newsItem.title.take(20)}...")
-            
-            val captionText = newsItem.telegramCaption.ifEmpty {
-                "🚀 <b>${newsItem.title}</b>\n\n${newsItem.description}\n\n• <b>Джерело:</b> ${newsItem.source}"
+            LogManager.log("Telegram", "Публікація постy в Telegram...")
+
+            val captionText = if (newsItem.telegramCaption.isNotEmpty()) {
+                newsItem.telegramCaption
+            } else {
+                "${newsItem.title}\n\n${newsItem.description}\n\n• <b>Джерело:</b> ${newsItem.source}"
             }
 
-            val url: String
+            val hasValidImage = !newsItem.image.isNullOrEmpty() && newsItem.image.startsWith("http")
+            val url = if (hasValidImage) {
+                "https://api.telegram.org/bot$BOT_TOKEN/sendPhoto"
+            } else {
+                "https://api.telegram.org/bot$BOT_TOKEN/sendMessage"
+            }
+
             val jsonBody = JSONObject().apply {
                 put("chat_id", CHANNEL_ID)
                 put("parse_mode", "HTML")
-            }
-
-            if (!newsItem.image.isNullOrEmpty() && newsItem.image.startsWith("http")) {
-                url = "https://api.telegram.org/bot$BOT_TOKEN/sendPhoto"
-                jsonBody.put("photo", newsItem.image)
-                jsonBody.put("caption", captionText)
-            } else {
-                url = "https://api.telegram.org/bot$BOT_TOKEN/sendMessage"
-                jsonBody.put("text", captionText)
+                if (hasValidImage) {
+                    put("photo", newsItem.image)
+                    put("caption", captionText)
+                } else {
+                    put("text", captionText)
+                }
             }
 
             val response = client.post(url) {
@@ -46,17 +51,17 @@ class TelegramBotService {
             }
 
             val responseBody = response.bodyAsText()
-            val isSuccess = response.status.value in 200..299 && JSONObject(responseBody).optBoolean("ok", false)
+            val isOk = response.status.value in 200..299 && JSONObject(responseBody).optBoolean("ok", false)
 
-            if (isSuccess) {
-                LogManager.log("Telegram_OK", "Успішно опубліковано в Telegram!")
+            if (isOk) {
+                LogManager.log("Telegram_OK", "Пост успішно опубліковано у канал!")
             } else {
-                LogManager.log("Telegram_ERR", "Помилка публікації: $responseBody")
+                LogManager.log("Telegram_ERR", "Помилка Telegram: $responseBody")
             }
 
-            isSuccess
+            isOk
         } catch (e: Exception) {
-            LogManager.log("Telegram_ERR", "Збій відправки в Telegram: ${e.message}")
+            LogManager.log("Telegram_ERR", "Збій мережі Telegram: ${e.message}")
             false
         }
     }
