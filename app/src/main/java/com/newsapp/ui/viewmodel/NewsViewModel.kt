@@ -95,7 +95,7 @@ class NewsViewModel : ViewModel() {
 
             if (rawNews.isNotEmpty()) {
                 val initialData = rawNews.map { 
-                    it.copy(status = "В черзі", description = "Очікування черги ШІ...", telegramCaption = "Обробка...") 
+                    it.copy(status = "В черзі", telegramCaption = "Обробка...") 
                 }
                 
                 if (_newsList.value.isEmpty()) {
@@ -103,6 +103,7 @@ class NewsViewModel : ViewModel() {
                 }
                 _isLoading.value = false
 
+                // Послідовна обробка ШІ
                 aiRewriter.processAllNewsWithAi(rawNews) { finishedItem ->
                     _newsList.value = _newsList.value.map { current ->
                         if (current.id == finishedItem.id || current.title == finishedItem.title) {
@@ -142,6 +143,7 @@ class NewsViewModel : ViewModel() {
         }
     }
 
+    // Покращений парсер із витягуванням картинок та повного тексту
     private fun parseRss(xml: String, sourceName: String): List<NewsItem> {
         val items = mutableListOf<NewsItem>()
         try {
@@ -152,19 +154,32 @@ class NewsViewModel : ViewModel() {
             var currentTitle: String? = null
             var currentLink: String? = null
             var currentDesc: String? = null
+            var currentImage: String = ""
             var insideItem = false
             var currentTag = ""
 
             while (eventType != XmlPullParser.END_DOCUMENT) {
                 when (eventType) {
                     XmlPullParser.START_TAG -> {
-                        currentTag = parser.name?.lowercase() ?: ""
+                        val name = parser.name ?: ""
+                        currentTag = name.lowercase()
+                        
                         if (currentTag == "item" || currentTag == "entry") {
                             insideItem = true
-                            currentTitle = null; currentLink = null; currentDesc = null
-                        } else if (insideItem && currentTag == "link") {
-                            val href = parser.getAttributeValue(null, "href")
-                            if (!href.isNullOrEmpty()) currentLink = href
+                            currentTitle = null
+                            currentLink = null
+                            currentDesc = null
+                            currentImage = ""
+                        } else if (insideItem) {
+                            if (currentTag == "link") {
+                                val href = parser.getAttributeValue(null, "href")
+                                if (!href.isNullOrEmpty()) currentLink = href
+                            } else if (currentTag == "enclosure" || currentTag == "content" || currentTag == "thumbnail") {
+                                val urlAttr = parser.getAttributeValue(null, "url")
+                                if (!urlAttr.isNullOrEmpty() && (currentImage.isEmpty() || currentTag == "enclosure")) {
+                                    currentImage = urlAttr
+                                }
+                            }
                         }
                     }
                     XmlPullParser.TEXT -> {
@@ -183,12 +198,21 @@ class NewsViewModel : ViewModel() {
                         val name = parser.name ?: ""
                         if (name.equals("item", ignoreCase = true) || name.equals("entry", ignoreCase = true)) {
                             if (!currentTitle.isNullOrEmpty()) {
+                                // Якщо картинки не було в тегах, спробуємо знайти її в HTML опису
+                                if (currentImage.isEmpty() && !currentDesc.isNullOrEmpty()) {
+                                    val imgMatch = Regex("src=\"(https?://[^\"]+)\"").find(currentDesc!!)
+                                    if (imgMatch != null) {
+                                        currentImage = imgMatch.groupValues[1]
+                                    }
+                                }
+
                                 items.add(
                                     NewsItem(
                                         title = currentTitle!!.trim(),
                                         link = currentLink?.trim() ?: "",
-                                        description = currentDesc?.trim() ?: "",
-                                        source = sourceName
+                                        description = currentDesc?.replace(Regex("<.*?>"), "")?.trim() ?: "",
+                                        source = sourceName,
+                                        image = currentImage
                                     )
                                 )
                             }
