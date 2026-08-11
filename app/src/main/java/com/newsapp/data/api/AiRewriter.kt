@@ -1,6 +1,7 @@
 package com.newsapp.data.api
 
 import android.text.Html
+import android.util.Base64
 import com.newsapp.data.LogManager
 import com.newsapp.model.NewsItem
 import io.ktor.client.HttpClient
@@ -20,12 +21,20 @@ class AiRewriter {
         expectSuccess = false
     }
 
-    // Задзеркалений ключ Gemini
-    private val RAW_GEMINI_KEY = "QytQxONngz-RS79gKlnE3hcg_lYYfe4_0Vq5_YmdFriK6NR8bA.QA"
+    // Base64 закодований ключ Gemini
+    private val B64_GEMINI_KEY = "QVEuQWI4Uk42Si1MYUwzRmU2eVVxZ01BWXI4UGdSbEVDaS1fQWhjQnllNzJGMDFYMTFvVUE="
 
     private val GROQ_KEYS = listOf(
         "aQvzOt1pJ9khaUW27VBClIQsYF3bydGWxFwgtKxlXrVg1Vu2dlKl_ksg".reversed()
     )
+
+    private fun getDecodedGeminiKey(): String {
+        return try {
+            String(Base64.decode(B64_GEMINI_KEY, Base64.DEFAULT)).trim()
+        } catch (e: Exception) {
+            ""
+        }
+    }
 
     private fun cleanHtmlArtifacts(text: String): String {
         return try {
@@ -42,7 +51,7 @@ class AiRewriter {
         val cleanText = cleanHtmlArtifacts(text).take(1200)
 
         val systemPrompt = """
-            Ти — шеф-редактор новинного Telegram-каналу "Наука кожного дня". 
+            Ти — шеф-редактор новинного Telegram-каналу "Наука кожного дня".
             ТВОЄ ГОЛОВНЕ ЗАВДАННЯ: Перекласти англійську новину на якісну українську мову та зробити короткий структурований пост.
 
             ЖОРСТКІ ПРАВИЛА:
@@ -63,18 +72,18 @@ class AiRewriter {
             Підсумок українською.
         """.trimIndent()
 
-        val activeGeminiKey = RAW_GEMINI_KEY.reversed()
+        val activeGeminiKey = getDecodedGeminiKey()
 
-        // 1. GEMINI 2.5 FLASH
+        // 1. GEMINI 3.6 FLASH
         if (activeGeminiKey.isNotEmpty()) {
             try {
                 val jsonBody = JSONObject().apply {
                     put("contents", JSONArray().apply {
                         put(JSONObject().apply {
-                            put("parts", JSONArray().apply { 
-                                put(JSONObject().apply { 
-                                    put("text", "ПЕРЕКЛАДИ НА УКРАЇНСЬКУ МОВУ ТА СФОРМУЙ ПОСТ:\nЗаголовок: $cleanTitle\nТекст: $cleanText\n\n$systemPrompt") 
-                                }) 
+                            put("parts", JSONArray().apply {
+                                put(JSONObject().apply {
+                                    put("text", "ПЕРЕКЛАДИ НА УКРАЇНСЬКУ МОВУ ТА СФОРМУЙ ПОСТ:\nЗаголовок: $cleanTitle\nТекст: $cleanText\n\n$systemPrompt")
+                                })
                             })
                         })
                     })
@@ -83,7 +92,7 @@ class AiRewriter {
                     })
                 }
 
-                val response = client.post("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=$activeGeminiKey") {
+                val response = client.post("https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=$activeGeminiKey") {
                     contentType(ContentType.Application.Json)
                     setBody(jsonBody.toString())
                 }
@@ -97,15 +106,15 @@ class AiRewriter {
 
                     if (rawGeminiText.isNotEmpty()) {
                         val parsed = parseAiOutput(rawGeminiText, cleanTitle, cleanText)
-                        LogManager.log("Gemini_OK", "Успішно перекладено через Gemini 2.5 Flash!")
+                        LogManager.log("Gemini_OK", "Успішно перекладено через Gemini 3.6 Flash!")
                         return parsed
                     }
                 } else {
                     val errMessage = data.getJSONObject("error").optString("message", "Unknown error")
-                    LogManager.log("Gemini_ERR", "Gemini 2.5 Flash помилка: $errMessage")
+                    LogManager.log("Gemini_ERR", "Gemini 3.6 Flash помилка: $errMessage")
                 }
             } catch (e: Exception) {
-                LogManager.log("Gemini_ERR", "Запит Gemini 2.5 Flash впав: ${e.message ?: e.toString()}")
+                LogManager.log("Gemini_ERR", "Запит Gemini 3.6 Flash впав: ${e.message ?: e.toString()}")
             }
         }
 
@@ -118,9 +127,9 @@ class AiRewriter {
                 put("temperature", 0.2)
                 put("messages", JSONArray().apply {
                     put(JSONObject().apply { put("role", "system"); put("content", systemPrompt) })
-                    put(JSONObject().apply { 
+                    put(JSONObject().apply {
                         put("role", "user")
-                        put("content", "ПЕРЕКЛАДИ ЦЕЙ ТЕКСТ НА УКРАЇНСЬКУ МОВУ ТА ЗРОБИ ПОСТ У ВКАЗАНОМУ ФОРМАТІ:\nЗаголовок: $cleanTitle\nТекст: $cleanText") 
+                        put("content", "ПЕРЕКЛАДИ ЦЕЙ ТЕКСТ НА УКРАЇНСЬКУ МОВУ ТА ЗРОБИ ПОСТ У ВКАЗАНОМУ ФОРМАТІ:\nЗаголовок: $cleanTitle\nТекст: $cleanText")
                     })
                 })
             }
@@ -161,7 +170,7 @@ class AiRewriter {
     }
 
     suspend fun processAllNewsWithAi(rawNewsList: List<NewsItem>, onItemProcessed: (NewsItem) -> Unit) {
-        LogManager.log("AI_START", "Початок обробки новин через Gemini 2.5 Flash")
+        LogManager.log("AI_START", "Початок обробки новин через Gemini 3.6 Flash")
 
         for (i in rawNewsList.indices) {
             val n = rawNewsList[i]
