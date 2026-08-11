@@ -20,10 +20,8 @@ class AiRewriter {
         expectSuccess = false
     }
 
-    private val GEMINI_KEYS = listOf(
-        "wtrW5RDOBkzfhFR2XL9BMq08kacasB9uKlvv4UAZXFVZKL6NR8bA.QA".reversed(),
-        "QcZS28OkdPJxdK6KVOPfg4z_pwlzTEBa8nQqK9FZdRCK6NR8bA.QA".reversed()
-    )
+    // Вставити новий ключ від Gemini сюди (записаний задом наперед для захисту від ботів)
+    private val RAW_GEMINI_KEY = "Ayia7irCMaPjFNl682qnYF2OzBs6mxWxY5OpMgnlU8-I6NR8bA.QA".reversed()
 
     private val GROQ_KEYS = listOf(
         "aQvzOt1pJ9khaUW27VBClIQsYF3bydGWxFwgtKxlXrVg1Vu2dlKl_ksg".reversed()
@@ -65,8 +63,10 @@ class AiRewriter {
             Підсумок українською.
         """.trimIndent()
 
-        // ОСНОВНИЙ ПРОВАЙДЕР: GEMINI 2.0 FLASH (найпросунуша версія)
-        for (geminiKey in GEMINI_KEYS.shuffled()) {
+        val activeGeminiKey = RAW_GEMINI_KEY.reversed()
+
+        // 1. ОСНОВНА ОБРОБКА: GEMINI 2.0 FLASH
+        if (activeGeminiKey.isNotEmpty() && !activeGeminiKey.contains("ТВІЙ_НОВИЙ_КЛЮЧ")) {
             try {
                 val jsonBody = JSONObject().apply {
                     put("contents", JSONArray().apply {
@@ -83,8 +83,7 @@ class AiRewriter {
                     })
                 }
 
-                // Використовуємо просунуту модель gemini-2.0-flash
-                val response = client.post("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=$geminiKey") {
+                val response = client.post("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=$activeGeminiKey") {
                     contentType(ContentType.Application.Json)
                     setBody(jsonBody.toString())
                 }
@@ -109,7 +108,7 @@ class AiRewriter {
             }
         }
 
-        // РЕЗЕРВНИЙ ПРОВАЙДЕР (якщо Gemini вичерпає ліміти): GROQ
+        // 2. РЕЗЕРВНИЙ ФОЛБЕК: GROQ
         try {
             LogManager.log("Groq", "Використовуємо резервний Groq...")
             val groqKey = GROQ_KEYS.random()
