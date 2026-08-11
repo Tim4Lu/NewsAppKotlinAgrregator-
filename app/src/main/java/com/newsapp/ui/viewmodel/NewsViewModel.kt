@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import org.xmlpull.v1.XmlPullParser
 import org.xmlpull.v1.XmlPullParserFactory
 import java.io.StringReader
 import java.net.URL
@@ -93,7 +94,6 @@ class NewsViewModel : ViewModel() {
             }
 
             if (rawNews.isNotEmpty()) {
-                // Одразу виводимо сирий список зі статусом "В черзі"
                 val initialData = rawNews.map { 
                     it.copy(status = "В черзі", description = "Очікування черги ШІ...", telegramCaption = "Обробка...") 
                 }
@@ -103,9 +103,7 @@ class NewsViewModel : ViewModel() {
                 }
                 _isLoading.value = false
 
-                // Запускаємо послідовну обробку по черзі
                 aiRewriter.processAllNewsWithAi(rawNews) { finishedItem ->
-                    // Лямбда викликається одразу для КОЖНОЇ готової новини
                     _newsList.value = _newsList.value.map { current ->
                         if (current.id == finishedItem.id || current.title == finishedItem.title) {
                             finishedItem
