@@ -4,6 +4,7 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.newsapp.data.AiRewriter
+import com.newsapp.data.LimitExceededException
 import com.newsapp.data.TelegramBotService
 import com.newsapp.model.NewsItem
 import io.ktor.client.*
@@ -31,7 +32,6 @@ class NewsViewModel : ViewModel() {
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
-    // Стейт для вспливаючого вікна помилки
     private val _showLimitError = MutableStateFlow(false)
     val showLimitError: StateFlow<Boolean> = _showLimitError.asStateFlow()
 
@@ -80,7 +80,7 @@ class NewsViewModel : ViewModel() {
                 val processedNews = mutableListOf<NewsItem>()
 
                 for (item in rawNews) {
-                    Log.d(TAG, "AI_REWRITE: Переклад та рерайт українською: ${item.title}")
+                    Log.d(TAG, "AI_REWRITE: Запуск обробки: ${item.title}")
                     
                     var translatedTitle: String? = null
                     var translatedDesc: String? = null
@@ -88,11 +88,11 @@ class NewsViewModel : ViewModel() {
                     try {
                         translatedTitle = aiRewriter.rewrite(item.title, "Ukrainian")
                         translatedDesc = aiRewriter.rewrite(item.description, "Ukrainian")
+                    } catch (limitEx: LimitExceededException) {
+                        Log.e(TAG, "LIMIT_EXCEEDED: Вичерпано ліміти сервісів!", limitEx)
+                        _showLimitError.value = true
                     } catch (aiEx: Exception) {
-                        Log.e(TAG, "AI_REWRITE_EXCEPTION: Помилка під час виклику aiRewriter", aiEx)
-                        if (aiEx.message?.contains("429") == true || aiEx.message?.contains("limit") == true) {
-                            _showLimitError.value = true
-                        }
+                        Log.e(TAG, "AI_REWRITE_EXCEPTION: Загальна помилка рерайту", aiEx)
                     }
 
                     if (!translatedTitle.isNullOrEmpty()) {
@@ -101,10 +101,9 @@ class NewsViewModel : ViewModel() {
                             description = if (!translatedDesc.isNullOrEmpty()) translatedDesc else item.description
                         )
                         processedNews.add(localizedItem)
-                        Log.d(TAG, "AI_REWRITE: Успішно перекладено українською: ${localizedItem.title}")
+                        Log.d(TAG, "AI_REWRITE: Успішно перекладено: ${localizedItem.title}")
                     } else {
-                        Log.e(TAG, "AI_REWRITE: Помилка AI-перекладу, відображаємо оригінал: ${item.title}")
-                        // Якщо AI видав помилку чи вичерпано ліміт — показуємо оригінал, щоб екран не був білим!
+                        Log.e(TAG, "AI_REWRITE: AI не відпрацював, залишаємо оригінал: ${item.title}")
                         processedNews.add(item)
                     }
                 }
