@@ -3,33 +3,36 @@ package com.newsapp.ui.viewmodel
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.newsapp.data.api.AiRewriter
-import com.newsapp.data.api.TelegramBotService
-import com.newsapp.data.model.NewsItem
+import com.newsapp.AiRewriter
+import com.newsapp.NewsItem
 import io.ktor.client.*
 import io.ktor.client.engine.cio.*
 import io.ktor.client.request.*
 import io.ktor.client.statement.*
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import org.xmlpull.v1.XmlPullParser
 import org.xmlpull.v1.XmlPullParserFactory
 import java.io.StringReader
 
 class NewsViewModel : ViewModel() {
-    private val client = HttpClient(CIO)
+
+    companion object {
+        private const val TAG = "NewsViewModelTag"
+    }
 
     private val _newsList = MutableStateFlow<List<NewsItem>>(emptyList())
-    val newsList: StateFlow<List<NewsItem>> = _newsList
+    val newsList: StateFlow<List<NewsItem>> = _newsList.asStateFlow()
 
     private val _isLoading = MutableStateFlow(false)
-    val isLoading: StateFlow<Boolean> = _isLoading
+    val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
-    private val botToken = "" 
-    private val chatId = ""
+    private val client = HttpClient(CIO)
+    private val aiRewriter = AiRewriter()
 
-    // Профільні космічні та наукові джерела
     private val rssUrls = listOf(
         "https://www.nasa.gov/rss/dyn/breaking_news.rss",
         "https://www.space.com/feeds/all",
@@ -37,92 +40,126 @@ class NewsViewModel : ViewModel() {
         "https://www.sciencedaily.com/rss/space_time.xml"
     )
 
-    fun loadNews() {
-        viewModelScope.launch {
-            Log.d("NewsViewModel", "[LOG] Початок завантаження космічних новин...")
+    fun fetchAndProcessNews() {
+        viewModelScope.launch(Dispatchers.IO) {
             _isLoading.value = true
+            Log.d(TAG, "START: Початок завантаження та обробки новин...")
+
             try {
-                val allNews = mutableListOf<NewsItem>()
+                val rawNews = mutableListOf<NewsItem>()
+
                 for (url in rssUrls) {
                     try {
+                        Log.d(TAG, "NETWORK: Запит до RSS: $url")
                         val response: HttpResponse = client.get(url)
-                        val xmlString = response.bodyAsText()
-                        allNews.addAll(parseRss(xmlString))
+                        val xmlBody = response.bodyAsText()
+                        val parsedItems = parseRss(xmlBody)
+                        rawNews.addAll(parsedItems)
+                        Log.d(TAG, "NETWORK: Отримано ${parsedItems.size} новин з $url")
                     } catch (e: Exception) {
-                        Log.e("NewsViewModel", "[LOG] Помилка з $url: ${e.message}")
+                        Log.e(TAG, "NETWORK_ERROR: Помилка завантаження з $url", e)
                     }
                 }
-                _newsList.value = allNews
-                Log.d("NewsViewModel", "[LOG] Успішно завантажено новин: ${allNews.size}")
+
+                Log.d(TAG, "RAW_TOTAL: Всього сирих новин завантажено: ${rawNews.size}")
+
+                val processedNews = mutableListOf<NewsItem>()
+
+                for (item in rawNews) {
+                    Log.d(TAG, "AI_REWRITE: Переклад та рерайт українською: ${item.title}")
+                    
+                    var translatedTitle: String? = null
+                    var translatedDesc: String? = null
+
+                    try {
+                        translatedTitle = aiRewriter.rewrite(item.title, "Translate and rewrite strictly in Ukrainian language")
+                        translatedDesc = aiRewriter.rewrite(item.description, "Translate and rewrite strictly in Ukrainian language")
+                    } catch (aiEx: Exception) {
+                        Log.e(TAG, "AI_REWRITE_EXCEPTION: Помилка під час виклику aiRewriter", aiEx)
+                    }
+
+                    if (!translatedTitle.isNullOrEmpty()) {
+                        val localizedItem = item.copy(
+                            title = translatedTitle,
+                            description = if (!translatedDesc.isNullOrEmpty()) translatedDesc else item.description
+                        )
+                        processedNews.add(localizedItem)
+                        Log.d(TAG, "AI_REWRITE: Успішно перекладено українською: ${localizedItem.title}")
+                    } else {
+                        Log.e(TAG, "AI_REWRITE: Помилка AI-перекладу (null/empty), залишаємо оригінал: ${item.title}")
+                        processedNews.add(item)
+                    }
+                }
+
+                _newsList.value = processedNews
+                Log.d(TAG, "FINISH: Список оновлено. Всього україномовних новин у стейті: ${processedNews.size}")
+
             } catch (e: Exception) {
-                Log.e("NewsViewModel", "[LOG] Помилка завантаження: ${e.message}")
+                Log.e(TAG, "CRITICAL: Загальна помилка у fetchAndProcessNews", e)
+            } finally {
+                _isLoading.value = false
+                Log.d(TAG, "END: Процес завершено, індикатор завантаження вимкнено.")
             }
-            _isLoading.value = false
         }
     }
 
-    private fun parseRss(xmlData: String): List<NewsItem> {
-        val newsList = mutableListOf<NewsItem>()
+    fun shareToTikTok(newsItem: NewsItem) {
+        Log.d(TAG, "TIKTOK_SHARE: Публікація -> ${newsItem.title}")
+    }
+
+    private fun parseRss(xml: String): List<NewsItem> {
+        val items = mutableListOf<NewsItem>()
         try {
             val factory = XmlPullParserFactory.newInstance()
-            factory.isNamespaceAware = true
             val parser = factory.newPullParser()
-            parser.setInput(StringReader(xmlData))
+            parser.setInput(StringReader(xml))
 
             var eventType = parser.eventType
-            var currentTitle = ""
-            var currentLink = ""
-            var currentDescription = ""
-            var inItem = false
+            var currentTitle: String? = null
+            var currentLink: String? = null
+            var currentDesc: String? = null
+            var insideItem = false
 
             while (eventType != XmlPullParser.END_DOCUMENT) {
-                val tagName = parser.name
+                val name = parser.name
                 when (eventType) {
                     XmlPullParser.START_TAG -> {
-                        if (tagName.equals("item", ignoreCase = true)) {
-                            inItem = true
-                            currentTitle = ""
-                            currentLink = ""
-                            currentDescription = ""
-                        } else if (inItem) {
-                            when (tagName.lowercase()) {
-                                "title" -> currentTitle = parser.nextText()
-                                "link" -> currentLink = parser.nextText()
-                                "description" -> currentDescription = parser.nextText()
+                        if (name.equals("item", ignoreCase = true)) {
+                            insideItem = true
+                        }
+                    }
+                    XmlPullParser.TEXT -> {
+                        if (insideItem) {
+                            when {
+                                name.equals("title", ignoreCase = true) -> currentTitle = parser.text
+                                name.equals("link", ignoreCase = true) -> currentLink = parser.text
+                                name.equals("description", ignoreCase = true) -> currentDesc = parser.text
                             }
                         }
                     }
                     XmlPullParser.END_TAG -> {
-                        if (tagName.equals("item", ignoreCase = true)) {
-                            val cleanDescription = currentDescription.replace(Regex("<[^>]*>"), "").trim()
-                            newsList.add(NewsItem(title = currentTitle, description = cleanDescription, link = currentLink))
-                            inItem = false
+                        if (name.equals("item", ignoreCase = true)) {
+                            if (currentTitle != null) {
+                                items.add(
+                                    NewsItem(
+                                        title = currentTitle.trim(),
+                                        link = currentLink?.trim() ?: "",
+                                        description = currentDesc?.trim() ?: ""
+                                    )
+                                )
+                            }
+                            currentTitle = null
+                            currentLink = null
+                            currentDesc = null
+                            insideItem = false
                         }
                     }
                 }
                 eventType = parser.next()
             }
         } catch (e: Exception) {
-            Log.e("NewsViewModel", "[LOG] Помилка парсингу XML: ${e.message}")
+            Log.e(TAG, "PARSER_ERROR: Помилка парсингу XML", e)
         }
-        return newsList
-    }
-
-    fun sendNews(news: NewsItem) {
-        viewModelScope.launch {
-            try {
-                Log.d("NewsViewModel", "[LOG] Відправка новини: ${news.title}")
-                val originalText = "${news.title}\n\n${news.description ?: ""}"
-                val rewritten = AiRewriter.rewriteNews(originalText)
-                
-                if (botToken.isNotEmpty() && chatId.isNotEmpty()) {
-                    TelegramBotService.sendMessage(botToken, chatId, rewritten)
-                } else {
-                    Log.e("NewsViewModel", "[LOG] Токени Telegram не вказані!")
-                }
-            } catch (e: Exception) {
-                Log.e("NewsViewModel", "[LOG] Помилка відправки: ${e.message}")
-            }
-        }
+        return items
     }
 }
