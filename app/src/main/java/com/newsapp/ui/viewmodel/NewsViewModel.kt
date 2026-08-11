@@ -38,6 +38,9 @@ class NewsViewModel : ViewModel() {
     private val _errorMessage = MutableStateFlow<String?>(null)
     val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
 
+    private val _showLimitError = MutableStateFlow(false)
+    val showLimitError: StateFlow<Boolean> = _showLimitError.asStateFlow()
+
     private val client = HttpClient(CIO) {
         followRedirects = true
     }
@@ -53,14 +56,23 @@ class NewsViewModel : ViewModel() {
     )
 
     init {
+        // Автоматично завантажуємо новини при старті
         loadNews()
     }
 
+    fun dismissLimitError() {
+        _showLimitError.value = false
+    }
+
     fun loadNews() {
-        viewModelScope.launch(Dispatchers.IO) {
+        // Якщо список вже є, не показуємо лоадер на весь екран, робимо оновлення у фоні
+        if (_newsList.value.isEmpty()) {
             _isLoading.value = true
-            _errorMessage.value = null
-            Log.d(TAG, "=== START: Завантаження сирих RSS ===")
+        }
+        _errorMessage.value = null
+
+        viewModelScope.launch(Dispatchers.IO) {
+            Log.d(TAG, "=== START: Завантаження новин у фоні ===")
 
             val rawNews = mutableListOf<NewsItem>()
 
@@ -75,58 +87,62 @@ class NewsViewModel : ViewModel() {
                         rawNews.addAll(parsedItems)
                     }
                 } catch (e: Exception) {
-                    Log.e(TAG, "NETWORK_ERROR -> Не вдалося стягнути $url", e)
+                    Log.e(TAG, "NETWORK_ERROR -> Не вдалося завантажити $url", e)
                 }
             }
 
-            if (rawNews.isEmpty()) {
+            if (rawNews.isEmpty() && _newsList.value.isEmpty()) {
                 _errorMessage.value = "Не вдалося завантажити новини з джерел."
                 _isLoading.value = false
                 return@launch
             }
 
-            // 1. Показуємо користувачу "В черзі / Обробка..." (аналог твого React Native)
-            val initialData = rawNews.map { 
-                it.copy(status = "В черзі", description = "Обробка ШІ...", telegramCaption = "Обробка...") 
-            }
-            _newsList.value = initialData
-            _isLoading.value = false
+            if (rawNews.isNotEmpty()) {
+                val initialData = rawNews.map { 
+                    it.copy(status = "В черзі", description = "Обробка ШІ...", telegramCaption = "Обробка...") 
+                }
+                
+                // Зберігаємо первинні дані на екран одразу
+                if (_newsList.value.isEmpty()) {
+                    _newsList.value = initialData
+                }
+                _isLoading.value = false
 
-            // 2. Фонова обробка через AI
-            processNewsInBackground(initialData)
+                // Фонова AI обробка
+                processNewsInBackground(initialData)
+            } else {
+                _isLoading.value = false
+            }
         }
     }
 
     private suspend fun processNewsInBackground(rawData: List<NewsItem>) {
         try {
-            Log.d(TAG, "[BG_PROCESS] Починаємо ШІ обробку ${rawData.size} новин")
+            Log.d(TAG, "[BG_PROCESS] Фонова обробка ШІ...")
             val processed = aiRewriter.processAllNewsWithAi(rawData)
             
-            // Оновлюємо стейт готовими новинами
+            // Оновлюємо стан без втрати вже відредагованих користувачем даних
             _newsList.value = _newsList.value.map { current ->
                 val updated = processed.find { it.id == current.id }
-                if (updated != null) updated.copy(status = "Готово") else current
+                if (updated != null && current.status == "В черзі") {
+                    updated.copy(status = "Готово")
+                } else current
             }
-            Log.d(TAG, "[BG_PROCESS] ШІ обробка успішно завершена")
+            Log.d(TAG, "[BG_PROCESS] Фонове оновлення завершено")
         } catch (e: Exception) {
-            Log.e(TAG, "[BG_ERR] Збій під час фонової ШІ обробки", e)
+            Log.e(TAG, "[BG_ERR] Помилка фонової обробки", e)
         }
     }
 
-    // --- ФУНКЦІЇ ДЛЯ РЕДАГУВАННЯ ТЕКСТУ В UI ---
-
     fun toggleEdit(id: String) {
-        Log.d(TAG, "[UI_ACTION] Перемикання режиму редагування для ID: $id")
         _newsList.value = _newsList.value.map {
             if (it.id == id) it.copy(isEditing = !it.isEditing) else it
         }
     }
 
     fun updateNewsText(id: String, newText: String) {
-        Log.d(TAG, "[UI_ACTION] Збереження нового тексту для ID: $id")
         _newsList.value = _newsList.value.map {
             if (it.id == id) {
-                // Також оновлюємо caption для Телеграму, щоб там був новий текст
                 val newCaption = "🚀 <b>${it.title}</b>\n\n$newText\n\n• <b>Джерело:</b> ${it.source}"
                 it.copy(description = newText, telegramCaption = newCaption)
             } else it
@@ -135,10 +151,7 @@ class NewsViewModel : ViewModel() {
 
     fun sendNews(newsItem: NewsItem) {
         viewModelScope.launch(Dispatchers.IO) {
-            Log.d(TAG, "TELEGRAM -> Відправка: ${newsItem.title}")
-            // telegramBotService.sendNewsToChannel(newsItem) 
-            
-            // Оновлюємо статус після успішної публікації
+            telegramBotService.sendNewsToChannel(newsItem)
             _newsList.value = _newsList.value.map {
                 if (it.id == newsItem.id) it.copy(status = "Опубліковано") else it
             }
@@ -191,7 +204,7 @@ class NewsViewModel : ViewModel() {
                                         title = currentTitle!!.trim(),
                                         link = currentLink?.trim() ?: "",
                                         description = currentDesc?.trim() ?: "",
-                                        source = sourceName
+                                            source = sourceName
                                     )
                                 )
                             }
