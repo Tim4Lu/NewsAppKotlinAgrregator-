@@ -76,7 +76,7 @@ class AiRewriter {
 
         val token = getDecodedToken()
 
-        // 1. GEMINI FLASH (gemini-1.5-flash)
+        // 1. GEMINI 2.0 FLASH (Використовуємо v1 API ендпоінт)
         if (token.isNotEmpty()) {
             try {
                 val jsonBody = JSONObject().apply {
@@ -94,7 +94,7 @@ class AiRewriter {
                     })
                 }
 
-                val url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=$token"
+                val url = "https://generativelanguage.googleapis.com/v1/models/gemini-2.0-flash:generateContent?key=$token"
 
                 val response = client.post(url) {
                     contentType(ContentType.Application.Json)
@@ -110,15 +110,15 @@ class AiRewriter {
 
                     if (rawGeminiText.isNotEmpty()) {
                         val parsed = parseAiOutput(rawGeminiText, cleanTitle, cleanText)
-                        LogManager.log("Gemini_OK", "Успішно перекладено через Gemini Flash!")
+                        LogManager.log("Gemini_OK", "Успішно перекладено через Gemini 2.0 Flash!")
                         return parsed
                     }
                 } else {
                     val errMessage = data.getJSONObject("error").optString("message", "Unknown error")
-                    LogManager.log("Gemini_ERR", "Gemini Flash помилка: $errMessage")
+                    LogManager.log("Gemini_ERR", "Gemini помилка: $errMessage")
                 }
             } catch (e: Exception) {
-                LogManager.log("Gemini_ERR", "Запит Gemini Flash впав: ${e.message ?: e.toString()}")
+                LogManager.log("Gemini_ERR", "Запит Gemini впав: ${e.message ?: e.toString()}")
             }
         }
 
@@ -174,7 +174,7 @@ class AiRewriter {
     }
 
     suspend fun processAllNewsWithAi(rawNewsList: List<NewsItem>, onItemProcessed: (NewsItem) -> Unit) {
-        LogManager.log("AI_START", "Початок обробки новин через Gemini Flash")
+        LogManager.log("AI_START", "Початок обробки новин через Gemini 2.0 Flash")
 
         for (i in rawNewsList.indices) {
             val n = rawNewsList[i]
