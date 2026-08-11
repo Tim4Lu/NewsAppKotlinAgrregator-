@@ -20,8 +20,8 @@ class AiRewriter {
         expectSuccess = false
     }
 
-    // Ключ Gemini зашифрований через reversed()
-    private val RAW_GEMINI_KEY = "QytQxONngz-RS79gKlnE3hcg_lYYfe4_0Vq5_YmdFriK6NR8bA.QA".reversed()
+    // Задзеркалений ключ Gemini
+    private val RAW_GEMINI_KEY = "QytQxONngz-RS79gKlnE3hcg_lYYfe4_0Vq5_YmdFriK6NR8bA.QA"
 
     private val GROQ_KEYS = listOf(
         "aQvzOt1pJ9khaUW27VBClIQsYF3bydGWxFwgtKxlXrVg1Vu2dlKl_ksg".reversed()
@@ -63,50 +63,49 @@ class AiRewriter {
             Підсумок українською.
         """.trimIndent()
 
-        // 1. GEMINI
-        if (RAW_GEMINI_KEY.isNotEmpty() && !RAW_GEMINI_KEY.contains("ТВІЙ_ЗАДЗЕРКАЛЕНИЙ")) {
-            val modelsToTry = listOf("gemini-2.0-flash", "gemini-1.5-flash")
-            
-            for (modelName in modelsToTry) {
-                try {
-                    val jsonBody = JSONObject().apply {
-                        put("contents", JSONArray().apply {
-                            put(JSONObject().apply {
-                                put("parts", JSONArray().apply { 
-                                    put(JSONObject().apply { 
-                                        put("text", "ПЕРЕКЛАДИ НА УКРАЇНСЬКУ МОВУ ТА СФОРМУЙ ПОСТ:\nЗаголовок: $cleanTitle\nТекст: $cleanText\n\n$systemPrompt") 
-                                    }) 
-                                })
+        val activeGeminiKey = RAW_GEMINI_KEY.reversed()
+
+        // 1. GEMINI 2.5 FLASH
+        if (activeGeminiKey.isNotEmpty()) {
+            try {
+                val jsonBody = JSONObject().apply {
+                    put("contents", JSONArray().apply {
+                        put(JSONObject().apply {
+                            put("parts", JSONArray().apply { 
+                                put(JSONObject().apply { 
+                                    put("text", "ПЕРЕКЛАДИ НА УКРАЇНСЬКУ МОВУ ТА СФОРМУЙ ПОСТ:\nЗаголовок: $cleanTitle\nТекст: $cleanText\n\n$systemPrompt") 
+                                }) 
                             })
                         })
-                        put("generationConfig", JSONObject().apply {
-                            put("temperature", 0.2)
-                        })
-                    }
-
-                    val response = client.post("https://generativelanguage.googleapis.com/v1beta/models/$modelName:generateContent?key=$RAW_GEMINI_KEY") {
-                        contentType(ContentType.Application.Json)
-                        setBody(jsonBody.toString())
-                    }
-
-                    val responseText = response.bodyAsText()
-                    val data = JSONObject(responseText)
-
-                    if (!data.has("error")) {
-                        val rawGeminiText = data.optJSONArray("candidates")?.optJSONObject(0)?.optJSONObject("content")
-                            ?.optJSONArray("parts")?.optJSONObject(0)?.optString("text", "") ?: ""
-
-                        if (rawGeminiText.isNotEmpty()) {
-                            val parsed = parseAiOutput(rawGeminiText, cleanTitle, cleanText)
-                            LogManager.log("Gemini_OK", "Успішно перекладено через Gemini ($modelName)!")
-                            return parsed
-                        }
-                    } else {
-                        LogManager.log("Gemini_ERR", "Gemini ($modelName) помилка: ${data.getJSONObject("error").optString("message")}")
-                    }
-                } catch (e: Exception) {
-                    LogManager.log("Gemini_ERR", "Запит Gemini ($modelName) впав: ${e.message}")
+                    })
+                    put("generationConfig", JSONObject().apply {
+                        put("temperature", 0.2)
+                    })
                 }
+
+                val response = client.post("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=$activeGeminiKey") {
+                    contentType(ContentType.Application.Json)
+                    setBody(jsonBody.toString())
+                }
+
+                val responseText = response.bodyAsText()
+                val data = JSONObject(responseText)
+
+                if (!data.has("error")) {
+                    val rawGeminiText = data.optJSONArray("candidates")?.optJSONObject(0)?.optJSONObject("content")
+                        ?.optJSONArray("parts")?.optJSONObject(0)?.optString("text", "") ?: ""
+
+                    if (rawGeminiText.isNotEmpty()) {
+                        val parsed = parseAiOutput(rawGeminiText, cleanTitle, cleanText)
+                        LogManager.log("Gemini_OK", "Успішно перекладено через Gemini 2.5 Flash!")
+                        return parsed
+                    }
+                } else {
+                    val errMessage = data.getJSONObject("error").optString("message", "Unknown error")
+                    LogManager.log("Gemini_ERR", "Gemini 2.5 Flash помилка: $errMessage")
+                }
+            } catch (e: Exception) {
+                LogManager.log("Gemini_ERR", "Запит Gemini 2.5 Flash впав: ${e.message ?: e.toString()}")
             }
         }
 
@@ -162,7 +161,7 @@ class AiRewriter {
     }
 
     suspend fun processAllNewsWithAi(rawNewsList: List<NewsItem>, onItemProcessed: (NewsItem) -> Unit) {
-        LogManager.log("AI_START", "Початок обробки новин через Gemini / Groq")
+        LogManager.log("AI_START", "Початок обробки новин через Gemini 2.5 Flash")
 
         for (i in rawNewsList.indices) {
             val n = rawNewsList[i]
