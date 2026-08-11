@@ -93,7 +93,8 @@ class AiRewriter {
                     })
                 }
 
-                val url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
+                // Використовуємо актуальну модель 3.6-flash
+                val url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent"
 
                 val response = client.post(url) {
                     contentType(ContentType.Application.Json)
@@ -110,7 +111,7 @@ class AiRewriter {
 
                     if (rawGeminiText.isNotEmpty()) {
                         val parsed = parseAiOutput(rawGeminiText, cleanTitle, cleanText)
-                        LogManager.log("Gemini_OK", "Успішно перекладено через Gemini 2.5 Flash!")
+                        LogManager.log("Gemini_OK", "Успішно перекладено через Gemini 3.6 Flash!")
                         return parsed
                     }
                 } else {
@@ -174,7 +175,7 @@ class AiRewriter {
     }
 
     suspend fun processAllNewsWithAi(rawNewsList: List<NewsItem>, onItemProcessed: (NewsItem) -> Unit) {
-        LogManager.log("AI_START", "Початок обробки новин через Gemini 2.5 Flash")
+        LogManager.log("AI_START", "Початок обробки новин через Gemini 3.6 Flash")
 
         for (i in rawNewsList.indices) {
             val n = rawNewsList[i]
