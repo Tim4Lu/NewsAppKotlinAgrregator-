@@ -74,9 +74,9 @@ class AiRewriter {
 
         val activeGeminiKey = getGeminiKey()
 
-        // 1. ОСНОВНИЙ: GEMINI 2.5 FLASH (з фолбеком на 1.5-flash)
+        // 1. ОСНОВНИЙ: GEMINI (перевіряємо 2.0-flash та 1.5-flash)
         if (activeGeminiKey.isNotEmpty()) {
-            val modelsToTry = listOf("gemini-2.5-flash", "gemini-1.5-flash")
+            val modelsToTry = listOf("gemini-2.0-flash", "gemini-1.5-flash")
             
             for (modelName in modelsToTry) {
                 try {
@@ -90,34 +90,34 @@ class AiRewriter {
                                 })
                             })
                         })
-                    })
-                    put("generationConfig", JSONObject().apply {
-                        put("temperature", 0.2)
-                    })
-                }
-
-                val response = client.post("https://generativelanguage.googleapis.com/v1beta/models/$modelName:generateContent?key=$activeGeminiKey") {
-                    contentType(ContentType.Application.Json)
-                    setBody(jsonBody.toString())
-                }
-
-                val responseText = response.bodyAsText()
-                val data = JSONObject(responseText)
-
-                if (!data.has("error")) {
-                    val rawGeminiText = data.optJSONArray("candidates")?.optJSONObject(0)?.optJSONObject("content")
-                        ?.optJSONArray("parts")?.optJSONObject(0)?.optString("text", "") ?: ""
-
-                    if (rawGeminiText.isNotEmpty()) {
-                        val parsed = parseAiOutput(rawGeminiText, cleanTitle, cleanText)
-                        LogManager.log("Gemini_OK", "Успішно перекладено через Gemini ($modelName)!")
-                        return parsed
+                        put("generationConfig", JSONObject().apply {
+                            put("temperature", 0.2)
+                        })
                     }
-                } else {
-                    LogManager.log("Gemini_ERR", "Gemini ($modelName) помилка: ${data.getJSONObject("error").optString("message")}")
+
+                    val response = client.post("https://generativelanguage.googleapis.com/v1beta/models/$modelName:generateContent?key=$activeGeminiKey") {
+                        contentType(ContentType.Application.Json)
+                        setBody(jsonBody.toString())
+                    }
+
+                    val responseText = response.bodyAsText()
+                    val data = JSONObject(responseText)
+
+                    if (!data.has("error")) {
+                        val rawGeminiText = data.optJSONArray("candidates")?.optJSONObject(0)?.optJSONObject("content")
+                            ?.optJSONArray("parts")?.optJSONObject(0)?.optString("text", "") ?: ""
+
+                        if (rawGeminiText.isNotEmpty()) {
+                            val parsed = parseAiOutput(rawGeminiText, cleanTitle, cleanText)
+                            LogManager.log("Gemini_OK", "Успішно перекладено через Gemini ($modelName)!")
+                            return parsed
+                        }
+                    } else {
+                        LogManager.log("Gemini_ERR", "Gemini ($modelName) помилка: ${data.getJSONObject("error").optString("message")}")
+                    }
+                } catch (e: Exception) {
+                    LogManager.log("Gemini_ERR", "Запит Gemini ($modelName) впав: ${e.message}")
                 }
-            } catch (e: Exception) {
-                LogManager.log("Gemini_ERR", "Запит Gemini ($modelName) впав: ${e.message}")
             }
         }
 
