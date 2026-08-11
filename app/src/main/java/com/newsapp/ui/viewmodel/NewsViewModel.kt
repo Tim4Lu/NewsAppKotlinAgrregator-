@@ -3,9 +3,8 @@ package com.newsapp.ui.viewmodel
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.newsapp.data.AiRewriter
-import com.newsapp.data.LimitExceededException
 import com.newsapp.data.TelegramBotService
+import com.newsapp.data.api.AiRewriter
 import com.newsapp.model.NewsItem
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
@@ -22,6 +21,7 @@ import kotlinx.coroutines.launch
 import org.xmlpull.v1.XmlPullParser
 import org.xmlpull.v1.XmlPullParserFactory
 import java.io.StringReader
+import java.net.URL
 
 class NewsViewModel : ViewModel() {
 
@@ -38,10 +38,6 @@ class NewsViewModel : ViewModel() {
     private val _errorMessage = MutableStateFlow<String?>(null)
     val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
 
-    private val _showLimitError = MutableStateFlow(false)
-    val showLimitError: StateFlow<Boolean> = _showLimitError.asStateFlow()
-
-    // Вмикаємо автоматичний перехід за редіректами (для виправлення 301 помилок)
     private val client = HttpClient(CIO) {
         followRedirects = true
     }
@@ -50,143 +46,128 @@ class NewsViewModel : ViewModel() {
     private val telegramBotService = TelegramBotService()
 
     private val rssUrls = listOf(
-        "https://www.nasa.gov/news-release/feed/", // Оновлений робочий RSS NASA
+        "https://www.nasa.gov/news-release/feed/",
         "https://www.space.com/feeds/all",
         "https://phys.org/rss-feed/space-news/",
         "https://www.sciencedaily.com/rss/space_time.xml"
     )
 
+    init {
+        loadNews()
+    }
+
     fun loadNews() {
-        fetchAndProcessNews()
-    }
-
-    fun dismissLimitError() {
-        _showLimitError.value = false
-    }
-
-    fun fetchAndProcessNews() {
         viewModelScope.launch(Dispatchers.IO) {
             _isLoading.value = true
             _errorMessage.value = null
-            Log.d(TAG, "=== START: ПОЧАТОК ЗАВАНТАЖЕННЯ НОВИН ===")
+            Log.d(TAG, "=== START: Завантаження сирих RSS ===")
 
             val rawNews = mutableListOf<NewsItem>()
-            val errorsList = mutableListOf<String>()
 
             for (url in rssUrls) {
                 try {
-                    Log.d(TAG, "NETWORK -> Запит до $url")
                     val response: HttpResponse = client.get(url) {
-                        header(HttpHeaders.UserAgent, "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                        header(HttpHeaders.UserAgent, "Mozilla/5.0")
                     }
-                    
-                    val status = response.status.value
-                    Log.d(TAG, "NETWORK -> Відповідь від $url: Код HTTP $status")
-
-                    if (status in 200..299) {
-                        val xmlBody = response.bodyAsText()
-                        val parsedItems = parseRss(xmlBody)
-                        
-                        if (parsedItems.isNotEmpty()) {
-                            rawNews.addAll(parsedItems)
-                            Log.d(TAG, "PARSER -> Отримано ${parsedItems.size} новин з $url")
-                        } else {
-                            val err = "RSS порожній або збій парсингу [HTTP $status]: $url"
-                            errorsList.add(err)
-                        }
-                    } else {
-                        val err = "Помилка сервера HTTP $status: $url"
-                        errorsList.add(err)
+                    if (response.status.value in 200..299) {
+                        val host = URL(url).host
+                        val parsedItems = parseRss(response.bodyAsText(), host)
+                        rawNews.addAll(parsedItems)
                     }
-
                 } catch (e: Exception) {
-                    val err = "${e.javaClass.simpleName}: ${e.message ?: "Збій мережі"} ($url)"
-                    errorsList.add(err)
+                    Log.e(TAG, "NETWORK_ERROR -> Не вдалося стягнути $url", e)
                 }
             }
 
             if (rawNews.isEmpty()) {
-                val combinedError = if (errorsList.isNotEmpty()) {
-                    "Не вдалося завантажити новини:\n" + errorsList.joinToString("\n")
-                } else {
-                    "Помилка: Жодне джерело RSS не повернуло новин"
-                }
-                _errorMessage.value = combinedError
+                _errorMessage.value = "Не вдалося завантажити новини з джерел."
                 _isLoading.value = false
                 return@launch
             }
 
-            val processedNews = mutableListOf<NewsItem>()
-
-            for (item in rawNews) {
-                var translatedTitle: String? = null
-                var translatedDesc: String? = null
-
-                try {
-                    translatedTitle = aiRewriter.rewrite(item.title, "Ukrainian")
-                    translatedDesc = aiRewriter.rewrite(item.description, "Ukrainian")
-                } catch (limitEx: LimitExceededException) {
-                    _showLimitError.value = true
-                } catch (aiEx: Exception) {
-                    Log.e(TAG, "AI_ERROR -> Помилка рерайту", aiEx)
-                }
-
-                if (!translatedTitle.isNullOrEmpty()) {
-                    processedNews.add(
-                        item.copy(
-                            title = translatedTitle,
-                            description = if (!translatedDesc.isNullOrEmpty()) translatedDesc else item.description
-                        )
-                    )
-                } else {
-                    processedNews.add(item)
-                }
+            // 1. Показуємо користувачу "В черзі / Обробка..." (аналог твого React Native)
+            val initialData = rawNews.map { 
+                it.copy(status = "В черзі", description = "Обробка ШІ...", telegramCaption = "Обробка...") 
             }
-
-            _newsList.value = processedNews
+            _newsList.value = initialData
             _isLoading.value = false
+
+            // 2. Фонова обробка через AI
+            processNewsInBackground(initialData)
+        }
+    }
+
+    private suspend fun processNewsInBackground(rawData: List<NewsItem>) {
+        try {
+            Log.d(TAG, "[BG_PROCESS] Починаємо ШІ обробку ${rawData.size} новин")
+            val processed = aiRewriter.processAllNewsWithAi(rawData)
+            
+            // Оновлюємо стейт готовими новинами
+            _newsList.value = _newsList.value.map { current ->
+                val updated = processed.find { it.id == current.id }
+                if (updated != null) updated.copy(status = "Готово") else current
+            }
+            Log.d(TAG, "[BG_PROCESS] ШІ обробка успішно завершена")
+        } catch (e: Exception) {
+            Log.e(TAG, "[BG_ERR] Збій під час фонової ШІ обробки", e)
+        }
+    }
+
+    // --- ФУНКЦІЇ ДЛЯ РЕДАГУВАННЯ ТЕКСТУ В UI ---
+
+    fun toggleEdit(id: String) {
+        Log.d(TAG, "[UI_ACTION] Перемикання режиму редагування для ID: $id")
+        _newsList.value = _newsList.value.map {
+            if (it.id == id) it.copy(isEditing = !it.isEditing) else it
+        }
+    }
+
+    fun updateNewsText(id: String, newText: String) {
+        Log.d(TAG, "[UI_ACTION] Збереження нового тексту для ID: $id")
+        _newsList.value = _newsList.value.map {
+            if (it.id == id) {
+                // Також оновлюємо caption для Телеграму, щоб там був новий текст
+                val newCaption = "🚀 <b>${it.title}</b>\n\n$newText\n\n• <b>Джерело:</b> ${it.source}"
+                it.copy(description = newText, telegramCaption = newCaption)
+            } else it
         }
     }
 
     fun sendNews(newsItem: NewsItem) {
         viewModelScope.launch(Dispatchers.IO) {
-            telegramBotService.sendNewsToChannel(newsItem)
+            Log.d(TAG, "TELEGRAM -> Відправка: ${newsItem.title}")
+            // telegramBotService.sendNewsToChannel(newsItem) 
+            
+            // Оновлюємо статус після успішної публікації
+            _newsList.value = _newsList.value.map {
+                if (it.id == newsItem.id) it.copy(status = "Опубліковано") else it
+            }
         }
     }
 
-    // Повністю переписаний парсер, який правильно читає тексти всередині тегів та розуміє формат Atom/RSS
-    private fun parseRss(xml: String): List<NewsItem> {
+    private fun parseRss(xml: String, sourceName: String): List<NewsItem> {
         val items = mutableListOf<NewsItem>()
         try {
-            val factory = XmlPullParserFactory.newInstance()
-            factory.isNamespaceAware = true
-            val parser = factory.newPullParser()
-            parser.setInput(StringReader(xml))
+            val factory = XmlPullParserFactory.newInstance().apply { isNamespaceAware = true }
+            val parser = factory.newPullParser().apply { setInput(StringReader(xml)) }
 
             var eventType = parser.eventType
             var currentTitle: String? = null
             var currentLink: String? = null
             var currentDesc: String? = null
             var insideItem = false
-            var currentTag = "" // Відстежуємо, в якому тегу ми зараз знаходимося
+            var currentTag = ""
 
             while (eventType != XmlPullParser.END_DOCUMENT) {
                 when (eventType) {
                     XmlPullParser.START_TAG -> {
-                        val name = parser.name ?: ""
-                        currentTag = name.lowercase()
-                        
+                        currentTag = parser.name?.lowercase() ?: ""
                         if (currentTag == "item" || currentTag == "entry") {
                             insideItem = true
-                            currentTitle = null
-                            currentLink = null
-                            currentDesc = null
+                            currentTitle = null; currentLink = null; currentDesc = null
                         } else if (insideItem && currentTag == "link") {
-                            // Формат Atom тримає посилання в атрибуті href
                             val href = parser.getAttributeValue(null, "href")
-                            if (!href.isNullOrEmpty()) {
-                                currentLink = href
-                            }
+                            if (!href.isNullOrEmpty()) currentLink = href
                         }
                     }
                     XmlPullParser.TEXT -> {
@@ -209,20 +190,19 @@ class NewsViewModel : ViewModel() {
                                     NewsItem(
                                         title = currentTitle!!.trim(),
                                         link = currentLink?.trim() ?: "",
-                                        description = currentDesc?.trim() ?: ""
+                                        description = currentDesc?.trim() ?: "",
+                                        source = sourceName
                                     )
                                 )
                             }
                             insideItem = false
                         }
-                        currentTag = "" // Скидаємо тег
+                        currentTag = ""
                     }
                 }
                 eventType = parser.next()
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "PARSER_ERROR -> Помилка XML", e)
-        }
+        } catch (e: Exception) { Log.e(TAG, "PARSER_ERROR", e) }
         return items
     }
 }

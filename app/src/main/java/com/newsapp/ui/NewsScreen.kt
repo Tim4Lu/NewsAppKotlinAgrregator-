@@ -12,6 +12,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.newsapp.ui.components.NewsCard
 import com.newsapp.ui.viewmodel.NewsViewModel
 
 @Composable
@@ -23,12 +24,13 @@ fun NewsScreen(viewModel: NewsViewModel) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp)
+            .padding(horizontal = 16.dp)
     ) {
         Text(
             text = "Новини Космосу та Науки",
             style = MaterialTheme.typography.headlineMedium,
-            modifier = Modifier.padding(bottom = 16.dp)
+            color = Color.White,
+            modifier = Modifier.padding(top = 16.dp, bottom = 16.dp)
         )
 
         Box(
@@ -37,77 +39,45 @@ fun NewsScreen(viewModel: NewsViewModel) {
         ) {
             when {
                 isLoading -> {
-                    CircularProgressIndicator()
+                    CircularProgressIndicator(color = Color(0xFF818CF8))
                 }
 
                 errorMessage != null -> {
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center,
                         modifier = Modifier.padding(16.dp)
                     ) {
                         Text(
-                            text = "Деталі помилки завантаження:",
-                            style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.error,
-                            textAlign = TextAlign.Center
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
                             text = errorMessage ?: "Невідома помилка",
-                            style = MaterialTheme.typography.bodyMedium,
                             color = Color.Red,
                             textAlign = TextAlign.Center
                         )
                         Spacer(modifier = Modifier.height(16.dp))
-                        Button(onClick = { viewModel.loadNews() }) {
-                            Text("Спробувати знову")
+                        Button(
+                            onClick = { viewModel.loadNews() },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4F46E5))
+                        ) {
+                            Text("Спробувати знову", color = Color.White)
                         }
                     }
                 }
 
                 newsList.isEmpty() -> {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Text(
-                            text = "Список новин порожній",
-                            style = MaterialTheme.typography.bodyLarge
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Button(onClick = { viewModel.loadNews() }) {
-                            Text("Оновити")
-                        }
-                    }
+                    Text(text = "Завантаження...", color = Color(0xFF94A3B8))
                 }
 
                 else -> {
                     LazyColumn(
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(bottom = 24.dp)
                     ) {
                         items(newsList) { item ->
-                            Card(
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Column(modifier = Modifier.padding(16.dp)) {
-                                    Text(
-                                        text = item.title,
-                                        style = MaterialTheme.typography.titleMedium
-                                    )
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    Text(
-                                        text = item.description,
-                                        style = MaterialTheme.typography.bodySmall
-                                    )
-                                    Spacer(modifier = Modifier.height(8.dp))
-                                    Button(
-                                        onClick = { viewModel.sendNews(item) },
-                                        modifier = Modifier.align(Alignment.End)
-                                    ) {
-                                        Text("В Telegram")
-                                    }
-                                }
-                            }
+                            NewsCard(
+                                item = item,
+                                onPublish = { viewModel.sendNews(it) },
+                                onUpdateText = { id, text -> viewModel.updateNewsText(id, text) },
+                                onToggleEdit = { id -> viewModel.toggleEdit(id) }
+                            )
                         }
                     }
                 }
