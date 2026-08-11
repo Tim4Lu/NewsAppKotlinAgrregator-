@@ -20,7 +20,6 @@ class AiRewriter {
         expectSuccess = false
     }
 
-    // ДВА НОВИХ КЛЮЧІ З ТВОЇХ СКРІНШОТІВ (зашифровані через reversed)
     private val GEMINI_KEYS = listOf(
         "wtrW5RDOBkzfhFR2XL9BMq08kacasB9uKlvv4UAZXFVZKL6NR8bA.QA".reversed(),
         "QcZS28OkdPJxdK6KVOPfg4z_pwlzTEBa8nQqK9FZdRCK6NR8bA.QA".reversed()
@@ -40,44 +39,52 @@ class AiRewriter {
          .trim()
     }
 
-    suspend fun processWithGeminiOrGroq(text: String, title: String): Pair<String, String>? {
+    suspend fun processWithGemini(text: String, title: String): Pair<String, String>? {
         val cleanTitle = cleanHtmlArtifacts(title)
         val cleanText = cleanHtmlArtifacts(text).take(1200)
 
-        val prompt = """
+        val systemPrompt = """
             Ти — шеф-редактор новинного Telegram-каналу "Наука кожного дня". 
-            Твоє завдання — перекласти чернетку українською мовою та сформувати пост ТОЧНО В ТАКOМУ СТИЛІ:
+            ТВОЄ ГОЛОВНЕ ЗАВДАННЯ: Перекласти англійську новину на якісну українську мову та зробити короткий структурований пост.
 
-            1. ЗАГОЛОВОК: Обов'язково з емодзі ракетами по боках: 🚀 Заголовок «Назва» 🚀
-            2. ТЕКСТ:
-               - Перше речення: Вступний факт або сенсація (Наприклад: У галактиці «Андромеда» виявлено сповільнення формування зір.)
-               - Маркований список строго через '•': 2-4 конкретні деталі з цифрами, даними та фактами (наприклад: • Близько 500 млн років тому... • Сьогодні ця швидкість...).
-               - Фінальне речення: Підсумок (наприклад: Це відкриття вказує на можливий вплив меншої галактичної сусідки...).
-            3. ЖОРСТКЕ ТАБУ НА ЗІРОЧКИ: Ніколи не використовуй зірочки **! Для назв та ключових слів використовуй українські лапки « ».
-            4. МОВА: Тільки якісна, жива українська мова.
+            ЖОРСТКІ ПРАВИЛА:
+            1. МОВА: ПОВНІСТЮ ТА СТРOГО УКРАЇНСЬКА МОВА! Жодного англійського слова у фінальному тексті!
+            2. ЗАГОЛОВОК: Обов'язково з емодзі ракетами: 🚀 Заголовок «Назва» 🚀
+            3. ТЕКСТ:
+               - Перше речення: Вступний факт або сенсація українською.
+               - Маркований список строго через '•': 2-4 конкретні деталі з цифрами та фактами українською.
+               - Фінальне речення: Підсумок українською.
+            4. НІЯКИХ ЗІРОЧОК: Не використовуй зірочки **! Для назв використовуй українські лапки « ».
 
-            ФОРМАТ ВІДПОВІДІ (Дотримуйся маркерів):
-            ЗАГОЛОВОК: 🚀 Твій Заголовок «Назва» 🚀
+            ФОРМАТ ВІДПОВІДІ:
+            ЗАГОЛОВОК: 🚀 Заголовок українською «Назва» 🚀
             ТЕКСТ:
-            Перше речення вступ.
-            • Факт 1
-            • Факт 2
-            • Факт 3
-            Фінальне речення підсумок.
+            Перше речення вступ українською.
+            • Факт 1 українською
+            • Факт 2 українською
+            Підсумок українською.
         """.trimIndent()
 
-        // Спочатку пробуємо Gemini з нових ключів
+        // ОСНОВНИЙ ПРОВАЙДЕР: GEMINI 2.0 FLASH (найпросунуша версія)
         for (geminiKey in GEMINI_KEYS.shuffled()) {
             try {
                 val jsonBody = JSONObject().apply {
                     put("contents", JSONArray().apply {
                         put(JSONObject().apply {
-                            put("parts", JSONArray().apply { put(JSONObject().apply { put("text", "Заголовок: $cleanTitle\nТекст: $cleanText\n\n$prompt") }) })
+                            put("parts", JSONArray().apply { 
+                                put(JSONObject().apply { 
+                                    put("text", "Оригінальний заголовок: $cleanTitle\nОригінальний текст: $cleanText\n\n$systemPrompt") 
+                                }) 
+                            })
                         })
+                    })
+                    put("generationConfig", JSONObject().apply {
+                        put("temperature", 0.2)
                     })
                 }
 
-                val response = client.post("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=$geminiKey") {
+                // Використовуємо просунуту модель gemini-2.0-flash
+                val response = client.post("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=$geminiKey") {
                     contentType(ContentType.Application.Json)
                     setBody(jsonBody.toString())
                 }
@@ -91,24 +98,27 @@ class AiRewriter {
 
                     if (rawGeminiText.isNotEmpty()) {
                         val parsed = parseAiOutput(rawGeminiText, cleanTitle, cleanText)
-                        LogManager.log("Gemini_OK", "Новина оброблена через новий ключ Gemini!")
+                        LogManager.log("Gemini_OK", "Успішно перекладено через Gemini 2.0 Flash!")
                         return parsed
                     }
+                } else {
+                    LogManager.log("Gemini_ERR", "Gemini помилка: ${data.getJSONObject("error").optString("message")}")
                 }
             } catch (e: Exception) {
-                LogManager.log("Gemini_ERR", "Запит Gemini не пройшов, пробуємо наступний...")
+                LogManager.log("Gemini_ERR", "Запит Gemini впав: ${e.message}")
             }
         }
 
-        // Резервний фолбек на Groq
+        // РЕЗЕРВНИЙ ПРОВАЙДЕР (якщо Gemini вичерпає ліміти): GROQ
         try {
+            LogManager.log("Groq", "Використовуємо резервний Groq...")
             val groqKey = GROQ_KEYS.random()
             val jsonBody = JSONObject().apply {
                 put("model", "llama-3.1-8b-instant")
-                put("temperature", 0.3)
+                put("temperature", 0.2)
                 put("messages", JSONArray().apply {
-                    put(JSONObject().apply { put("role", "system"); put("content", prompt) })
-                    put(JSONObject().apply { put("role", "user"); put("content", "Заголовок: $cleanTitle\nТекст: $cleanText") })
+                    put(JSONObject().apply { put("role", "system"); put("content", systemPrompt) })
+                    put(JSONObject().apply { put("role", "user"); put("content", "Оригінал: $cleanTitle\n$cleanText") })
                 })
             }
 
@@ -121,7 +131,7 @@ class AiRewriter {
             val data = JSONObject(response.bodyAsText())
             if (data.has("choices")) {
                 val aiResponse = data.getJSONArray("choices").getJSONObject(0).getJSONObject("message").getString("content").trim()
-                LogManager.log("Groq_OK", "Новина оброблена через Groq!")
+                LogManager.log("Groq_OK", "Резервний переклад через Groq")
                 return parseAiOutput(aiResponse, cleanTitle, cleanText)
             }
         } catch (e: Exception) {
@@ -148,21 +158,19 @@ class AiRewriter {
     }
 
     suspend fun processAllNewsWithAi(rawNewsList: List<NewsItem>, onItemProcessed: (NewsItem) -> Unit) {
-        LogManager.log("AI_START", "Початок обробки новин у стилі 'Наука кожного дня'")
+        LogManager.log("AI_START", "Початок обробки новин через Gemini 2.0 Flash")
 
         for (i in rawNewsList.indices) {
             val n = rawNewsList[i]
-            LogManager.log("AI_QUEUE", "[$i/${rawNewsList.size}] Обробка: ${n.title.take(20)}...")
+            LogManager.log("AI_QUEUE", "[$i/${rawNewsList.size}] Переклад: ${n.title.take(20)}...")
 
-            if (i > 0) delay(4000)
+            if (i > 0) delay(3500)
 
             try {
-                val result = processWithGeminiOrGroq(n.description, n.title)
+                val result = processWithGemini(n.description, n.title)
 
                 if (result != null) {
                     val (finalTitle, finalText) = result
-                    
-                    // Шаблон точно як на скріншоті Telegram
                     val telegramFormattedCaption = "$finalTitle\n\n$finalText\n\n• <b>Джерело:</b> ${n.source}"
 
                     val finishedItem = n.copy(
@@ -173,10 +181,10 @@ class AiRewriter {
                     )
                     onItemProcessed(finishedItem)
                 } else {
-                    LogManager.log("AI_WARN", "Не вдалося перекласти новину")
+                    LogManager.log("AI_WARN", "Пропущено новину")
                 }
             } catch (e: Exception) {
-                LogManager.log("AI_FATAL", "Помилка обробки: ${e.message}")
+                LogManager.log("AI_FATAL", "Помилка елемента: ${e.message}")
             }
         }
     }
