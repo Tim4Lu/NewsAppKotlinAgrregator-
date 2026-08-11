@@ -58,36 +58,41 @@ class NewsViewModel : ViewModel() {
     fun fetchAndProcessNews() {
         viewModelScope.launch(Dispatchers.IO) {
             _isLoading.value = true
-            Log.d(TAG, "START: Початок завантаження та обробки новин...")
+            Log.d(TAG, "=== START: ПОЧАТОК ЗАВАНТАЖЕННЯ НОВИН ===")
 
             try {
                 val rawNews = mutableListOf<NewsItem>()
 
                 for (url in rssUrls) {
                     try {
-                        Log.d(TAG, "NETWORK: Запит до RSS: $url")
+                        Log.d(TAG, "NETWORK -> Запит: $url")
                         val response: HttpResponse = client.get(url) {
                             header(HttpHeaders.UserAgent, "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
                         }
+                        
+                        Log.d(TAG, "NETWORK -> Відповідь від $url: Код status=${response.status}")
                         val xmlBody = response.bodyAsText()
+                        Log.d(TAG, "NETWORK -> Отримано XML розміром: ${xmlBody.length} символів")
+
                         val parsedItems = parseRss(xmlBody)
+                        Log.d(TAG, "PARSER -> Розпарсено новин з $url: ${parsedItems.size}")
                         rawNews.addAll(parsedItems)
-                        Log.d(TAG, "NETWORK: Отримано ${parsedItems.size} новин з $url")
+
                     } catch (e: Exception) {
-                        Log.e(TAG, "NETWORK_ERROR: Помилка завантаження з $url", e)
+                        Log.e(TAG, "NETWORK_ERROR -> Не вдалося завантажити $url", e)
                     }
                 }
 
-                Log.d(TAG, "RAW_TOTAL: Всього сирих новин завантажено: ${rawNews.size}")
+                Log.d(TAG, "RAW_SUMMARY -> Загальна кількість сирих новин: ${rawNews.size}")
 
                 if (rawNews.isEmpty()) {
-                    Log.e(TAG, "RAW_EMPTY: Не вдалося розпарсити жодної новини з RSS-джерел!")
+                    Log.e(TAG, "DIAGNOSTIC -> Порожній список! Всі RSS джерела повернули 0 новин або заблокували запити.")
                 }
 
                 val processedNews = mutableListOf<NewsItem>()
 
                 for (item in rawNews) {
-                    Log.d(TAG, "AI_REWRITE: Запуск обробки: ${item.title}")
+                    Log.d(TAG, "AI_REWRITE -> Обробка: ${item.title}")
                     
                     var translatedTitle: String? = null
                     var translatedDesc: String? = null
@@ -96,10 +101,10 @@ class NewsViewModel : ViewModel() {
                         translatedTitle = aiRewriter.rewrite(item.title, "Ukrainian")
                         translatedDesc = aiRewriter.rewrite(item.description, "Ukrainian")
                     } catch (limitEx: LimitExceededException) {
-                        Log.e(TAG, "LIMIT_EXCEEDED: Вичерпано ліміти сервісів!", limitEx)
+                        Log.e(TAG, "LIMIT_EXCEEDED -> Вичерпано ліміт API!", limitEx)
                         _showLimitError.value = true
                     } catch (aiEx: Exception) {
-                        Log.e(TAG, "AI_REWRITE_EXCEPTION: Загальна помилка рерайту", aiEx)
+                        Log.e(TAG, "AI_ERROR -> Помилка рерайту для: ${item.title}", aiEx)
                     }
 
                     if (!translatedTitle.isNullOrEmpty()) {
@@ -108,28 +113,27 @@ class NewsViewModel : ViewModel() {
                             description = if (!translatedDesc.isNullOrEmpty()) translatedDesc else item.description
                         )
                         processedNews.add(localizedItem)
-                        Log.d(TAG, "AI_REWRITE: Успішно перекладено: ${localizedItem.title}")
+                        Log.d(TAG, "AI_SUCCESS -> Перекладено: ${localizedItem.title}")
                     } else {
-                        Log.e(TAG, "AI_REWRITE: AI не відпрацював, показуємо оригінал: ${item.title}")
+                        Log.w(TAG, "AI_FALLBACK -> AI не повернув текст. Виводимо оригінал: ${item.title}")
                         processedNews.add(item)
                     }
                 }
 
                 _newsList.value = processedNews
-                Log.d(TAG, "FINISH: Список оновлено. Всього новин у стейті: ${processedNews.size}")
+                Log.d(TAG, "=== FINISH: Успішно оновлено стейт. Новин всього: ${processedNews.size} ===")
 
             } catch (e: Exception) {
-                Log.e(TAG, "CRITICAL: Загальна помилка у fetchAndProcessNews", e)
+                Log.e(TAG, "CRITICAL -> Загальний збій у fetchAndProcessNews", e)
             } finally {
                 _isLoading.value = false
-                Log.d(TAG, "END: Процес завершено.")
             }
         }
     }
 
     fun sendNews(newsItem: NewsItem) {
         viewModelScope.launch(Dispatchers.IO) {
-            Log.d(TAG, "TELEGRAM_ACTION: Запуск відправки в Telegram -> ${newsItem.title}")
+            Log.d(TAG, "TELEGRAM -> Відправка: ${newsItem.title}")
             telegramBotService.sendNewsToChannel(newsItem)
         }
     }
@@ -185,7 +189,7 @@ class NewsViewModel : ViewModel() {
                 eventType = parser.next()
             }
         } catch (e: Exception) {
-            Log.e(TAG, "PARSER_ERROR: Помилка парсингу XML", e)
+            Log.e(TAG, "PARSER_ERROR -> Помилка XML", e)
         }
         return items
     }

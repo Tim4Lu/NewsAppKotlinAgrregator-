@@ -13,6 +13,7 @@ android {
         minSdk = 24
         targetSdk = 34
         
+        // Автоматичне підтягування versionCode з GitHub Actions
         val runNumber = project.findProperty("versionCode")?.toString()?.toIntOrNull() ?: 1
         versionCode = runNumber
         versionName = "1.0.$runNumber"
