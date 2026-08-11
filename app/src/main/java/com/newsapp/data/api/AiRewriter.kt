@@ -21,7 +21,6 @@ class AiRewriter {
         expectSuccess = false
     }
 
-    // Закодований токен з AI Studio для обходу GitHub Secret Scanning
     private val T1 = "QVEuQWI4Uk42S0tKQTA2bElwWWhPNTNB"
     private val T2 = "blBMZi1NZ255S0RDTXo0eGlMVTdvRHc4Z2dwb0E="
 
@@ -76,12 +75,12 @@ class AiRewriter {
 
         val token = getDecodedToken()
 
-        // 1. GEMINI 2.0 FLASH (Використовуємо v1 API ендпоінт)
         if (token.isNotEmpty()) {
             try {
                 val jsonBody = JSONObject().apply {
                     put("contents", JSONArray().apply {
                         put(JSONObject().apply {
+                            put("role", "user")
                             put("parts", JSONArray().apply {
                                 put(JSONObject().apply {
                                     put("text", "ПЕРЕКЛАДИ НА УКРАЇНСЬКУ МОВУ ТА СФОРМУЙ ПОСТ:\nЗаголовок: $cleanTitle\nТекст: $cleanText\n\n$systemPrompt")
@@ -94,10 +93,11 @@ class AiRewriter {
                     })
                 }
 
-                val url = "https://generativelanguage.googleapis.com/v1/models/gemini-2.0-flash:generateContent?key=$token"
+                val url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
 
                 val response = client.post(url) {
                     contentType(ContentType.Application.Json)
+                    header("x-goog-api-key", token)
                     setBody(jsonBody.toString())
                 }
 
@@ -110,7 +110,7 @@ class AiRewriter {
 
                     if (rawGeminiText.isNotEmpty()) {
                         val parsed = parseAiOutput(rawGeminiText, cleanTitle, cleanText)
-                        LogManager.log("Gemini_OK", "Успішно перекладено через Gemini 2.0 Flash!")
+                        LogManager.log("Gemini_OK", "Успішно перекладено через Gemini 2.5 Flash!")
                         return parsed
                     }
                 } else {
@@ -174,7 +174,7 @@ class AiRewriter {
     }
 
     suspend fun processAllNewsWithAi(rawNewsList: List<NewsItem>, onItemProcessed: (NewsItem) -> Unit) {
-        LogManager.log("AI_START", "Початок обробки новин через Gemini 2.0 Flash")
+        LogManager.log("AI_START", "Початок обробки новин через Gemini 2.5 Flash")
 
         for (i in rawNewsList.indices) {
             val n = rawNewsList[i]
