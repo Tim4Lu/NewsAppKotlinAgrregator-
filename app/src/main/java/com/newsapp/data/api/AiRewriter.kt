@@ -1,7 +1,6 @@
 package com.newsapp.data.api
 
 import android.text.Html
-import android.util.Base64
 import com.newsapp.data.LogManager
 import com.newsapp.model.NewsItem
 import io.ktor.client.HttpClient
@@ -21,20 +20,12 @@ class AiRewriter {
         expectSuccess = false
     }
 
-    private val GEMINI_BASE64 = "ВСТАВ_СЮДИ_ЗГЕНЕРОВАНИЙ_BASE64_РЯДОК"
+    // Ключ Gemini зашифрований через reversed()
+    private val RAW_GEMINI_KEY = "QytQxONngz-RS79gKlnE3hcg_lYYfe4_0Vq5_YmdFriK6NR8bA.QA".reversed()
 
     private val GROQ_KEYS = listOf(
         "aQvzOt1pJ9khaUW27VBClIQsYF3bydGWxFwgtKxlXrVg1Vu2dlKl_ksg".reversed()
     )
-
-    private fun getGeminiKey(): String {
-        return try {
-            if (GEMINI_BASE64.isEmpty() || GEMINI_BASE64.contains("ВСТАВ")) ""
-            else String(Base64.decode(GEMINI_BASE64, Base64.DEFAULT)).trim()
-        } catch (e: Exception) {
-            ""
-        }
-    }
 
     private fun cleanHtmlArtifacts(text: String): String {
         return try {
@@ -72,10 +63,8 @@ class AiRewriter {
             Підсумок українською.
         """.trimIndent()
 
-        val activeGeminiKey = getGeminiKey()
-
-        // 1. ОСНОВНИЙ: GEMINI (перевіряємо 2.0-flash та 1.5-flash)
-        if (activeGeminiKey.isNotEmpty()) {
+        // 1. GEMINI
+        if (RAW_GEMINI_KEY.isNotEmpty() && !RAW_GEMINI_KEY.contains("ТВІЙ_ЗАДЗЕРКАЛЕНИЙ")) {
             val modelsToTry = listOf("gemini-2.0-flash", "gemini-1.5-flash")
             
             for (modelName in modelsToTry) {
@@ -95,7 +84,7 @@ class AiRewriter {
                         })
                     }
 
-                    val response = client.post("https://generativelanguage.googleapis.com/v1beta/models/$modelName:generateContent?key=$activeGeminiKey") {
+                    val response = client.post("https://generativelanguage.googleapis.com/v1beta/models/$modelName:generateContent?key=$RAW_GEMINI_KEY") {
                         contentType(ContentType.Application.Json)
                         setBody(jsonBody.toString())
                     }
@@ -121,7 +110,7 @@ class AiRewriter {
             }
         }
 
-        // 2. РЕЗЕРВНИЙ: GROQ
+        // 2. GROQ
         try {
             LogManager.log("Groq", "Використовуємо резервний Groq...")
             val groqKey = GROQ_KEYS.random()

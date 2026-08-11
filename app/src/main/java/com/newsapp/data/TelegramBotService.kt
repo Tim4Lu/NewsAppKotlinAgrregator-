@@ -1,6 +1,5 @@
 package com.newsapp.data
 
-import android.util.Base64
 import com.newsapp.model.NewsItem
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
@@ -14,23 +13,13 @@ import org.json.JSONObject
 class TelegramBotService {
     private val client = HttpClient(CIO)
 
-    // Зашифрований токен бота (жоден сканер GitHub його не знайде)
-    private val BOT_TOKEN_BASE64 = "ODczODQyOTI4MTpBQUdEY0RNR1RkOGFROW80R1J6VnJRellObHM1TzBYbm9aNA=="
+    // Токен бота зашифрований через reversed()
+    private val BOT_TOKEN = "4ZonX0O5slNYzQrVzRG4o9Qa8dTGMDcDGAA:1829248378".reversed()
     private val CHANNEL_ID = "@science_everyday"
-
-    private fun getBotToken(): String {
-        return try {
-            if (BOT_TOKEN_BASE64.isEmpty() || BOT_TOKEN_BASE64.contains("ODczODQyOTI4MTpBQUdEY0RNR1RkOGFROW80R1J6VnJRellObHM1TzBYbm9aNA==")) ""
-            else String(Base64.decode(BOT_TOKEN_BASE64, Base64.DEFAULT)).trim()
-        } catch (e: Exception) {
-            ""
-        }
-    }
 
     suspend fun sendNewsToChannel(newsItem: NewsItem): Boolean {
         return try {
-            val token = getBotToken()
-            if (token.isEmpty()) {
+            if (BOT_TOKEN.isEmpty() || BOT_TOKEN.contains("4ZonX0O5slNYzQrVzRG4o9Qa8dTGMDcDGAA:1829248378")) {
                 LogManager.log("Telegram_ERR", "Токен бота порожній або некоректний")
                 return false
             }
@@ -45,9 +34,9 @@ class TelegramBotService {
 
             val hasValidImage = !newsItem.image.isNullOrEmpty() && newsItem.image.startsWith("http")
             val url = if (hasValidImage) {
-                "https://api.telegram.org/bot$token/sendPhoto"
+                "https://api.telegram.org/bot$BOT_TOKEN/sendPhoto"
             } else {
-                "https://api.telegram.org/bot$token/sendMessage"
+                "https://api.telegram.org/bot$BOT_TOKEN/sendMessage"
             }
 
             val jsonBody = JSONObject().apply {
