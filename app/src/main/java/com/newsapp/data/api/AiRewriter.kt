@@ -11,6 +11,7 @@ import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.contentType
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
@@ -20,10 +21,10 @@ class AiRewriter {
         expectSuccess = false
     }
 
+    // Твій новий ключ Gemini підставлено та зашифровано через reversed()
     private val KEYS = mapOf(
         "GEMINI" to listOf(
-            "wN0lroowZ0QmYR21AYX6-WUccFuTPx0cv8dz3Z9KUwNK6NR8bA.QA".reversed(),
-            "wnuE7KEEfT586c6KKr8R2nYw-4IJKlWHT5ODaIkQoOMJ6NR8bA.QA".reversed()
+            "AjCcMWZl_HZQj_pG27K7Wvg6fvCivHqyXO3MuMIeVCGL6NR8bA.QA".reversed()
         ),
         "GROQ" to listOf(
             "aQvzOt1pJ9khaUW27VBClIQsYF3bydGWxFwgtKxlXrVg1Vu2dlKl_ksg".reversed()
@@ -41,14 +42,14 @@ class AiRewriter {
 
         try {
             val systemPrompt = """
-                Ти — шеф-редактор новинного Telegram-каналу. Твоє завдання — перетворити чернетку на короткий пост.
+                Ти — шеф-редактор новинного Telegram-каналу. Твоє завдання — перекласти (якщо текст англійською) та зробити короткий пост українською мовою.
                 1. ОБ'ЄМ: Строго до 500-600 символів. Одразу до фактів.
                 2. СТРУКТУРА:
                    - Перше речення: Головний факт.
                    - Далі маркований список ('•'): 2-3 деталi.
                    - ЖОРСТКЕ ТАБУ НА ЗІРОЧКИ: Ніколи не використовуй зірочки **!
                    - Фінальне речення: Підсумок.
-                3. МОВА: Тільки українська.
+                3. МОВА: Тільки якісна українська мова.
                 ФОРМАТ:
                 ЗАГОЛОВОК: (Заголовок з 1 емодзі)
                 ТЕКСТ: (Текст)
@@ -91,86 +92,90 @@ class AiRewriter {
     suspend fun processAllNewsWithAi(rawNewsList: List<NewsItem>, onItemProcessed: (NewsItem) -> Unit) {
         val fallbackImages = listOf(
             "https://images.unsplash.com/photo-1451187580459-43490279c0fa?q=80&w=800&auto=format&fit=crop",
-            "https://images.unsplash.com/photo-1506703719100-a0f3a48c0f86?q=80&w=800&auto=format&fit=crop"
+            "https://images.unsplash.com/photo-1506703719100-a0f3a48c0f86?q=80&w=800&auto=format&fit=crop",
+            "https://images.unsplash.com/photo-1446776811953-b23d57bd21aa?q=80&w=800&auto=format&fit=crop"
         )
 
-        LogManager.log("AI_START", "Початок обробки ${rawNewsList.size} новин")
+        LogManager.log("AI_START", "Початок обробки новин")
 
         for (i in rawNewsList.indices) {
             val n = rawNewsList[i]
-            LogManager.log("AI_QUEUE", "[$i/${rawNewsList.size}] Обробка: ${n.title.take(20)}...")
+            LogManager.log("AI_QUEUE", "[$i/${rawNewsList.size}] Обробка: ${n.title.take(25)}...")
 
-            // АНТИБЛОКУВАННЯ: 4.5 секунди паузи, щоб обійти ліміт 15 запитів/хвилину
             if (i > 0) {
-                LogManager.log("AI_WAIT", "Чекаємо 4.5с для обходу лімітів...")
-                delay(4500)
+                LogManager.log("AI_WAIT", "Пауза 10с для лімітів...")
+                delay(10000)
             }
 
             try {
-                var geminiTitleDraft = n.title
-                var geminiTextDraft = n.description
-                val geminiKey = getKey("GEMINI")
+                withTimeoutOrNull(10000) {
+                    var geminiTitleDraft = n.title
+                    var geminiTextDraft = n.description
+                    val geminiKey = getKey("GEMINI")
 
-                try {
-                    val prompt = """
-                        Переклади українською та зроби сухий виклад "по суті".
-                        ЗАГОЛОВОК_УКР: (короткий заголовок)
-                        ТЕКСТ_УКР: (короткий текст до 3-4 речень)
+                    try {
+                        val prompt = """
+                            Переклади українською та зроби сухий виклад "по суті".
+                            ЗАГОЛОВОК_УКР: (короткий заголовок)
+                            ТЕКСТ_УКР: (короткий текст до 3-4 речень)
 
-                        Заголовок: ${n.title}
-                        Текст: ${n.description}
-                    """.trimIndent()
+                            Заголовок: ${n.title}
+                            Текст: ${n.description}
+                        """.trimIndent()
 
-                    val jsonBody = JSONObject().apply {
-                        put("contents", JSONArray().apply {
-                            put(JSONObject().apply {
-                                put("parts", JSONArray().apply { put(JSONObject().apply { put("text", prompt) }) })
+                        val jsonBody = JSONObject().apply {
+                            put("contents", JSONArray().apply {
+                                put(JSONObject().apply {
+                                    put("parts", JSONArray().apply { put(JSONObject().apply { put("text", prompt) }) })
+                                })
                             })
-                        })
+                        }
+
+                        val response = client.post("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=$geminiKey") {
+                            contentType(ContentType.Application.Json)
+                            setBody(jsonBody.toString())
+                        }
+
+                        val responseBody = response.bodyAsText()
+                        val data = JSONObject(responseBody)
+
+                        if (data.has("error")) {
+                            LogManager.log("Gemini_ERR", "Помилка Gemini: ${data.getJSONObject("error").optString("message")}")
+                        } else {
+                            val rawGeminiText = data.optJSONArray("candidates")?.optJSONObject(0)?.optJSONObject("content")
+                                ?.optJSONArray("parts")?.optJSONObject(0)?.optString("text", "") ?: ""
+
+                            if (rawGeminiText.isNotEmpty()) {
+                                val gTitleMatch = Regex("ЗАГОЛОВОК_УКР:\\s*(.*?)\\n", RegexOption.IGNORE_CASE).find(rawGeminiText)
+                                val gTextMatch = Regex("ТЕКСТ_УКР:\\s*([\\s\\S]*)", RegexOption.IGNORE_CASE).find(rawGeminiText)
+                                if (gTitleMatch != null) geminiTitleDraft = gTitleMatch.groupValues[1].trim()
+                                if (gTextMatch != null) geminiTextDraft = gTextMatch.groupValues[1].trim()
+                                LogManager.log("Gemini_OK", "Успішно перекладено Gemini!")
+                            }
+                        }
+                    } catch (e: Exception) {
+                        LogManager.log("Gemini_ERR", "Gemini збій, підключається Groq")
                     }
 
-                    val response = client.post("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=$geminiKey") {
-                        contentType(ContentType.Application.Json)
-                        setBody(jsonBody.toString())
-                    }
+                    val groqResult = verifyWithGroqEditor(geminiTextDraft, geminiTitleDraft)
+                    val finalTitle = groqResult?.first ?: geminiTitleDraft
+                    val finalText = groqResult?.second ?: geminiTextDraft
 
-                    val data = JSONObject(response.bodyAsText())
-                    if (data.has("error")) {
-                        LogManager.log("Gemini_LIMIT", "Помилка/Ліміт Gemini: ${data.getJSONObject("error").optString("message")}")
-                    }
+                    val imageToUse = if (!n.image.isNullOrEmpty() && n.image.startsWith("http")) n.image else fallbackImages.random()
 
-                    val rawGeminiText = data.optJSONArray("candidates")?.optJSONObject(0)?.optJSONObject("content")
-                        ?.optJSONArray("parts")?.optJSONObject(0)?.optString("text", "") ?: ""
+                    val finishedItem = n.copy(
+                        title = finalTitle,
+                        description = finalText,
+                        image = imageToUse,
+                        status = "Готово",
+                        telegramCaption = "🚀 <b>$finalTitle</b>\n\n$finalText\n\n• <b>Джерело:</b> ${n.source}"
+                    )
 
-                    if (rawGeminiText.isNotEmpty()) {
-                        val gTitleMatch = Regex("ЗАГОЛОВОК_УКР:\\s*(.*?)\\n", RegexOption.IGNORE_CASE).find(rawGeminiText)
-                        val gTextMatch = Regex("ТЕКСТ_УКР:\\s*([\\s\\S]*)", RegexOption.IGNORE_CASE).find(rawGeminiText)
-                        if (gTitleMatch != null) geminiTitleDraft = gTitleMatch.groupValues[1].trim()
-                        if (gTextMatch != null) geminiTextDraft = gTextMatch.groupValues[1].trim()
-                        LogManager.log("Gemini_OK", "Успішний переклад")
-                    }
-                } catch (e: Exception) {
-                    LogManager.log("Gemini_ERR", "Мережева помилка Gemini")
+                    LogManager.log("AI_ITEM_DONE", "Новину повністю готово!")
+                    onItemProcessed(finishedItem)
                 }
-
-                val groqResult = verifyWithGroqEditor(geminiTextDraft, geminiTitleDraft)
-                val finalTitle = groqResult?.first ?: geminiTitleDraft
-                val finalText = groqResult?.second ?: geminiTextDraft
-
-                val imageToUse = if (n.image.startsWith("http")) n.image else fallbackImages.random()
-
-                val finishedItem = n.copy(
-                    title = finalTitle,
-                    description = finalText,
-                    image = imageToUse,
-                    status = "Готово",
-                    telegramCaption = "🚀 <b>$finalTitle</b>\n\n$finalText\n\n• <b>Джерело:</b> ${n.source}"
-                )
-
-                onItemProcessed(finishedItem)
-
             } catch (e: Exception) {
-                LogManager.log("AI_FATAL", "Загальна помилка: ${e.message}")
+                LogManager.log("AI_FATAL", "Помилка елемента: ${e.message}")
             }
         }
     }

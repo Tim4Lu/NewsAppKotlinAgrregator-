@@ -1,7 +1,8 @@
 package com.newsapp.ui.viewmodel
 
+import android.app.Application
 import android.util.Log
-import androidx.lifecycle.ViewModel
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.newsapp.data.LogManager
 import com.newsapp.data.TelegramBotService
@@ -19,12 +20,15 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import org.json.JSONArray
+import org.json.JSONObject
 import org.xmlpull.v1.XmlPullParser
 import org.xmlpull.v1.XmlPullParserFactory
+import java.io.File
 import java.io.StringReader
 import java.net.URL
 
-class NewsViewModel : ViewModel() {
+class NewsViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _newsList = MutableStateFlow<List<NewsItem>>(emptyList())
     val newsList: StateFlow<List<NewsItem>> = _newsList.asStateFlow()
@@ -35,19 +39,73 @@ class NewsViewModel : ViewModel() {
     private val client = HttpClient(CIO) { followRedirects = true }
     private val aiRewriter = AiRewriter()
     private val telegramBotService = TelegramBotService()
+    private val cacheFile = File(application.filesDir, "saved_news.json")
 
     private val rssUrls = listOf(
         "https://www.nasa.gov/news-release/feed/",
         "https://www.space.com/feeds/all"
     )
 
-    init { loadNews() }
+    init {
+        loadCachedNews()
+        loadNews()
+    }
+
+    private fun loadCachedNews() {
+        try {
+            if (cacheFile.exists()) {
+                val jsonText = cacheFile.readText()
+                val jsonArray = JSONArray(jsonText)
+                val cached = mutableListOf<NewsItem>()
+                for (i in 0 until jsonArray.length()) {
+                    val obj = jsonArray.getJSONObject(i)
+                    cached.add(
+                        NewsItem(
+                            id = obj.optString("id"),
+                            title = obj.optString("title"),
+                            link = obj.optString("link"),
+                            description = obj.optString("description"),
+                            source = obj.optString("source"),
+                            image = obj.optString("image"),
+                            status = obj.optString("status", "Готово"),
+                            telegramCaption = obj.optString("telegramCaption")
+                        )
+                    )
+                }
+                _newsList.value = cached
+                LogManager.log("Cache", "Завантажено ${cached.size} новин із диска")
+            }
+        } catch (e: Exception) {
+            LogManager.log("Cache_ERR", "Збій кешу: ${e.message}")
+        }
+    }
+
+    private fun saveNewsToDisk(list: List<NewsItem>) {
+        try {
+            val jsonArray = JSONArray()
+            list.filter { it.status == "Готово" || it.status == "Опубліковано" }.forEach { item ->
+                val obj = JSONObject().apply {
+                    put("id", item.id)
+                    put("title", item.title)
+                    put("link", item.link)
+                    put("description", item.description)
+                    put("source", item.source)
+                    put("image", item.image)
+                    put("status", item.status)
+                    put("telegramCaption", item.telegramCaption)
+                }
+                jsonArray.put(obj)
+            }
+            cacheFile.writeText(jsonArray.toString())
+        } catch (e: Exception) {
+            LogManager.log("Cache_ERR", "Збій збереження: ${e.message}")
+        }
+    }
 
     fun loadNews() {
         if (_newsList.value.isEmpty()) _isLoading.value = true
 
         viewModelScope.launch(Dispatchers.IO) {
-            LogManager.log("ViewModel", "Завантаження RSS...")
             val rawNews = mutableListOf<NewsItem>()
 
             for (url in rssUrls) {
@@ -56,70 +114,90 @@ class NewsViewModel : ViewModel() {
                     if (response.status.value in 200..299) {
                         rawNews.addAll(parseRss(response.bodyAsText(), URL(url).host))
                     }
-                } catch (e: Exception) {
-                    LogManager.log("ViewModel_ERR", "Помилка RSS: ${e.message}")
-                }
+                } catch (e: Exception) { }
             }
 
             if (rawNews.isNotEmpty()) {
-                if (_newsList.value.isEmpty()) {
-                    _newsList.value = rawNews.map { it.copy(status = "В черзі", telegramCaption = "Обробка...") }
-                }
-                _isLoading.value = false
+                val currentTitles = _newsList.value.map { it.title }.toSet()
+                val freshNews = rawNews.filter { !currentTitles.contains(it.title) }
 
-                // Запускаємо фоновий скрейпінг og:image та тексту статті + ШІ
-                processNewsWithScraperAndAi(rawNews)
+                if (freshNews.isNotEmpty()) {
+                    val freshInitial = freshNews.map { it.copy(status = "В черзі", telegramCaption = "Обробка...") }
+                    _newsList.value = freshInitial + _newsList.value
+                    _isLoading.value = false
+
+                    processNewsWithScraperAndAi(freshNews)
+                } else {
+                    _isLoading.value = false
+                }
             } else {
                 _isLoading.value = false
             }
         }
     }
 
-    // Точна реалізація твоєї функції scrapeNasaArticle
+    // ПОКРАЩЕНИЙ ПОШУК ОРИГІНАЛЬНИХ ЗОБРАЖЕНЬ ЗІ СТОРІНКИ
     private suspend fun scrapeArticle(url: String): Pair<String, String?> {
         try {
-            LogManager.log("Scraper", "Скрейпінг сторінки: ${url.take(30)}...")
             val response: HttpResponse = client.get(url) {
-                header(HttpHeaders.UserAgent, "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+                header(HttpHeaders.UserAgent, "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
             }
             val html = response.bodyAsText()
 
-            // 1. Шукаємо зображення (og:image) ПЕРЕД тим, як чистити HTML
-            val ogImageRegex = Regex("<meta[^>]+property=[\"']og:image[\"'][^>]+content=[\"']([^\"']+)[\"']", RegexOption.IGNORE_CASE)
-            var imageUrl = ogImageRegex.find(html)?.groupValues?.get(1)
+            var imageUrl: String? = null
 
-            // Якщо og:image немає, шукаємо звичайний тег img
-            if (imageUrl.isNullOrEmpty()) {
-                val imgRegex = Regex("<img[^>]+src=[\"']([^\"']+)[\"']", RegexOption.IGNORE_CASE)
-                imageUrl = imgRegex.find(html)?.groupValues?.get(1)
+            // 1. Пошук og:image або twitter:image у meta-тегах
+            val ogMatch = Regex("<meta[^>]+(?:property|name)=[\"'](?:og:image|twitter:image)[\"'][^>]+content=[\"']([^\"']+)[\"']", RegexOption.IGNORE_CASE).find(html)
+            if (ogMatch != null) {
+                imageUrl = ogMatch.groupValues[1]
             }
 
-            // 2. Прибираємо блоки-сміття
+            // 2. Якщо meta немає — шукаємо в JSON-LD структурі сайту ("image": "https://...")
+            if (imageUrl.isNullOrEmpty()) {
+                val jsonLdMatch = Regex("\"image\"\\s*:\\s*[\"']([^\"']+)[\"']", RegexOption.IGNORE_CASE).find(html)
+                if (jsonLdMatch != null) {
+                    imageUrl = jsonLdMatch.groupValues[1]
+                }
+            }
+
+            // 3. Якщо і там немає — шукаємо перший тег <img> у тілі статті
+            if (imageUrl.isNullOrEmpty()) {
+                val imgMatch = Regex("<img[^>]+src=[\"']([^\"']+)[\"']", RegexOption.IGNORE_CASE).find(html)
+                if (imgMatch != null) {
+                    imageUrl = imgMatch.groupValues[1]
+                }
+            }
+
+            // Перетворення відносного шлях (/images/...) у повноцінну URL-адресу
+            if (!imageUrl.isNullOrEmpty() && !imageUrl.startsWith("http")) {
+                val baseUrl = URL(url)
+                imageUrl = "${baseUrl.protocol}://${baseUrl.host}$imageUrl"
+            }
+
+            if (!imageUrl.isNullOrEmpty()) {
+                LogManager.log("Image_OK", "Знайдено оригінальну картинку: ${imageUrl.take(40)}...")
+            } else {
+                LogManager.log("Image_WARN", "Оригінальну картинку не знайдено для: $url")
+            }
+
+            // Витягуємо текст
             val cleanHtml = html.replace(Regex("<(nav|header|footer|script|style|button|aside|noscript)[^>]*>[\\s\\S]*?<\\/\\1>", RegexOption.IGNORE_CASE), "")
-
-            // 3. Беремо абзаци <p> більше 50 символів
             val pTags = Regex("<p[^>]*>([^<]{50,})<\\/p>", RegexOption.IGNORE_CASE).findAll(cleanHtml).map { it.groupValues[1] }.toList()
-
             val validParagraphs = pTags
                 .map { it.replace(Regex("<[^>]*>"), "").trim() }
-                .filter { t ->
-                    t.length > 100 &&
-                    t.contains(".") &&
-                    !Regex("menu|login|copyright|privacy|contact|subscribe|home|search", RegexOption.IGNORE_CASE).containsMatchIn(t)
-                }
+                .filter { t -> t.length > 100 && t.contains(".") }
 
             val scrapedText = validParagraphs.take(4).joinToString("\n\n")
-
             return Pair(if (scrapedText.length >= 200) scrapedText else "", imageUrl)
+
         } catch (e: Exception) {
-            LogManager.log("Scraper_ERR", "Помилка скрейпінгу: ${e.message}")
+            LogManager.log("Scrape_ERR", "Помилка скрейпінгу сторінки: ${e.message}")
             return Pair("", null)
         }
     }
 
     private suspend fun processNewsWithScraperAndAi(rawNews: List<NewsItem>) {
         val updatedList = rawNews.map { item ->
-            // Викликаємо скрейпер для кожної статті за її посиланням
             val (fullText, scrapedImage) = scrapeArticle(item.link)
             item.copy(
                 description = if (fullText.isNotEmpty()) fullText else item.description,
@@ -127,11 +205,11 @@ class NewsViewModel : ViewModel() {
             )
         }
 
-        // Передаємо оновлені новини із реальним фото та текстом до ШІ
         aiRewriter.processAllNewsWithAi(updatedList) { finishedItem ->
             _newsList.value = _newsList.value.map { current ->
                 if (current.id == finishedItem.id || current.title == finishedItem.title) finishedItem else current
             }
+            saveNewsToDisk(_newsList.value)
         }
     }
 
@@ -143,12 +221,14 @@ class NewsViewModel : ViewModel() {
         _newsList.value = _newsList.value.map {
             if (it.id == id) it.copy(description = newText, telegramCaption = "🚀 <b>${it.title}</b>\n\n$newText\n\n• <b>Джерело:</b> ${it.source}") else it
         }
+        saveNewsToDisk(_newsList.value)
     }
 
     fun sendNews(newsItem: NewsItem) {
         viewModelScope.launch(Dispatchers.IO) {
             telegramBotService.sendNewsToChannel(newsItem)
             _newsList.value = _newsList.value.map { if (it.id == newsItem.id) it.copy(status = "Опубліковано") else it }
+            saveNewsToDisk(_newsList.value)
         }
     }
 
@@ -189,7 +269,7 @@ class NewsViewModel : ViewModel() {
                         val name = parser.name ?: ""
                         if (name.equals("item", true) || name.equals("entry", true)) {
                             if (!title.isNullOrEmpty()) {
-                                items.add(NewsItem(title!!.trim(), link?.trim() ?: "", desc?.replace(Regex("<.*?>"), "")?.trim() ?: "", sourceName))
+                                items.add(NewsItem(title = title!!.trim(), link = link?.trim() ?: "", description = desc?.replace(Regex("<.*?>"), "")?.trim() ?: "", source = sourceName))
                             }
                             insideItem = false
                         }
