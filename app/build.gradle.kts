@@ -13,7 +13,6 @@ android {
         minSdk = 24
         targetSdk = 34
         
-        // Автоматичне підтягування versionCode з GitHub Actions
         val runNumber = project.findProperty("versionCode")?.toString()?.toIntOrNull() ?: 1
         versionCode = runNumber
         versionName = "1.0.$runNumber"
@@ -36,5 +35,29 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
+}
+
+dependencies {
+    // AndroidX & Core
+    implementation("androidx.core:core-ktx:1.12.0")
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
+    implementation("androidx.activity:activity-compose:1.8.2")
+
+    // Compose UI & Material 3
+    implementation(platform("androidx.compose:compose-bom:2024.02.00"))
+    implementation("androidx.compose.ui:ui")
+    implementation("androidx.compose.ui:ui-graphics")
+    implementation("androidx.compose.ui:ui-tooling-preview")
+    implementation("androidx.compose.material3:material3")
+    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0")
+
+    // Ktor Client
+    val ktorVersion = "2.3.8"
+    implementation("io.ktor:ktor-client-core:$ktorVersion")
+    implementation("io.ktor:ktor-client-cio:$ktorVersion")
+
+    // Coroutines
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
 }
