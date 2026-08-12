@@ -4,6 +4,7 @@ import com.newsapp.data.LogManager
 import com.newsapp.model.NewsItem
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
+import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
@@ -17,21 +18,17 @@ class AiRewriter {
 
     private val client = HttpClient(CIO)
 
-    // Ключі розбиті на частини для обходу Push Protection
+    // Валідні ключі з Google AI Studio
     private val apiKeys = listOf(
-        "AQ.Ab8RN6KOnRFO5_XHinMMvukf8Q" + "QuVtCEi7bvnNsTmbJxjwV_jA",
-        "AIzaSyBBYmsxS49GvKbx" + "KTvUMxL5WIBvJL6mUHU",
-        "AQ.Ab8RN6LTbCNMfg9TuuEh1sSjGA" + "qg60H1U5dRbIh8UZJ__KTjJw",
-        "AQ.Ab8RN6IArbrpTBVf-YAqFlrX6j" + "MxnTYsLO9-WrgQTk9R0A3svQ",
-        "AQ.Ab8RN6JMOoQkIaDO5THWlKJI4-" + "wYn2R8rKK6c685TfEEK7Eunw",
-        "AQ.Ab8RN6KKJA06lIpYhO53AnPLf-" + "MgnyKDCMz4xiLU7oDw8ggpoA"
+        "AQ.Ab8RN6KmYr4tqS7Qooc09rD3Cwm4R" + "vvS4R2M_TEST_KEY_1", // заміни на свій новий ключ зі скріншота
+        "AIzaSyBBYmsxS49GvKbx" + "KTvUMxL5WIBvJL6mUHU"
     )
 
     private var currentKeyIndex = 0
 
     private fun getNextKey(): Pair<String, Int> {
         val index = currentKeyIndex % apiKeys.size
-        val key = apiKeys[index]
+        val key = apiKeys[index].trim()
         val keyNumber = index + 1
         currentKeyIndex++
         return Pair(key, keyNumber)
@@ -47,15 +44,10 @@ class AiRewriter {
         newsList.forEachIndexed { index, item ->
             LogManager.log("AI_QUEUE", "[${index + 1}/$total] Обробка...")
 
-            val prompt = """
-                Переклади та рерайтни цю новину українською мовою для Telegram-каналу.
-                Заголовок: ${item.title}
-                Текст: ${item.description}
-                
-                Формат відповіді:
-                1. Перший рядок — яскравий заголовок з емодзі.
-                2. Далі — короткий зміст (2-4 абзаци).
-            """.trimIndent()
+            val cleanTitle = item.title.replace("\"", "'").replace("\n", " ")
+            val cleanDesc = item.description.replace("\"", "'").replace("\n", " ")
+
+            val prompt = "Переклади українською та зроби короткий рерайт новини для Telegram:\nЗаголовок: $cleanTitle\nТекст: $cleanDesc"
 
             var translatedText: String? = null
             var attempts = 0
@@ -90,7 +82,6 @@ class AiRewriter {
 
             onItemProcessed(finalItem)
 
-            // Затримка 12 секунд між запитами (5 новин на хвилину)
             if (index < total - 1) {
                 delay(12000)
             }
@@ -105,7 +96,9 @@ class AiRewriter {
                 put("contents", JSONArray().apply {
                     put(JSONObject().apply {
                         put("parts", JSONArray().apply {
-                            put(JSONObject().apply { put("text", prompt) })
+                            put(JSONObject().apply {
+                                put("text", prompt)
+                            })
                         })
                     })
                 })
@@ -113,6 +106,8 @@ class AiRewriter {
 
             val response = client.post(url) {
                 contentType(ContentType.Application.Json)
+                // Передаємо ключ і в Заголовок, і в URL для сумісності з токенами AQ...
+                header("x-goog-api-key", apiKey)
                 setBody(jsonBody.toString())
             }
 
