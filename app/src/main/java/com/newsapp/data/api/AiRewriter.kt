@@ -3,7 +3,7 @@ package com.newsapp.data.api
 import android.text.Html
 import android.util.Base64
 import com.newsapp.data.LogManager
-import com.newsapp.data.model.NewsItem
+import com.newsapp.model.NewsItem
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
 import io.ktor.client.request.header
@@ -21,7 +21,6 @@ class AiRewriter {
         expectSuccess = false
     }
 
-    // Зашифровані ключі Gemini у Base64
     private val GEMINI_B64_KEYS = listOf(
         "QVEuQWI4Uk42Sk1Pb1FrSWFETzVUSFdsS0pJNC13WW4yUjhyS0s2YzY4NVRmRUVLN0V1bnc=",
         "QVEuQWI4Uk42SUFyYnJwVEJWZi1ZQXFGbHJYNmpNeG5UWXNMTzktV3JnUVRrOVIwQTNzdlE=",
@@ -122,7 +121,7 @@ class AiRewriter {
                     }
                 }
             } catch (e: Exception) {
-                // Ігноруємо і йдемо до наступного ключа
+                // Ігноруємо помилки
             }
         }
 
@@ -153,7 +152,7 @@ class AiRewriter {
                 return parseAiOutput(aiResponse, cleanTitle, cleanText)
             }
         } catch (e: Exception) {
-            // Ігноруємо помилку Groq
+            // Ігноруємо помилки
         }
 
         LogManager.log("AI_FALLBACK", "ШІ недоступний. Використовуємо оригінальний текст.")
