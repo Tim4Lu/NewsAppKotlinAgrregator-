@@ -31,6 +31,8 @@ import java.net.URL
 
 class NewsViewModel(application: Application) : AndroidViewModel(application) {
 
+    private val MAX_NEWS_LIMIT = 280
+
     private val _newsList = MutableStateFlow<List<NewsItem>>(emptyList())
     val newsList: StateFlow<List<NewsItem>> = _newsList.asStateFlow()
 
@@ -43,7 +45,6 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
     private val updateManager = UpdateManager(application)
     private val cacheFile = File(application.filesDir, "saved_news.json")
 
-    // Тільки світові наукові та технологічні джерела (українські видалено)
     private val rssSources = listOf(
         "NASA News" to "https://www.nasa.gov/rss/dyn/breaking_news.rss",
         "SpaceNews" to "https://spacenews.com/feed/",
@@ -112,15 +113,21 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
                         )
                     )
                 }
-                _newsList.value = cached
+                // Застосовуємо ліміт 280 новин при зчитуванні з диска
+                _newsList.value = cached.take(MAX_NEWS_LIMIT)
+                LogManager.log("CACHE", "Завантажено ${_newsList.value.size} збережених новин з пам'яті")
             }
-        } catch (e: Exception) { }
+        } catch (e: Exception) {
+            LogManager.log("CACHE_ERR", "Помилка читання кешу: ${e.message}")
+        }
     }
 
     private fun saveNewsToDisk(list: List<NewsItem>) {
         try {
             val jsonArray = JSONArray()
-            list.filter { it.status == "Готово" || it.status == "Опубліковано" }.forEach { item ->
+            // Обрізаємо список до 280 найсвіжіших перед збереженням
+            val trimmedList = list.take(MAX_NEWS_LIMIT)
+            trimmedList.forEach { item ->
                 val obj = JSONObject().apply {
                     put("id", item.id)
                     put("title", item.title)
@@ -134,7 +141,9 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
                 jsonArray.put(obj)
             }
             cacheFile.writeText(jsonArray.toString())
-        } catch (e: Exception) { }
+        } catch (e: Exception) {
+            LogManager.log("CACHE_ERR", "Помилка збереження кешу: ${e.message}")
+        }
     }
 
     fun loadNews() {
@@ -153,16 +162,21 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
             }
 
             if (rawNews.isNotEmpty()) {
-                val currentTitles = _newsList.value.map { it.title }.toSet()
-                val freshNews = rawNews.filter { !currentTitles.contains(it.title) }
+                val existingLinksAndTitles = _newsList.value.flatMap { listOf(it.link, it.title) }.filter { it.isNotBlank() }.toSet()
+                val trulyNewItems = rawNews.filter { !existingLinksAndTitles.contains(it.link) && !existingLinksAndTitles.contains(it.title) }
 
-                if (freshNews.isNotEmpty()) {
-                    val freshInitial = freshNews.map { it.copy(status = "В черзі", telegramCaption = "Обробка...") }
-                    _newsList.value = freshInitial + _newsList.value
+                if (trulyNewItems.isNotEmpty()) {
+                    LogManager.log("RSS", "Знайдено ${trulyNewItems.size} нових свіжих новин")
+                    val freshInitial = trulyNewItems.map { it.copy(status = "В черзі", telegramCaption = "Обробка...") }
+                    
+                    // Об'єднуємо та утримуємо строго не більше 280 новин (найстаріші відсікаються)
+                    val combinedList = (freshInitial + _newsList.value).take(MAX_NEWS_LIMIT)
+                    _newsList.value = combinedList
                     _isLoading.value = false
 
-                    processNewsWithScraperAndAi(freshNews)
+                    processNewsWithScraperAndAi(trulyNewItems)
                 } else {
+                    LogManager.log("RSS", "Усі новини з RSS вже є у пам'яті.")
                     _isLoading.value = false
                 }
             } else {
@@ -217,7 +231,8 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
         aiRewriter.processAllNewsWithAi(updatedList) { finishedItem ->
             _newsList.value = _newsList.value.map { current ->
                 if (current.id == finishedItem.id || current.title == finishedItem.title) finishedItem else current
-            }
+            }.take(MAX_NEWS_LIMIT)
+            
             saveNewsToDisk(_newsList.value)
         }
     }

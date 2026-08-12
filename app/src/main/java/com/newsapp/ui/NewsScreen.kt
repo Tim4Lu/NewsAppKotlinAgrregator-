@@ -25,7 +25,17 @@ fun NewsScreen(viewModel: NewsViewModel) {
     var showLogsDialog by remember { mutableStateOf(false) }
     var selectedSource by remember { mutableStateOf("Усі") }
 
-    val sources = listOf("Усі", "NASA News", "SpaceNews", "BBC Tech", "AIN.ua", "ITC.ua", "Dev.ua", "Mezha.Media", "TechCrunch", "Wired", "MIT Tech Review", "Nature")
+    // Видалено українські сайти з вкладок
+    val sources = listOf(
+        "Усі",
+        "NASA News",
+        "SpaceNews",
+        "BBC Tech",
+        "TechCrunch",
+        "Wired",
+        "MIT Tech Review",
+        "Nature"
+    )
 
     val filteredNews = if (selectedSource == "Усі") {
         newsList
