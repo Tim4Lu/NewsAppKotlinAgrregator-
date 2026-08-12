@@ -5,6 +5,19 @@ plugins {
 }
 
 android {
+
+    signingConfigs {
+        create("release") {
+            val ksFile = file("newsapp-key.keystore")
+            if (ksFile.exists()) {
+                storeFile = ksFile
+                storePassword = "12345678"
+                keyAlias = "newsapp"
+                keyPassword = "12345678"
+            }
+        }
+    }
+
     namespace = "com.newsapp"
     compileSdk = 34
 
@@ -21,6 +34,20 @@ android {
     }
 
     buildTypes {
+
+        getByName("release") {
+            val ksFile = file("newsapp-key.keystore")
+            if (ksFile.exists()) {
+                signingConfig = signingConfigs.getByName("release")
+            }
+        }
+        getByName("debug") {
+            val ksFile = file("newsapp-key.keystore")
+            if (ksFile.exists()) {
+                signingConfig = signingConfigs.getByName("release")
+            }
+        }
+
         release {
             isMinifyEnabled = false
             proguardFiles(
