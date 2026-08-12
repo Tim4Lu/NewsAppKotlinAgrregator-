@@ -37,7 +37,7 @@ class UpdateManager(private val context: Context) {
             val tagName = json.optString("tag_name", "")
             
             val latestBuild = tagName.substringAfterLast(".").toIntOrNull() ?: 0
-            LogManager.log("UPDATE_CHECK", "Тег GitHub: $tagName (build: $latestBuild), Поточний: $currentBuildNumber")
+            LogManager.log("UPDATE_CHECK", "Тег GitHub: $tagName (build: $latestBuild), Поточна версія: $currentBuildNumber")
 
             if (latestBuild > currentBuildNumber) {
                 val assets = json.optJSONArray("assets")
@@ -46,6 +46,8 @@ class UpdateManager(private val context: Context) {
                     val downloadUrl = apkAsset.getString("browser_download_url")
                     return@withContext UpdateInfo(latestBuild, downloadUrl, tagName)
                 }
+            } else {
+                LogManager.log("UPDATE", "Встановлено актуальну версію ($currentBuildNumber). Оновлення не потрібні.")
             }
         } catch (e: Exception) {
             LogManager.log("UPDATE_ERR", "Помилка перевірки оновлення: ${e.message}")
@@ -64,7 +66,6 @@ class UpdateManager(private val context: Context) {
             var connection: HttpURLConnection
             var redirect: Boolean
 
-            // Обробка HTTP перенаправлень (301/302) для GitHub Releases
             do {
                 val url = URL(currentUrl)
                 connection = url.openConnection() as HttpURLConnection
@@ -82,20 +83,32 @@ class UpdateManager(private val context: Context) {
                 }
             } while (redirect)
 
+            val fileLength = connection.contentLength
             val inputStream = connection.inputStream
             val outputStream = FileOutputStream(apkFile)
             val buffer = ByteArray(8192)
             var bytesRead: Int
+            var totalBytesRead: Long = 0
+            var lastLoggedProgress = -1
 
             while (inputStream.read(buffer).also { bytesRead = it } != -1) {
+                totalBytesRead += bytesRead
                 outputStream.write(buffer, 0, bytesRead)
+
+                if (fileLength > 0) {
+                    val progress = ((totalBytesRead * 100) / fileLength).toInt()
+                    if (progress % 25 == 0 && progress != lastLoggedProgress) {
+                        LogManager.log("UPDATE_PROGRESS", "Завантаження APK: $progress%")
+                        lastLoggedProgress = progress
+                    }
+                }
             }
 
             outputStream.flush()
             outputStream.close()
             inputStream.close()
 
-            LogManager.log("UPDATE_OK", "Завантажено успішно. Запуск встановлення...")
+            LogManager.log("UPDATE_OK", "APK успішно завантажено. Запуск встановлення...")
             installApk(apkFile)
         } catch (e: Exception) {
             LogManager.log("UPDATE_ERR", "Помилка завантаження: ${e.message}")
