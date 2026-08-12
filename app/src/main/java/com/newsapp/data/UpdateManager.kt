@@ -28,9 +28,13 @@ class UpdateManager(private val context: Context) {
             val json = JSONObject(response)
             val tagName = json.optString("tag_name", "")
 
+            // Витягуємо номер з тегу (наприклад "v1.0.80" -> 80)
             val latestBuild = tagName.substringAfterLast(".").toIntOrNull() ?: 0
 
-            if (latestBuild > currentBuildNumber) {
+            LogManager.log("UPDATE_CHECK", "Тег GitHub: $tagName (build: $latestBuild), Поточний: $currentBuildNumber")
+
+            // Якщо версія на GitHub новіша АБО якщо номер білду рівний, але є файл релізу
+            if (latestBuild > currentBuildNumber || latestBuild == 0) {
                 val assets = json.optJSONArray("assets")
                 if (assets != null && assets.length() > 0) {
                     val apkAsset = assets.getJSONObject(0)
