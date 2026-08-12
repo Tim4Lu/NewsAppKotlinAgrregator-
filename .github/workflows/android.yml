@@ -1,8 +1,8 @@
-name: Android CI
+name: Android CI & Auto Release
 
 on:
   push:
-    branches: [ "main", "master" ]
+    branches: [ "main" ]
 
 jobs:
   build:
@@ -17,14 +17,29 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
 
+    - name: Restore Keystore from Secret
+      env:
+        KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+      run: |
+        if [ -n "$KEYSTORE_BASE64" ]; then
+          echo "$KEYSTORE_BASE64" | base64 -d > app/newsapp-key.keystore
+        fi
+
     - name: Setup Gradle
-      uses: gradle/actions/setup-gradle@v4
+      uses: gradle/actions/setup-gradle@v3
 
-    - name: Build Debug APK
-      run: gradle assembleDebug --quiet --console=plain
+    - name: Build APK
+      run: ./gradlew assembleRelease
 
-    - name: Upload APK
-      uses: actions/upload-artifact@v4
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v2
+      if: success()
       with:
-        name: app-debug
-        path: app/build/outputs/apk/debug/app-debug.apk
+        tag_name: v1.0.${{ github.run_number }}
+        name: Release v1.0.${{ github.run_number }}
+        body: |
+          Автоматична збірка додатка News Aggregator.
+          Версія: 1.0.${{ github.run_number }} (build ${{ github.run_number }})
+        files: app/build/outputs/apk/release/app-release.apk
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
