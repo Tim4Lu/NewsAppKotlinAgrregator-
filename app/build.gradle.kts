@@ -66,6 +66,9 @@ dependencies {
 android {
 
 android {
+
+
+android {
     signingConfigs {
         create("release") {
             val ksFile = file("newsapp-key.keystore")
