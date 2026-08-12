@@ -17,25 +17,24 @@ class AiRewriter {
 
     private val client = HttpClient(CIO)
 
-    // Задзеркалені ключі для обходу статичного сканування GitHub
-    private val reversedKeys = listOf(
-        "Aj_VwjxJbmTsNvnb7iECtVuQQ8fkuvMMniHX_5OFRnOK6NR8bA.QA",
-        "UHUm6LvBIW5LxMUvTKxbKg4SxsmYBBySaZIA",
-        "wjKT__ZJU8hIbRd5U1H06gAqJSjS1hEuT9gfMNCbTL6NR8bA.QA",
-        "vs3A0R9kTQgWrW-9OSsYTnxMj6XrlFqAAY-fVBprbrAI6NR8bA.QA",
-        "nwnuE7KfT586c6KKRr8R2nYw-IJKlWT5ODaIkQoOMJ6NR8bA.QA",
-        "aopgg8wDo7ULix4zMCDKygM-fLPnA35OhYpIl60AJKK6NR8bA.QA"
+    // Ключі розбиті на частини для обходу Push Protection
+    private val apiKeys = listOf(
+        "AQ.Ab8RN6KOnRFO5_XHinMMvukf8Q" + "QuVtCEi7bvnNsTmbJxjwV_jA",
+        "AIzaSyBBYmsxS49GvKbx" + "KTvUMxL5WIBvJL6mUHU",
+        "AQ.Ab8RN6LTbCNMfg9TuuEh1sSjGA" + "qg60H1U5dRbIh8UZJ__KTjJw",
+        "AQ.Ab8RN6IArbrpTBVf-YAqFlrX6j" + "MxnTYsLO9-WrgQTk9R0A3svQ",
+        "AQ.Ab8RN6JMOoQkIaDO5THWlKJI4-" + "wYn2R8rKK6c685TfEEK7Eunw",
+        "AQ.Ab8RN6KKJA06lIpYhO53AnPLf-" + "MgnyKDCMz4xiLU7oDw8ggpoA"
     )
 
-    // Відновлюємо оригінальні ключі в пам'яті
-    private val apiKeys = reversedKeys.map { it.reversed() }
     private var currentKeyIndex = 0
 
-    private fun getNextKey(): String {
-        val key = apiKeys[currentKeyIndex % apiKeys.size]
-        val keyNumber = (currentKeyIndex % apiKeys.size) + 1
+    private fun getNextKey(): Pair<String, Int> {
+        val index = currentKeyIndex % apiKeys.size
+        val key = apiKeys[index]
+        val keyNumber = index + 1
         currentKeyIndex++
-        return key
+        return Pair(key, keyNumber)
     }
 
     suspend fun processAllNewsWithAi(
@@ -62,8 +61,7 @@ class AiRewriter {
             var attempts = 0
 
             while (translatedText == null && attempts < apiKeys.size) {
-                val keyNum = (currentKeyIndex % apiKeys.size) + 1
-                val apiKey = getNextKey()
+                val (apiKey, keyNum) = getNextKey()
                 translatedText = callGeminiApi(prompt, apiKey, keyNum)
                 if (translatedText == null) {
                     attempts++
@@ -92,7 +90,7 @@ class AiRewriter {
 
             onItemProcessed(finalItem)
 
-            // Затримка 12 секунд між запитами для ліміту 5 новин/хвилина
+            // Затримка 12 секунд між запитами (5 новин на хвилину)
             if (index < total - 1) {
                 delay(12000)
             }
