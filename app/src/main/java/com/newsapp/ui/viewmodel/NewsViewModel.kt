@@ -43,14 +43,11 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
     private val updateManager = UpdateManager(application)
     private val cacheFile = File(application.filesDir, "saved_news.json")
 
+    // Тільки світові наукові та технологічні джерела (українські видалено)
     private val rssSources = listOf(
-        "AIN.ua" to "https://ain.ua/feed/",
-        "ITC.ua" to "https://itc.ua/ua/feed/",
-        "Dev.ua" to "https://dev.ua/feed",
-        "Mezha.Media" to "https://mezha.media/feed/",
-        "BBC Tech" to "https://feeds.bbci.co.uk/news/technology/rss.xml",
         "NASA News" to "https://www.nasa.gov/rss/dyn/breaking_news.rss",
         "SpaceNews" to "https://spacenews.com/feed/",
+        "BBC Tech" to "https://feeds.bbci.co.uk/news/technology/rss.xml",
         "TechCrunch" to "https://techcrunch.com/feed/",
         "Wired" to "https://www.wired.com/feed/rss",
         "MIT Tech Review" to "https://www.technologyreview.com/feed/",
@@ -86,10 +83,10 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
                     LogManager.log("UPDATE", "Знайдено нову версію: ${updateInfo.tagName}. Починаємо завантаження...")
                     updateManager.downloadAndInstallApk(updateInfo.downloadUrl)
                 } else {
-                    LogManager.log("UPDATE", "У вас встановлено найновішу версію додатка (v$currentVersion).")
+                    LogManager.log("UPDATE", "Встановлено актуальну версію ($currentVersion).")
                 }
             } catch (e: Exception) {
-                LogManager.log("UPDATE_ERR", "Помилка під час перевірки оновлень: ${e.message}")
+                LogManager.log("UPDATE_ERR", "Помилка оновлень: ${e.message}")
             }
         }
     }
@@ -116,11 +113,8 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
                     )
                 }
                 _newsList.value = cached
-                LogManager.log("Cache", "Завантажено ${cached.size} новин із диска")
             }
-        } catch (e: Exception) {
-            LogManager.log("Cache_ERR", "Збій кешу: ${e.message}")
-        }
+        } catch (e: Exception) { }
     }
 
     private fun saveNewsToDisk(list: List<NewsItem>) {
@@ -140,9 +134,7 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
                 jsonArray.put(obj)
             }
             cacheFile.writeText(jsonArray.toString())
-        } catch (e: Exception) {
-            LogManager.log("Cache_ERR", "Збій збереження: ${e.message}")
-        }
+        } catch (e: Exception) { }
     }
 
     fun loadNews() {
@@ -157,9 +149,7 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
                     if (response.status.value in 200..299) {
                         rawNews.addAll(parseRss(response.bodyAsText(), sourceName))
                     }
-                } catch (e: Exception) {
-                    LogManager.log("RSS_ERR", "Помилка завантаження $sourceName: ${e.message}")
-                }
+                } catch (e: Exception) { }
             }
 
             if (rawNews.isNotEmpty()) {
@@ -184,7 +174,7 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
     private suspend fun scrapeArticle(url: String): Pair<String, String?> {
         try {
             val response: HttpResponse = client.get(url) {
-                header(HttpHeaders.UserAgent, "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                header(HttpHeaders.UserAgent, "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
             }
             val html = response.bodyAsText()
             var imageUrl: String? = null
