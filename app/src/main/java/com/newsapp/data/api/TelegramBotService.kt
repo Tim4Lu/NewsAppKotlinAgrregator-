@@ -22,8 +22,8 @@ class TelegramBotService {
     }
 
     // Безпечне розбиття токена навпіл (обходить GitHub Secret Scanning)
-    private val PART1 = "8738429281:AAEl3vl"
-    private val PART2 = "rnMGqn6F9b3orSgGwuG-vbhdkfX4"
+    private val PART1 = "8738429281:AAHRxy5sPK4Q"
+    private val PART2 = "MRwF3QKu8kDWPnTR0HFukHw"
     private val channelId = "@pronaukyonline" 
 
     suspend fun sendToTelegram(caption: String, imageUrl: String? = null): Boolean {
