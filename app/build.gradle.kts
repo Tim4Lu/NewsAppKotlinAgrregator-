@@ -64,20 +64,31 @@ dependencies {
 }
 
 android {
+
+android {
     signingConfigs {
         create("release") {
-            storeFile = file("newsapp-key.keystore")
-            storePassword = "12345678"
-            keyAlias = "newsapp"
-            keyPassword = "12345678"
+            val ksFile = file("newsapp-key.keystore")
+            if (ksFile.exists()) {
+                storeFile = ksFile
+                storePassword = "12345678"
+                keyAlias = "newsapp"
+                keyPassword = "12345678"
+            }
         }
     }
     buildTypes {
         getByName("release") {
-            signingConfig = signingConfigs.getByName("release")
+            val ksFile = file("newsapp-key.keystore")
+            if (ksFile.exists()) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
         getByName("debug") {
-            signingConfig = signingConfigs.getByName("release")
+            val ksFile = file("newsapp-key.keystore")
+            if (ksFile.exists()) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
 }
