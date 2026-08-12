@@ -33,17 +33,11 @@ jobs:
       - name: Build Debug APK
         run: ./gradlew assembleDebug
 
-      - name: Extract Version
-        id: get_version
-        run: |
-          VER=$(grep "versionCode =" app/build.gradle.kts | awk '{print $3}')
-          echo "VERSION_CODE=$VER" >> $GITHUB_ENV
-
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: "v1.0.${{ env.VERSION_CODE }}"
-          name: "Release v1.0.${{ env.VERSION_CODE }}"
+          tag_name: "v105"
+          name: "Release v105"
           draft: false
           prerelease: false
           files: "app/build/outputs/apk/debug/*.apk"

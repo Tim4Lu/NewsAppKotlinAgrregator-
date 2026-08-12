@@ -37,8 +37,9 @@ class UpdateManager(private val context: Context) {
             if (connection.responseCode == 200) {
                 val jsonStr = connection.inputStream.bufferedReader().use { it.readText() }
                 val json = JSONObject(jsonStr)
-                val tagName = json.getString("tag_name") // "v1.0.103"
+                val tagName = json.getString("tag_name")
 
+                // Витягуємо чисте число версії (наприклад з "v1.0.105" отримуємо 105)
                 val remoteBuild = tagName.replace(Regex("[^0-9]"), "").toIntOrNull() ?: 0
 
                 LogManager.log("UPDATE_CHECK", "Ter GitHub: $tagName (build: $remoteBuild), Поточна версія: $currentBuildNumber")
