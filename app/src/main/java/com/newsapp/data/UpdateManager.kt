@@ -13,24 +13,36 @@ import java.io.FileOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
 
+data class UpdateInfo(
+    val tagName: String,
+    val downloadUrl: String,
+    val buildNumber: Int
+)
+
 class UpdateManager(private val context: Context) {
 
-    suspend fun checkForUpdate(currentBuildNumber: Int): String? = withContext(Dispatchers.IO) {
+    suspend fun checkForUpdate(currentBuildNumber: Int): UpdateInfo? = withContext(Dispatchers.IO) {
         try {
             val url = URL("https://api.github.com/repos/Tim4Lu/NewsAppKotlinAgrregator-/releases/latest")
             val conn = url.openConnection() as HttpURLConnection
             conn.requestMethod = "GET"
             conn.setRequestProperty("User-Agent", "Mozilla/5.0")
             conn.connectTimeout = 5000
-            
+
             if (conn.responseCode == 200) {
-                val json = JSONObject(conn.inputStream.bufferedReader().use { it.readText() })
-                val tagName = json.getString("tag_name") // "v109"
+                val jsonStr = conn.inputStream.bufferedReader().use { it.readText() }
+                val json = JSONObject(jsonStr)
+                val tagName = json.getString("tag_name")
                 val remoteBuild = tagName.replace(Regex("[^0-9]"), "").toIntOrNull() ?: 0
-                
+
+                LogManager.log("UPDATE_CHECK", "GitHub: $tagName (build: $remoteBuild), Поточна: $currentBuildNumber")
+
                 if (remoteBuild > currentBuildNumber) {
                     val assets = json.getJSONArray("assets")
-                    return@withContext assets.getJSONObject(0).getString("browser_download_url")
+                    if (assets.length() > 0) {
+                        val downloadUrl = assets.getJSONObject(0).getString("browser_download_url")
+                        return@withContext UpdateInfo(tagName, downloadUrl, remoteBuild)
+                    }
                 }
             }
         } catch (e: Exception) {
@@ -41,29 +53,51 @@ class UpdateManager(private val context: Context) {
 
     suspend fun downloadAndInstallApk(downloadUrl: String) = withContext(Dispatchers.IO) {
         try {
-            LogManager.log("UPDATE", "Завантаження...")
-            
-            // Чистий URLConnection, який сам обробляє редиректи
-            val url = URL(downloadUrl)
-            val conn = url.openConnection() as HttpURLConnection
-            conn.instanceFollowRedirects = true
-            conn.setRequestProperty("User-Agent", "Mozilla/5.0")
-            
+            LogManager.log("UPDATE", "Завантаження $downloadUrl...")
+
+            var currentUrl = downloadUrl
+            var conn: HttpURLConnection
+            var redirect: Boolean
+            var redirectsCount = 0
+
+            do {
+                val url = URL(currentUrl)
+                conn = url.openConnection() as HttpURLConnection
+                conn.instanceFollowRedirects = false
+                conn.setRequestProperty("User-Agent", "Mozilla/5.0")
+                conn.connectTimeout = 15000
+                conn.readTimeout = 15000
+
+                val status = conn.responseCode
+                redirect = status == HttpURLConnection.HTTP_MOVED_TEMP ||
+                        status == HttpURLConnection.HTTP_MOVED_PERM ||
+                        status == HttpURLConnection.HTTP_SEE_OTHER
+
+                if (redirect) {
+                    currentUrl = conn.getHeaderField("Location")
+                    redirectsCount++
+                }
+            } while (redirect && redirectsCount < 5)
+
             val inputStream = conn.inputStream
             val apkFile = File(context.cacheDir, "update.apk")
             val outputStream = FileOutputStream(apkFile)
-            
+
             val buffer = ByteArray(8192)
-            var bytes: Int
-            while (inputStream.read(buffer).also { bytes = it } != -1) {
-                outputStream.write(buffer, 0, bytes)
+            var bytesRead: Int
+            while (inputStream.read(buffer).also { bytesRead = it } != -1) {
+                outputStream.write(buffer, 0, bytesRead)
             }
+
+            outputStream.flush()
             outputStream.close()
             inputStream.close()
-            
+
+            LogManager.log("UPDATE_OK", "APK завантажено. Запуск встановлення...")
             installApk(apkFile)
+
         } catch (e: Exception) {
-            LogManager.log("UPDATE_ERR", "Помилка: ${e.message}")
+            LogManager.log("UPDATE_ERR", "Помилка завантаження: ${e.message}")
         }
     }
 
