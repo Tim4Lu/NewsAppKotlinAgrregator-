@@ -62,3 +62,22 @@ dependencies {
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
 }
+
+android {
+    signingConfigs {
+        create("release") {
+            storeFile = file("newsapp-key.keystore")
+            storePassword = "12345678"
+            keyAlias = "newsapp"
+            keyPassword = "12345678"
+        }
+    }
+    buildTypes {
+        getByName("release") {
+            signingConfig = signingConfigs.getByName("release")
+        }
+        getByName("debug") {
+            signingConfig = signingConfigs.getByName("release")
+        }
+    }
+}
