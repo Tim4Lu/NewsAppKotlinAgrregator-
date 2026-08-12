@@ -14,6 +14,7 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
+import java.net.URL
 
 class UpdateManager(private val context: Context) {
     private val client = HttpClient(CIO)
@@ -25,8 +26,8 @@ class UpdateManager(private val context: Context) {
         try {
             val response = client.get(repoUrl).bodyAsText()
             val json = JSONObject(response)
-            val tagName = json.optString("tag_name", "") // наприклад "v1.0.68"
-            
+            val tagName = json.optString("tag_name", "")
+
             val latestBuild = tagName.substringAfterLast(".").toIntOrNull() ?: 0
 
             if (latestBuild > currentBuildNumber) {
@@ -49,14 +50,8 @@ class UpdateManager(private val context: Context) {
             if (apkFile.exists()) apkFile.delete()
 
             LogManager.log("UPDATE", "Завантаження оновлення з $downloadUrl...")
-            
-            val response = client.get(downloadUrl)
-            val bytes = response.bodyAsText().toByteArray() // завантаження файлу
 
-            val input = response.engineResponse.let { client.get(downloadUrl) }
-            
-            // Запис у файл
-            val url = java.net.URL(downloadUrl)
+            val url = URL(downloadUrl)
             val connection = url.openConnection()
             connection.connect()
             val fileLength = connection.contentLength
