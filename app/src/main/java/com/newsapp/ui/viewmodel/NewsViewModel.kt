@@ -1,8 +1,10 @@
 package com.newsapp.ui.viewmodel
 
-import androidx.lifecycle.ViewModel
+import android.app.Application
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.newsapp.data.LogManager
+import com.newsapp.data.UpdateManager
 import com.newsapp.data.api.AiRewriter
 import com.newsapp.data.api.NewsRepository
 import com.newsapp.data.api.TelegramBotService
@@ -12,10 +14,11 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-class NewsViewModel : ViewModel() {
+class NewsViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = NewsRepository()
     private val aiRewriter = AiRewriter()
     private val telegramBotService = TelegramBotService()
+    private val updateManager = UpdateManager(application.applicationContext)
 
     private val _newsList = MutableStateFlow<List<NewsItem>>(emptyList())
     val newsList: StateFlow<List<NewsItem>> = _newsList.asStateFlow()
@@ -23,14 +26,31 @@ class NewsViewModel : ViewModel() {
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
+    init {
+        // Автоматична перевірка оновлень при запуску ViewModel
+        checkForAppUpdates()
+    }
+
+    private fun checkForAppUpdates() {
+        viewModelScope.launch {
+            try {
+                val updateInfo = updateManager.checkForUpdate(currentBuildNumber = 1)
+                if (updateInfo != null) {
+                    LogManager.log("UPDATE", "Знайдено оновлення: ${updateInfo.tagName}. Початок завантаження...")
+                    updateManager.downloadAndInstallApk(updateInfo.downloadUrl)
+                }
+            } catch (e: Exception) {
+                LogManager.log("UPDATE_ERR", "Помилка автооновлення: ${e.message}")
+            }
+        }
+    }
+
     fun fetchNews() {
         viewModelScope.launch {
             _isLoading.value = true
             try {
                 val news = repository.getNews()
                 _newsList.value = news
-                
-                // Автоматична обробка ШІ після завантаження
                 processNewsWithAi(news)
             } catch (e: Exception) {
                 LogManager.log("VM_ERR", "Помилка завантаження новин: ${e.message}")
