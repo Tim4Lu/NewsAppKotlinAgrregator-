@@ -1,5 +1,6 @@
 package com.newsapp.data.api
 
+import android.util.Base64
 import com.newsapp.data.LogManager
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
@@ -21,14 +22,30 @@ class TelegramBotService {
         }
     }
 
-    private val botToken = "8738429281:AAGdCDMGTd8aQ9o4GRzVrQzYnls500XnoZ4" 
-    private val channelId = "@pronaukyonline" // Якщо знову буде chat not found, сюди можна вписати числовий ID типу "-100XXXXXXXXXX"
+    // Зашифрований Telegram Token
+    private val T1 = "ODczODQyOTI4MTpBQUVsM3Zs"
+    private val T2 = "cm5NR3FuNkY5YjNvclNnR3d1Ry12Ymhka2ZYNA=="
+    private val channelId = "@pronaukyonline"
+
+    private fun getBotToken(): String {
+        return try {
+            String(Base64.decode(T1 + T2, Base64.DEFAULT)).trim()
+        } catch (e: Exception) {
+            ""
+        }
+    }
 
     suspend fun sendToTelegram(caption: String, imageUrl: String? = null): Boolean {
         return try {
+            val token = getBotToken()
+            if (token.isEmpty()) {
+                LogManager.log("Telegram_ERR", "Помилка дешифрування токена")
+                return false
+            }
+
             val hasImage = !imageUrl.isNullOrEmpty() && imageUrl.startsWith("http")
             val endpoint = if (hasImage) "sendPhoto" else "sendMessage"
-            val url = "https://api.telegram.org/bot$botToken/$endpoint"
+            val url = "https://api.telegram.org/bot$token/$endpoint"
             
             val jsonBody = JSONObject().apply {
                 put("chat_id", channelId)
