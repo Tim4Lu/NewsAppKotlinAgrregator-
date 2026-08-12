@@ -1,15 +1,11 @@
 package com.newsapp.data.model
 
-import java.util.UUID
-
 data class NewsItem(
+    val id: String,
     val title: String,
-    val description: String?,
-    val link: String = "",
-    val id: String = UUID.randomUUID().toString(),
-    val sourceName: String = "",
+    val description: String,
+    val link: String,
+    val pubDate: String,
     val imageUrl: String? = null,
-    val editedText: String? = null,
-    val isRewriting: Boolean = false,
-    val isPublishing: Boolean = false
+    val source: String = "NASA"
 )
