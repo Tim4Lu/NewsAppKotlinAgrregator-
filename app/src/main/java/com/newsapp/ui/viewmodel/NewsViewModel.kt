@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.newsapp.data.LogManager
+import com.newsapp.data.UpdateManager
 import com.newsapp.data.api.TelegramBotService
 import com.newsapp.data.api.AiRewriter
 import com.newsapp.model.NewsItem
@@ -38,6 +39,7 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
     private val client = HttpClient(CIO) { followRedirects = true }
     private val aiRewriter = AiRewriter()
     private val telegramBotService = TelegramBotService()
+    private val updateManager = UpdateManager(application)
     private val cacheFile = File(application.filesDir, "saved_news.json")
 
     private val rssSources = listOf(
@@ -57,6 +59,24 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
     init {
         loadCachedNews()
         loadNews()
+        checkForAppUpdates()
+    }
+
+    private fun checkForAppUpdates() {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                // Вказуємо поточний build 84 (або беремо з versionName)
+                val updateInfo = updateManager.checkForUpdate(currentBuildNumber = 84)
+                if (updateInfo != null) {
+                    LogManager.log("UPDATE", "Знайдено нову версію: ${updateInfo.tagName}. Починаємо завантаження...")
+                    updateManager.downloadAndInstallApk(updateInfo.downloadUrl)
+                } else {
+                    LogManager.log("UPDATE", "У вас встановлено найновішу версію додатка.")
+                }
+            } catch (e: Exception) {
+                LogManager.log("UPDATE_ERR", "Помилка під час перевірки оновлень: ${e.message}")
+            }
+        }
     }
 
     private fun loadCachedNews() {
