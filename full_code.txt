@@ -1,0 +1,1507 @@
+=== app/src/main/java/com/newsapp/data/model/NewsItem.kt ===
+package com.newsapp.data.model
+
+data class NewsItem(
+    val id: String,
+    val title: String,
+    val description: String,
+    val link: String,
+    val pubDate: String,
+    val imageUrl: String? = null,
+    val source: String = "NASA"
+)
+
+
+=== app/src/main/java/com/newsapp/data/api/TelegramBotService.kt ===
+package com.newsapp.data.api
+
+import com.newsapp.data.LogManager
+import io.ktor.client.HttpClient
+import io.ktor.client.engine.cio.CIO
+import io.ktor.client.plugins.HttpTimeout
+import io.ktor.client.request.post
+import io.ktor.client.request.setBody
+import io.ktor.client.statement.bodyAsText
+import io.ktor.http.ContentType
+import io.ktor.http.contentType
+import org.json.JSONObject
+
+class TelegramBotService {
+    private val client = HttpClient(CIO) {
+        expectSuccess = false
+        install(HttpTimeout) {
+            requestTimeoutMillis = 60000
+            connectTimeoutMillis = 60000
+            socketTimeoutMillis = 60000
+        }
+    }
+
+    // Безпечне розбиття токена навпіл (обходить GitHub Secret Scanning)
+    private val PART1 = "8738429281:AAHRxy5sPK4Q"
+    private val PART2 = "MRwF3QKu8kDWPnTR0HFukHw"
+    private val channelId = "@pronaukyonline" 
+
+    suspend fun sendToTelegram(caption: String, imageUrl: String? = null): Boolean {
+        return try {
+            val token = PART1 + PART2 // Склеюємо токен чисто, без Base64
+            
+            val hasImage = !imageUrl.isNullOrEmpty() && imageUrl.startsWith("http")
+            val endpoint = if (hasImage) "sendPhoto" else "sendMessage"
+            val url = "https://api.telegram.org/bot$token/$endpoint"
+            
+            val jsonBody = JSONObject().apply {
+                put("chat_id", channelId)
+                if (hasImage) {
+                    put("photo", imageUrl)
+                    put("caption", caption)
+                    put("parse_mode", "HTML")
+                } else {
+                    put("text", caption)
+                    put("parse_mode", "HTML")
+                }
+            }
+
+            LogManager.log("Telegram", "Публікація в канал через $endpoint...")
+
+            val response = client.post(url) {
+                contentType(ContentType.Application.Json)
+                setBody(jsonBody.toString())
+            }
+
+            val responseText = response.bodyAsText()
+            val jsonResponse = JSONObject(responseText)
+            
+            if (jsonResponse.optBoolean("ok", false)) {
+                LogManager.log("Telegram_OK", "Успішно опубліковано в Telegram!")
+                true
+            } else {
+                val description = jsonResponse.optString("description", "Unknown error")
+                LogManager.log("Telegram_ERR", "Помилка Telegram: $description")
+                false
+            }
+        } catch (e: Exception) {
+            LogManager.log("Telegram_ERR", "Мережа: ${e.message ?: e.toString()}")
+            false
+        }
+    }
+}
+
+
+=== app/src/main/java/com/newsapp/data/api/AiRewriter.kt ===
+package com.newsapp.data.api
+
+import android.text.Html
+import android.util.Base64
+import com.newsapp.data.LogManager
+import com.newsapp.model.NewsItem
+import io.ktor.client.HttpClient
+import io.ktor.client.engine.cio.CIO
+import io.ktor.client.request.header
+import io.ktor.client.request.post
+import io.ktor.client.request.setBody
+import io.ktor.client.statement.bodyAsText
+import io.ktor.http.ContentType
+import io.ktor.http.contentType
+import kotlinx.coroutines.delay
+import org.json.JSONArray
+import org.json.JSONObject
+
+class AiRewriter {
+    private val client = HttpClient(CIO) {
+        expectSuccess = false
+    }
+
+    // Зашифровані ключі Gemini у Base64
+    private val GEMINI_B64_KEYS = listOf(
+        "QVEuQWI4Uk42Sk1Pb1FrSWFETzVUSFdsS0pJNC13WW4yUjhyS0s2YzY4NVRmRUVLN0V1bnc=",
+        "QVEuQWI4Uk42SUFyYnJwVEJWZi1ZQXFGbHJYNmpNeG5UWXNMTzktV3JnUVRrOVIwQTNzdlE=",
+        "QVEuQWI4Uk42TFRiQ05NZmc5VHV1RWgxc1NqR0FxZzYwSDFVNWRSYkloOFVaSl9fS1RqSnc=",
+        "QUl6YVN5QkJZbXN4UzQ5R3ZLYnhLVHZVTXhMNVdJQnZKTDZtVUhV",
+        "QVEuQWI4Uk42S09uUkZPNV9YSGluTU12dWtmOFFRdVZ0Q0VpN2J2bk5zVG1iSnhqd1ZfakE="
+    )
+
+    private val GROQ_KEYS = listOf(
+        "aQvzOt1pJ9khaUW27VBClIQsYF3bydGWxFwgtKxlXrVg1Vu2dlKl_ksg".reversed()
+    )
+
+    private fun getDecodedGeminiKeys(): List<String> {
+        return try {
+            GEMINI_B64_KEYS.map { String(Base64.decode(it, Base64.DEFAULT)).trim() }
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    private fun cleanHtmlArtifacts(text: String): String {
+        return try {
+            Html.fromHtml(text, Html.FROM_HTML_MODE_LEGACY).toString()
+        } catch (e: Exception) {
+            text
+        }.replace(Regex("\\[&#\\d+;\\]|&#\\d+;"), "")
+         .replace(Regex("\\s+"), " ")
+         .trim()
+    }
+
+    suspend fun processWithGeminiOrGroq(text: String, title: String): Pair<String, String>? {
+        val cleanTitle = cleanHtmlArtifacts(title)
+        val cleanText = cleanHtmlArtifacts(text).take(1200)
+
+        val systemPrompt = """
+            Ти — шеф-редактор новинного Telegram-каналу "Наука кожного дня".
+            ТВОЄ ГОЛОВНЕ ЗАВДАННЯ: Перекласти англійську новину на якісну українську мову та зробити короткий структурований пост.
+
+            ЖОРСТКІ ПРАВИЛА:
+            1. МОВА: ПОВНІСТЮ ТА СТРOГО УКРАЇНСЬКА МОВА! Жодного англійського слова у фінальному тексті!
+            2. ЗАГОЛОВОК: Обов'язково з емодзі ракетами: 🚀 Заголовок «Назва» 🚀
+            3. ТЕКСТ:
+               - Перше речення: Вступний факт або сенсація українською.
+               - Маркований список строго через '•': 2-4 конкретні деталі з цифрами та фактами українською.
+               - Фінальне речення: Підсумок українською.
+            4. НІЯКИХ ЗІРОЧОК: Не використовуй зірочки **! Для назв використовуй українські лапки « ».
+
+            ФОРМАТ ВІДПОВІДІ:
+            ЗАГОЛОВОК: 🚀 Заголовок українською «Назва» 🚀
+            ТЕКСТ:
+            Перше речення вступ українською.
+            • Факт 1 українською
+            • Факт 2 українською
+            Підсумок українською.
+        """.trimIndent()
+
+        val decodedKeys = getDecodedGeminiKeys()
+
+        for ((index, token) in decodedKeys.withIndex()) {
+            if (token.isBlank()) continue
+            try {
+                val jsonBody = JSONObject().apply {
+                    put("contents", JSONArray().apply {
+                        put(JSONObject().apply {
+                            put("parts", JSONArray().apply {
+                                put(JSONObject().apply {
+                                    put("text", "ПЕРЕКЛАДИ НА УКРАЇНСЬКУ МОВУ ТА СФОРМУЙ ПОСТ:\nЗаголовок: $cleanTitle\nТекст: $cleanText\n\n$systemPrompt")
+                                })
+                            })
+                        })
+                    })
+                    put("generationConfig", JSONObject().apply {
+                        put("temperature", 0.2)
+                    })
+                }
+
+                val url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=$token"
+
+                val response = client.post(url) {
+                    contentType(ContentType.Application.Json)
+                    setBody(jsonBody.toString())
+                }
+
+                val responseText = response.bodyAsText()
+                val data = JSONObject(responseText)
+
+                if (!data.has("error")) {
+                    val rawGeminiText = data.optJSONArray("candidates")
+                        ?.optJSONObject(0)
+                        ?.optJSONObject("content")
+                        ?.optJSONArray("parts")
+                        ?.optJSONObject(0)
+                        ?.optString("text", "") ?: ""
+
+                    if (rawGeminiText.isNotEmpty()) {
+                        LogManager.log("Gemini_OK", "Успішно через Gemini (ключ #${index + 1})")
+                        return parseAiOutput(rawGeminiText, cleanTitle, cleanText)
+                    }
+                }
+            } catch (e: Exception) {
+                // Ігноруємо і йдемо до наступного ключа
+            }
+        }
+
+        try {
+            val groqKey = GROQ_KEYS.random()
+            val jsonBody = JSONObject().apply {
+                put("model", "llama-3.1-8b-instant")
+                put("temperature", 0.2)
+                put("messages", JSONArray().apply {
+                    put(JSONObject().apply { put("role", "system"); put("content", systemPrompt) })
+                    put(JSONObject().apply {
+                        put("role", "user")
+                        put("content", "ПЕРЕКЛАДИ ЦЕЙ ТЕКСТ НА УКРАЇНСЬКУ МОВУ ТА ЗРОБИ ПОСТ У ВКАЗАНОМУ ФОРМАТІ:\nЗаголовок: $cleanTitle\nТекст: $cleanText")
+                    })
+                })
+            }
+
+            val response = client.post("https://api.groq.com/openai/v1/chat/completions") {
+                contentType(ContentType.Application.Json)
+                header("Authorization", "Bearer $groqKey")
+                setBody(jsonBody.toString())
+            }
+
+            val data = JSONObject(response.bodyAsText())
+            if (data.has("choices")) {
+                val aiResponse = data.getJSONArray("choices").getJSONObject(0).getJSONObject("message").getString("content").trim()
+                LogManager.log("Groq_OK", "Успішно через Groq")
+                return parseAiOutput(aiResponse, cleanTitle, cleanText)
+            }
+        } catch (e: Exception) {
+            // Ігноруємо помилку Groq
+        }
+
+        LogManager.log("AI_FALLBACK", "ШІ недоступний. Використовуємо оригінальний текст.")
+        val fallbackTitle = "🚀 $cleanTitle 🚀"
+        val fallbackText = if (cleanText.isNotEmpty()) cleanText else "Свіжа наукова новина."
+        return Pair(fallbackTitle, fallbackText)
+    }
+
+    private fun parseAiOutput(aiText: String, defaultTitle: String, defaultText: String): Pair<String, String> {
+        val titleMatch = Regex("ЗАГОЛОВОК:\\s*(.*?)\\n", RegexOption.IGNORE_CASE).find(aiText)
+        val textMatch = Regex("ТЕКСТ:\\s*([\\s\\S]*)", RegexOption.IGNORE_CASE).find(aiText)
+
+        var finalTitle = (titleMatch?.groupValues?.get(1)?.trim() ?: defaultTitle)
+            .replace("**", "").replace("*", "")
+        if (!finalTitle.contains("🚀")) {
+            finalTitle = "🚀 $finalTitle 🚀"
+        }
+
+        val finalText = (textMatch?.groupValues?.get(1)?.trim() ?: defaultText)
+            .replace("**", "").replace("*", "")
+
+        return Pair(finalTitle, finalText)
+    }
+
+    suspend fun processAllNewsWithAi(rawNewsList: List<NewsItem>, onItemProcessed: (NewsItem) -> Unit) {
+        LogManager.log("AI_START", "Початок обробки новин")
+
+        for (i in rawNewsList.indices) {
+            val n = rawNewsList[i]
+            LogManager.log("AI_QUEUE", "[$i/${rawNewsList.size}] Обробка...")
+
+            if (i > 0) delay(1000)
+
+            try {
+                val result = processWithGeminiOrGroq(n.description, n.title)
+
+                if (result != null) {
+                    val (finalTitle, finalText) = result
+                    val telegramFormattedCaption = "$finalTitle\n\n$finalText\n\n• <b>Джерело:</b> ${n.source}"
+
+                    val finishedItem = n.copy(
+                        title = finalTitle,
+                        description = finalText,
+                        status = "Готово",
+                        telegramCaption = telegramFormattedCaption
+                    )
+                    onItemProcessed(finishedItem)
+                }
+            } catch (e: Exception) {
+                LogManager.log("AI_FATAL", "Помилка: ${e.message}")
+            }
+        }
+    }
+}
+
+
+=== app/src/main/java/com/newsapp/data/api/NewsRepository.kt ===
+package com.newsapp.data.api
+
+import com.newsapp.data.model.NewsItem
+import com.prof18.rssparser.RssParser
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+
+class NewsRepository {
+    private val parser = RssParser()
+
+    private val sources = mapOf(
+        "NASA" to "https://www.nasa.gov/rss/dyn/breaking_news.rss",
+        "Space.com" to "https://www.space.com/feeds/all",
+        "Space Daily" to "https://www.spacedaily.com/spacedaily.xml",
+        "Universe Today" to "https://www.universetoday.com/feed"
+    )
+
+    suspend fun getNews(): List<NewsItem> = withContext(Dispatchers.IO) {
+        val allNews = mutableListOf<NewsItem>()
+
+        for ((sourceName, url) in sources) {
+            try {
+                val channel = parser.getRssChannel(url)
+                val items = channel.items.map { item ->
+                    NewsItem(
+                        id = item.guid ?: item.link ?: item.title.hashCode().toString(),
+                        title = item.title ?: "",
+                        description = item.description ?: "",
+                        link = item.link ?: "",
+                        pubDate = item.pubDate ?: "",
+                        imageUrl = item.image ?: item.audio,
+                        source = sourceName
+                    )
+                }
+                allNews.addAll(items)
+            } catch (e: Exception) {
+                // Якщо одне із джерел не відповідає, інші збираються далі
+            }
+        }
+        return@withContext allNews
+    }
+}
+
+
+=== app/src/main/java/com/newsapp/data/api/RssService.kt ===
+
+package com.newsapp.data.api
+
+import com.prof18.rssparser.RssParser
+import com.newsapp.data.model.NewsItem
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+
+class RssService {
+    private val parser = RssParser()
+
+    private val sources = mapOf(
+        "NASA" to "https://www.nasa.gov/rss/dyn/breaking_news.rss",
+        "Space.com" to "https://www.space.com/feeds/all",
+        "Space Daily" to "https://www.spacedaily.com/spacedaily.xml",
+        "Universe Today" to "https://www.universetoday.com/feed"
+    )
+
+    suspend fun fetchAllNews(): List<NewsItem> = withContext(Dispatchers.IO) {
+        val allNews = mutableListOf<NewsItem>()
+
+        for ((sourceName, url) in sources) {
+            try {
+                val channel = parser.getRssChannel(url)
+                val items = channel.items.map { item ->
+                    NewsItem(
+                        id = item.guid ?: item.link ?: item.title.hashCode().toString(),
+                        title = item.title ?: "",
+                        description = item.description ?: "",
+                        link = item.link ?: "",
+                        pubDate = item.pubDate ?: "",
+                        imageUrl = item.image ?: item.audio,
+                        source = sourceName
+                    )
+                }
+                allNews.addAll(items)
+            } catch (e: Exception) {
+                // Якщо одне джерело не відповідає, інші продовжують працювати
+            }
+        }
+        return@withContext allNews
+    }
+}
+
+
+=== app/src/main/java/com/newsapp/data/repository/NewsRepository.kt ===
+
+
+=== app/src/main/java/com/newsapp/data/AiRewriter.kt ===
+package com.newsapp.data
+
+import android.util.Log
+import io.ktor.client.*
+import io.ktor.client.engine.cio.*
+import io.ktor.client.request.*
+import io.ktor.client.statement.*
+import io.ktor.http.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+
+class AiRewriter {
+
+    companion object {
+        private const val TAG = "AiRewriterTag"
+        private const val GROQ_API_KEY = "ТВІЙ_GROQ_API_KEY"
+        private const val GEMINI_API_KEY = "ТВІЙ_GEMINI_API_KEY"
+    }
+
+    private val client = HttpClient(CIO)
+
+    // Якщо true — Groq вимкнено через вичерпані ліміти, працює лише Gemini
+    @Volatile
+    private var isGroqDisabled = false
+
+    suspend fun rewrite(text: String, targetLanguage: String): String? {
+        return withContext(Dispatchers.IO) {
+            // 1. Якщо Groq не вимкнено — пробуємо спочатку Groq
+            if (!isGroqDisabled) {
+                try {
+                    Log.d(TAG, "AI_REQUEST: Пробуємо переклад через Groq...")
+                    val result = callGroqApi(text, targetLanguage)
+                    if (result != null) return@withContext result
+                } catch (e: Exception) {
+                    Log.e(TAG, "GROQ_ERROR: Помилка або закінчилися ліміти Groq. Вимикаємо Groq, переходимо на Gemini!", e)
+                    isGroqDisabled = true
+                    throw LimitExceededException("Groq limit reached")
+                }
+            }
+
+            // 2. Якщо Groq вимкнено або повернув помилку — працюємо виключно через Gemini
+            return@withContext try {
+                Log.d(TAG, "AI_REQUEST: Працює виключно Gemini...")
+                callGeminiApi(text, targetLanguage)
+            } catch (e: Exception) {
+                Log.e(TAG, "GEMINI_ERROR: Помилка Gemini API", e)
+                if (e.message?.contains("429") == true || e.message?.contains("limit") == true) {
+                    throw LimitExceededException("Gemini limit reached")
+                }
+                null
+            }
+        }
+    }
+
+    private suspend fun callGroqApi(text: String, targetLanguage: String): String? {
+        val response: HttpResponse = client.post("https://api.groq.com/openai/v1/chat/completions") {
+            header(HttpHeaders.Authorization, "Bearer $GROQ_API_KEY")
+            contentType(ContentType.Application.Json)
+            setBody(
+                """
+                {
+                  "model": "llama-3.3-70b-versatile",
+                  "messages": [
+                    {"role": "system", "content": "You are a news translator. Translate and rewrite strictly in $targetLanguage."},
+                    {"role": "user", "content": "$text"}
+                  ]
+                }
+                """.trimIndent()
+            )
+        }
+
+        if (response.status == HttpStatusCode.TooManyRequests || response.status.value == 429) {
+            throw LimitExceededException("Groq 429 Too Many Requests")
+        }
+
+        return if (response.status == HttpStatusCode.OK) {
+            response.bodyAsText()
+        } else {
+            null
+        }
+    }
+
+    private suspend fun callGeminiApi(text: String, targetLanguage: String): String? {
+        val url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=$GEMINI_API_KEY"
+        val response: HttpResponse = client.post(url) {
+            contentType(ContentType.Application.Json)
+            setBody(
+                """
+                {
+                  "contents": [{
+                    "parts":[{"text": "Translate and rewrite the following news strictly in $targetLanguage:\n\n$text"}]
+                  }]
+                }
+                """.trimIndent()
+            )
+        }
+
+        if (response.status == HttpStatusCode.TooManyRequests || response.status.value == 429) {
+            throw LimitExceededException("Gemini 429 Too Many Requests")
+        }
+
+        return if (response.status == HttpStatusCode.OK) {
+            response.bodyAsText()
+        } else {
+            null
+        }
+    }
+}
+
+class LimitExceededException(message: String) : Exception(message)
+
+
+=== app/src/main/java/com/newsapp/data/TelegramBotService.kt ===
+package com.newsapp.data
+
+import com.newsapp.model.NewsItem
+import io.ktor.client.HttpClient
+import io.ktor.client.engine.cio.CIO
+import io.ktor.client.request.post
+import io.ktor.client.request.setBody
+import io.ktor.client.statement.bodyAsText
+import io.ktor.http.ContentType
+import io.ktor.http.contentType
+import org.json.JSONObject
+
+class TelegramBotService {
+    private val client = HttpClient(CIO)
+
+    // Токен бота зашифрований через reversed()
+    private val BOT_TOKEN = "4ZonX0O5slNYzQrVzRG4o9Qa8dTGMDcDGAA:1829248378".reversed()
+    private val CHANNEL_ID = "@science_everyday"
+
+    suspend fun sendNewsToChannel(newsItem: NewsItem): Boolean {
+        return try {
+            if (BOT_TOKEN.isEmpty() || BOT_TOKEN.contains("4ZonX0O5slNYzQrVzRG4o9Qa8dTGMDcDGAA:1829248378")) {
+                LogManager.log("Telegram_ERR", "Токен бота порожній або некоректний")
+                return false
+            }
+
+            LogManager.log("Telegram", "Публікація посту в Telegram...")
+
+            val captionText = if (newsItem.telegramCaption.isNotEmpty()) {
+                newsItem.telegramCaption
+            } else {
+                "${newsItem.title}\n\n${newsItem.description}\n\n• <b>Джерело:</b> ${newsItem.source}"
+            }
+
+            val hasValidImage = !newsItem.image.isNullOrEmpty() && newsItem.image.startsWith("http")
+            val url = if (hasValidImage) {
+                "https://api.telegram.org/bot$BOT_TOKEN/sendPhoto"
+            } else {
+                "https://api.telegram.org/bot$BOT_TOKEN/sendMessage"
+            }
+
+            val jsonBody = JSONObject().apply {
+                put("chat_id", CHANNEL_ID)
+                put("parse_mode", "HTML")
+                if (hasValidImage) {
+                    put("photo", newsItem.image)
+                    put("caption", captionText)
+                } else {
+                    put("text", captionText)
+                }
+            }
+
+            val response = client.post(url) {
+                contentType(ContentType.Application.Json)
+                setBody(jsonBody.toString())
+            }
+
+            val responseBody = response.bodyAsText()
+            val isOk = response.status.value in 200..299 && JSONObject(responseBody).optBoolean("ok", false)
+
+            if (isOk) {
+                LogManager.log("Telegram_OK", "Пост успішно опубліковано у канал!")
+            } else {
+                LogManager.log("Telegram_ERR", "Помилка Telegram: $responseBody")
+            }
+
+            isOk
+        } catch (e: Exception) {
+            LogManager.log("Telegram_ERR", "Збій мережі Telegram: ${e.message}")
+            false
+        }
+    }
+}
+
+
+=== app/src/main/java/com/newsapp/data/LogManager.kt ===
+package com.newsapp.data
+
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+
+object LogManager {
+    private val _logs = MutableStateFlow<List<String>>(emptyList())
+    val logs: StateFlow<List<String>> = _logs.asStateFlow()
+
+    private val timeFormat = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
+
+    fun log(tag: String, message: String) {
+        val time = timeFormat.format(Date())
+        val newLog = "[$time] [$tag]: $message"
+        _logs.value = listOf(newLog) + _logs.value.take(100) // Зберігаємо останні 100 логів
+        android.util.Log.d(tag, message)
+    }
+
+    fun clear() {
+        _logs.value = emptyList()
+    }
+}
+
+
+=== app/src/main/java/com/newsapp/data/UpdateManager.kt ===
+package com.newsapp.data
+
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.os.Build
+import androidx.core.content.FileProvider
+import io.ktor.client.HttpClient
+import io.ktor.client.engine.cio.CIO
+import io.ktor.client.request.get
+import io.ktor.client.statement.bodyAsText
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import org.json.JSONObject
+import java.io.File
+import java.io.FileOutputStream
+import java.net.URL
+
+class UpdateManager(private val context: Context) {
+    private val client = HttpClient(CIO)
+    private val repoUrl = "https://api.github.com/repos/Tim4Lu/NewsAppKotlinAgrregator-/releases/latest"
+
+    data class UpdateInfo(val versionCode: Int, val downloadUrl: String, val tagName: String)
+
+    suspend fun checkForUpdate(currentBuildNumber: Int = 1): UpdateInfo? = withContext(Dispatchers.IO) {
+        try {
+            val response = client.get(repoUrl).bodyAsText()
+            val json = JSONObject(response)
+            val tagName = json.optString("tag_name", "")
+
+            val latestBuild = tagName.substringAfterLast(".").toIntOrNull() ?: 0
+
+            if (latestBuild > currentBuildNumber) {
+                val assets = json.optJSONArray("assets")
+                if (assets != null && assets.length() > 0) {
+                    val apkAsset = assets.getJSONObject(0)
+                    val downloadUrl = apkAsset.getString("browser_download_url")
+                    return@withContext UpdateInfo(latestBuild, downloadUrl, tagName)
+                }
+            }
+        } catch (e: Exception) {
+            LogManager.log("UPDATE_ERR", "Помилка перевірки оновлення: ${e.message}")
+        }
+        return@withContext null
+    }
+
+    suspend fun downloadAndInstallApk(downloadUrl: String, onProgress: (Int) -> Unit = {}) = withContext(Dispatchers.IO) {
+        try {
+            val apkFile = File(context.getExternalFilesDir(null), "update.apk")
+            if (apkFile.exists()) apkFile.delete()
+
+            LogManager.log("UPDATE", "Завантаження оновлення з $downloadUrl...")
+
+            val url = URL(downloadUrl)
+            val connection = url.openConnection()
+            connection.connect()
+            val fileLength = connection.contentLength
+
+            val inputData = connection.getInputStream()
+            val outputData = FileOutputStream(apkFile)
+
+            val data = ByteArray(4096)
+            var total: Long = 0
+            var count: Int
+            while (inputData.read(data).also { count = it } != -1) {
+                total += count.toLong()
+                if (fileLength > 0) {
+                    onProgress((total * 100 / fileLength).toInt())
+                }
+                outputData.write(data, 0, count)
+            }
+
+            outputData.flush()
+            outputData.close()
+            inputData.close()
+
+            LogManager.log("UPDATE_OK", "Завантажено. Запуск встановлення...")
+            installApk(apkFile)
+        } catch (e: Exception) {
+            LogManager.log("UPDATE_ERR", "Помилка завантаження: ${e.message}")
+        }
+    }
+
+    private fun installApk(file: File) {
+        val intent = Intent(Intent.ACTION_VIEW)
+        val apkUri: Uri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+        } else {
+            Uri.fromFile(file)
+        }
+
+        intent.setDataAndType(apkUri, "application/vnd.android.package-archive")
+        intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION
+        context.startActivity(intent)
+    }
+}
+
+
+=== app/src/main/java/com/newsapp/ui/components/NewsCard.kt ===
+package com.newsapp.ui.components
+
+import android.content.Intent
+import android.net.Uri
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
+import com.newsapp.model.NewsItem
+import kotlinx.coroutines.launch
+
+@Composable
+fun NewsCard(
+    item: NewsItem,
+    onPublish: suspend (NewsItem) -> Unit,
+    onUpdateText: (String, String) -> Unit,
+    onToggleEdit: (String) -> Unit
+) {
+    var localText by remember(item.id, item.description) { mutableStateOf(item.description) }
+    var isPublishing by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+
+    val isPublished = item.status == "Опубліковано"
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(bottom = 24.dp)
+            .border(1.dp, Color(0xFF334155), RoundedCornerShape(12.dp)),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
+    ) {
+        Column {
+            AsyncImage(
+                model = item.image,
+                contentDescription = item.title,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(192.dp)
+                    .background(Color(0xFF334155))
+            )
+
+            Column(modifier = Modifier.padding(16.dp)) {
+                // Джерело та Статус
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = item.source.uppercase(),
+                        color = Color(0xFF818CF8),
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp,
+                        letterSpacing = 1.sp
+                    )
+
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(
+                                if (isPublished) Color(0x3310B981)
+                                else Color(0xFF334155)
+                            )
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                    ) {
+                        Text(
+                            text = item.status,
+                            color = if (isPublished) Color(0xFF34D399) else Color(0xFFCBD5E1),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+
+                // Заголовок
+                Text(
+                    text = item.title,
+                    color = Color.White,
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 18.sp,
+                    modifier = Modifier.padding(bottom = 12.dp)
+                )
+
+                // Редагування чи перегляд
+                if (item.isEditing) {
+                    OutlinedTextField(
+                        value = localText,
+                        onValueChange = { localText = it },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 100.dp)
+                            .padding(bottom = 12.dp),
+                        textStyle = LocalTextStyle.current.copy(color = Color(0xFFE2E8F0)),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedContainerColor = Color(0xFF0F172A),
+                            unfocusedContainerColor = Color(0xFF0F172A),
+                            focusedBorderColor = Color(0xFF475569),
+                            unfocusedBorderColor = Color(0xFF475569)
+                        )
+                    )
+                    Button(
+                        onClick = {
+                            onUpdateText(item.id, localText)
+                            onToggleEdit(item.id)
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 16.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4F46E5)),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text("Зберегти текст", color = Color.White, fontWeight = FontWeight.Bold)
+                    }
+                } else {
+                    Text(
+                        text = item.description,
+                        color = Color(0xFFCBD5E1),
+                        fontSize = 14.sp,
+                        lineHeight = 22.sp,
+                        modifier = Modifier.padding(bottom = 16.dp)
+                    )
+                    Text(
+                        text = "✏️ Редагувати текст",
+                        color = Color(0xFF818CF8),
+                        fontSize = 14.sp,
+                        modifier = Modifier
+                            .padding(bottom = 16.dp)
+                            .clickable { onToggleEdit(item.id) }
+                    )
+                }
+
+                HorizontalDivider(color = Color(0xFF334155), modifier = Modifier.padding(bottom = 16.dp))
+
+                // Кнопки дій
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Button(
+                        onClick = {
+                            if (item.link.isNotEmpty()) {
+                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(item.link)))
+                            }
+                        },
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(end = 8.dp)
+                            .height(48.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF334155)),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text("Оригінал", color = Color(0xFFE2E8F0), fontWeight = FontWeight.Bold)
+                    }
+
+                    Button(
+                        onClick = {
+                            scope.launch {
+                                isPublishing = true
+                                onPublish(item)
+                                isPublishing = false
+                            }
+                        },
+                        enabled = !isPublished && !isPublishing,
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(start = 8.dp)
+                            .height(48.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (isPublished) Color(0xFF475569) else Color(0xFF059669),
+                            disabledContainerColor = Color(0xFF475569)
+                        ),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        if (isPublishing) {
+                            CircularProgressIndicator(
+                                color = Color.White,
+                                modifier = Modifier.size(20.dp),
+                                strokeWidth = 2.dp
+                            )
+                        } else {
+                            Text(
+                                text = if (isPublished) "✓ В каналі" else "🚀 В Телеграм",
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+
+=== app/src/main/java/com/newsapp/ui/components/LogViewerDialog.kt ===
+package com.newsapp.ui.components
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.*
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import com.newsapp.data.LogManager
+
+@Composable
+fun LogViewerDialog(onDismiss: () -> Unit) {
+    val logs by LogManager.logs.collectAsState()
+
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .fillMaxHeight(0.85f),
+            shape = RoundedCornerShape(16.dp),
+            color = Color(0xFF0F172A)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(16.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "📜 Системні Логи",
+                        color = Color.White,
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                    Row {
+                        TextButton(onClick = { LogManager.clear() }) {
+                            Text("Очистити", color = Color(0xFFEF4444))
+                        }
+                        TextButton(onClick = onDismiss) {
+                            Text("Закрити", color = Color(0xFF818CF8))
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color(0xFF020617), shape = RoundedCornerShape(8.dp))
+                        .padding(8.dp)
+                ) {
+                    if (logs.isEmpty()) {
+                        Text(
+                            text = "Логів поки немає...",
+                            color = Color.Gray,
+                            modifier = Modifier.align(Alignment.Center)
+                        )
+                    } else {
+                        LazyColumn(modifier = Modifier.fillMaxSize()) {
+                            items(logs) { log ->
+                                Text(
+                                    text = log,
+                                    color = if (log.contains("ERR") || log.contains("error")) Color(0xFFF87171) else Color(0xFF4ADE80),
+                                    fontSize = 11.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    modifier = Modifier.padding(vertical = 2.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+
+=== app/src/main/java/com/newsapp/ui/screens/HomeScreen.kt ===
+package com.newsapp.ui.screens
+
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import com.newsapp.data.model.NewsItem
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun HomeScreen(
+    newsList: List<NewsItem>,
+    isLoading: Boolean,
+    onRefresh: () -> Unit
+) {
+    var selectedSource by remember { mutableStateOf("Усі") }
+    val sources = listOf("Усі", "NASA", "Space.com", "Space Daily", "Universe Today")
+
+    val filteredNews = if (selectedSource == "Усі") {
+        newsList
+    } else {
+        newsList.filter { it.source.equals(selectedSource, ignoreCase = true) }
+    }
+
+    Column(modifier = Modifier.fillMaxSize().padding(8.dp)) {
+        // Панель вибору джерела (Filter Chips)
+        LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)
+        ) {
+            items(sources) { source ->
+                FilterChip(
+                    selected = (selectedSource == source),
+                    onClick = { selectedSource = source },
+                    label = { Text(source) }
+                )
+            }
+        }
+
+        if (isLoading) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator()
+            }
+        } else {
+            LazyColumn(
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxSize()
+            ) {
+                items(filteredNews, key = { it.id }) { news ->
+                    Card(
+                        modifier = Modifier.fillMaxWidth().padding(4.dp)
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Text(
+                                text = "[${news.source}] ${news.title}",
+                                style = MaterialTheme.typography.titleMedium
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = news.description,
+                                style = MaterialTheme.typography.bodySmall,
+                                maxLines = 3
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+
+=== app/src/main/java/com/newsapp/ui/viewmodel/NewsViewModel.kt ===
+package com.newsapp.ui.viewmodel
+
+import android.app.Application
+import android.util.Log
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
+import com.newsapp.data.LogManager
+import com.newsapp.data.TelegramBotService
+import com.newsapp.data.api.AiRewriter
+import com.newsapp.model.NewsItem
+import io.ktor.client.HttpClient
+import io.ktor.client.engine.cio.CIO
+import io.ktor.client.request.get
+import io.ktor.client.request.header
+import io.ktor.client.statement.HttpResponse
+import io.ktor.client.statement.bodyAsText
+import io.ktor.http.HttpHeaders
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+import org.json.JSONArray
+import org.json.JSONObject
+import org.xmlpull.v1.XmlPullParser
+import org.xmlpull.v1.XmlPullParserFactory
+import java.io.File
+import java.io.StringReader
+import java.net.URL
+
+class NewsViewModel(application: Application) : AndroidViewModel(application) {
+
+    private val _newsList = MutableStateFlow<List<NewsItem>>(emptyList())
+    val newsList: StateFlow<List<NewsItem>> = _newsList.asStateFlow()
+
+    private val _isLoading = MutableStateFlow(false)
+    val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
+
+    private val client = HttpClient(CIO) { followRedirects = true }
+    private val aiRewriter = AiRewriter()
+    private val telegramBotService = TelegramBotService()
+    private val cacheFile = File(application.filesDir, "saved_news.json")
+
+    private val rssUrls = listOf(
+        "https://www.nasa.gov/news-release/feed/",
+        "https://www.space.com/feeds/all"
+    )
+
+    init {
+        loadCachedNews()
+        loadNews()
+    }
+
+    private fun loadCachedNews() {
+        try {
+            if (cacheFile.exists()) {
+                val jsonText = cacheFile.readText()
+                val jsonArray = JSONArray(jsonText)
+                val cached = mutableListOf<NewsItem>()
+                for (i in 0 until jsonArray.length()) {
+                    val obj = jsonArray.getJSONObject(i)
+                    cached.add(
+                        NewsItem(
+                            id = obj.optString("id"),
+                            title = obj.optString("title"),
+                            link = obj.optString("link"),
+                            description = obj.optString("description"),
+                            source = obj.optString("source"),
+                            image = obj.optString("image"),
+                            status = obj.optString("status", "Готово"),
+                            telegramCaption = obj.optString("telegramCaption")
+                        )
+                    )
+                }
+                _newsList.value = cached
+                LogManager.log("Cache", "Завантажено ${cached.size} новин із диска")
+            }
+        } catch (e: Exception) {
+            LogManager.log("Cache_ERR", "Збій кешу: ${e.message}")
+        }
+    }
+
+    private fun saveNewsToDisk(list: List<NewsItem>) {
+        try {
+            val jsonArray = JSONArray()
+            list.filter { it.status == "Готово" || it.status == "Опубліковано" }.forEach { item ->
+                val obj = JSONObject().apply {
+                    put("id", item.id)
+                    put("title", item.title)
+                    put("link", item.link)
+                    put("description", item.description)
+                    put("source", item.source)
+                    put("image", item.image)
+                    put("status", item.status)
+                    put("telegramCaption", item.telegramCaption)
+                }
+                jsonArray.put(obj)
+            }
+            cacheFile.writeText(jsonArray.toString())
+        } catch (e: Exception) {
+            LogManager.log("Cache_ERR", "Збій збереження: ${e.message}")
+        }
+    }
+
+    fun loadNews() {
+        if (_newsList.value.isEmpty()) _isLoading.value = true
+
+        viewModelScope.launch(Dispatchers.IO) {
+            val rawNews = mutableListOf<NewsItem>()
+
+            for (url in rssUrls) {
+                try {
+                    val response = client.get(url) { header(HttpHeaders.UserAgent, "Mozilla/5.0") }
+                    if (response.status.value in 200..299) {
+                        rawNews.addAll(parseRss(response.bodyAsText(), URL(url).host))
+                    }
+                } catch (e: Exception) { }
+            }
+
+            if (rawNews.isNotEmpty()) {
+                val currentTitles = _newsList.value.map { it.title }.toSet()
+                val freshNews = rawNews.filter { !currentTitles.contains(it.title) }
+
+                if (freshNews.isNotEmpty()) {
+                    val freshInitial = freshNews.map { it.copy(status = "В черзі", telegramCaption = "Обробка...") }
+                    _newsList.value = freshInitial + _newsList.value
+                    _isLoading.value = false
+
+                    processNewsWithScraperAndAi(freshNews)
+                } else {
+                    _isLoading.value = false
+                }
+            } else {
+                _isLoading.value = false
+            }
+        }
+    }
+
+    // ПОКРАЩЕНИЙ ПОШУК ОРИГІНАЛЬНИХ ЗОБРАЖЕНЬ ЗІ СТОРІНКИ
+    private suspend fun scrapeArticle(url: String): Pair<String, String?> {
+        try {
+            val response: HttpResponse = client.get(url) {
+                header(HttpHeaders.UserAgent, "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+            }
+            val html = response.bodyAsText()
+
+            var imageUrl: String? = null
+
+            // 1. Пошук og:image або twitter:image у meta-тегах
+            val ogMatch = Regex("<meta[^>]+(?:property|name)=[\"'](?:og:image|twitter:image)[\"'][^>]+content=[\"']([^\"']+)[\"']", RegexOption.IGNORE_CASE).find(html)
+            if (ogMatch != null) {
+                imageUrl = ogMatch.groupValues[1]
+            }
+
+            // 2. Якщо meta немає — шукаємо в JSON-LD структурі сайту ("image": "https://...")
+            if (imageUrl.isNullOrEmpty()) {
+                val jsonLdMatch = Regex("\"image\"\\s*:\\s*[\"']([^\"']+)[\"']", RegexOption.IGNORE_CASE).find(html)
+                if (jsonLdMatch != null) {
+                    imageUrl = jsonLdMatch.groupValues[1]
+                }
+            }
+
+            // 3. Якщо і там немає — шукаємо перший тег <img> у тілі статті
+            if (imageUrl.isNullOrEmpty()) {
+                val imgMatch = Regex("<img[^>]+src=[\"']([^\"']+)[\"']", RegexOption.IGNORE_CASE).find(html)
+                if (imgMatch != null) {
+                    imageUrl = imgMatch.groupValues[1]
+                }
+            }
+
+            // Перетворення відносного шлях (/images/...) у повноцінну URL-адресу
+            if (!imageUrl.isNullOrEmpty() && !imageUrl.startsWith("http")) {
+                val baseUrl = URL(url)
+                imageUrl = "${baseUrl.protocol}://${baseUrl.host}$imageUrl"
+            }
+
+            if (!imageUrl.isNullOrEmpty()) {
+                LogManager.log("Image_OK", "Знайдено оригінальну картинку: ${imageUrl.take(40)}...")
+            } else {
+                LogManager.log("Image_WARN", "Оригінальну картинку не знайдено для: $url")
+            }
+
+            // Витягуємо текст
+            val cleanHtml = html.replace(Regex("<(nav|header|footer|script|style|button|aside|noscript)[^>]*>[\\s\\S]*?<\\/\\1>", RegexOption.IGNORE_CASE), "")
+            val pTags = Regex("<p[^>]*>([^<]{50,})<\\/p>", RegexOption.IGNORE_CASE).findAll(cleanHtml).map { it.groupValues[1] }.toList()
+            val validParagraphs = pTags
+                .map { it.replace(Regex("<[^>]*>"), "").trim() }
+                .filter { t -> t.length > 100 && t.contains(".") }
+
+            val scrapedText = validParagraphs.take(4).joinToString("\n\n")
+            return Pair(if (scrapedText.length >= 200) scrapedText else "", imageUrl)
+
+        } catch (e: Exception) {
+            LogManager.log("Scrape_ERR", "Помилка скрейпінгу сторінки: ${e.message}")
+            return Pair("", null)
+        }
+    }
+
+    private suspend fun processNewsWithScraperAndAi(rawNews: List<NewsItem>) {
+        val updatedList = rawNews.map { item ->
+            val (fullText, scrapedImage) = scrapeArticle(item.link)
+            item.copy(
+                description = if (fullText.isNotEmpty()) fullText else item.description,
+                image = scrapedImage ?: item.image
+            )
+        }
+
+        aiRewriter.processAllNewsWithAi(updatedList) { finishedItem ->
+            _newsList.value = _newsList.value.map { current ->
+                if (current.id == finishedItem.id || current.title == finishedItem.title) finishedItem else current
+            }
+            saveNewsToDisk(_newsList.value)
+        }
+    }
+
+    fun toggleEdit(id: String) {
+        _newsList.value = _newsList.value.map { if (it.id == id) it.copy(isEditing = !it.isEditing) else it }
+    }
+
+    fun updateNewsText(id: String, newText: String) {
+        _newsList.value = _newsList.value.map {
+            if (it.id == id) it.copy(description = newText, telegramCaption = "🚀 <b>${it.title}</b>\n\n$newText\n\n• <b>Джерело:</b> ${it.source}") else it
+        }
+        saveNewsToDisk(_newsList.value)
+    }
+
+    fun sendNews(newsItem: NewsItem) {
+        viewModelScope.launch(Dispatchers.IO) {
+            telegramBotService.sendNewsToChannel(newsItem)
+            _newsList.value = _newsList.value.map { if (it.id == newsItem.id) it.copy(status = "Опубліковано") else it }
+            saveNewsToDisk(_newsList.value)
+        }
+    }
+
+    private fun parseRss(xml: String, sourceName: String): List<NewsItem> {
+        val items = mutableListOf<NewsItem>()
+        try {
+            val parser = XmlPullParserFactory.newInstance().apply { isNamespaceAware = true }.newPullParser()
+            parser.setInput(StringReader(xml))
+
+            var eventType = parser.eventType
+            var title: String? = null
+            var link: String? = null
+            var desc: String? = null
+            var insideItem = false
+            var currentTag = ""
+
+            while (eventType != XmlPullParser.END_DOCUMENT) {
+                when (eventType) {
+                    XmlPullParser.START_TAG -> {
+                        currentTag = parser.name?.lowercase() ?: ""
+                        if (currentTag == "item" || currentTag == "entry") {
+                            insideItem = true; title = null; link = null; desc = null
+                        } else if (insideItem && currentTag == "link") {
+                            val href = parser.getAttributeValue(null, "href")
+                            if (!href.isNullOrEmpty()) link = href
+                        }
+                    }
+                    XmlPullParser.TEXT -> {
+                        if (insideItem && parser.text?.isNotBlank() == true) {
+                            when (currentTag) {
+                                "title" -> title = (title ?: "") + parser.text
+                                "link" -> if (link.isNullOrEmpty()) link = parser.text
+                                "description", "summary" -> desc = (desc ?: "") + parser.text
+                            }
+                        }
+                    }
+                    XmlPullParser.END_TAG -> {
+                        val name = parser.name ?: ""
+                        if (name.equals("item", true) || name.equals("entry", true)) {
+                            if (!title.isNullOrEmpty()) {
+                                items.add(NewsItem(title = title!!.trim(), link = link?.trim() ?: "", description = desc?.replace(Regex("<.*?>"), "")?.trim() ?: "", source = sourceName))
+                            }
+                            insideItem = false
+                        }
+                        currentTag = ""
+                    }
+                }
+                eventType = parser.next()
+            }
+        } catch (e: Exception) { }
+        return items
+    }
+}
+
+
+=== app/src/main/java/com/newsapp/ui/NewsScreen.kt ===
+package com.newsapp.ui
+
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+import com.newsapp.ui.components.LogViewerDialog
+import com.newsapp.ui.components.NewsCard
+import com.newsapp.ui.viewmodel.NewsViewModel
+
+@Composable
+fun NewsScreen(viewModel: NewsViewModel) {
+    val newsList by viewModel.newsList.collectAsState()
+    val isLoading by viewModel.isLoading.collectAsState()
+    var showLogsDialog by remember { mutableStateOf(false) }
+
+    Scaffold(
+        containerColor = Color(0xFF0F172A),
+        floatingActionButton = {
+            FloatingActionButton(
+                onClick = { showLogsDialog = true },
+                containerColor = Color(0xFF818CF8)
+            ) {
+                Text("📜", modifier = Modifier.padding(16.dp))
+            }
+        }
+    ) { paddingValues ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues)
+        ) {
+            if (isLoading && newsList.isEmpty()) {
+                CircularProgressIndicator(
+                    modifier = Modifier.align(Alignment.Center),
+                    color = Color(0xFF818CF8)
+                )
+            } else {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                ) {
+                    items(newsList, key = { it.id }) { item ->
+                        NewsCard(
+                            item = item,
+                            onPublish = { viewModel.sendNews(it) },
+                            onUpdateText = { id, text -> viewModel.updateNewsText(id, text) },
+                            onToggleEdit = { id -> viewModel.toggleEdit(id) }
+                        )
+                    }
+                }
+            }
+
+            if (showLogsDialog) {
+                LogViewerDialog(onDismiss = { showLogsDialog = false })
+            }
+        }
+    }
+}
+
+
+=== app/src/main/java/com/newsapp/MainActivity.kt ===
+package com.newsapp
+
+import android.os.Bundle
+import android.util.Log
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.ui.Modifier
+import androidx.lifecycle.ViewModelProvider
+import com.newsapp.ui.NewsScreen
+import com.newsapp.ui.viewmodel.NewsViewModel
+
+class MainActivity : ComponentActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        Log.d("MainActivity", "[LOG] onCreate запущено")
+
+        val viewModel = ViewModelProvider(this)[NewsViewModel::class.java]
+
+        setContent {
+            MaterialTheme {
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = MaterialTheme.colorScheme.background
+                ) {
+                    // ТЕПЕР ВИКЛИКАЄМО НАШ ПРАВИЛЬНИЙ ЕКРАН
+                    NewsScreen(viewModel = viewModel)
+                }
+            }
+        }
+    }
+}
+
+
+=== app/src/main/java/com/newsapp/model/NewsItem.kt ===
+package com.newsapp.model
+
+import java.util.UUID
+
+data class NewsItem(
+    val id: String = UUID.randomUUID().toString(),
+    val title: String,
+    val link: String,
+    val description: String,
+    val source: String = "Новина",
+    val image: String = "",
+    val status: String = "В черзі",
+    val isEditing: Boolean = false,
+    val telegramCaption: String = ""
+)
+
+

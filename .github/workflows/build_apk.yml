@@ -1,10 +1,11 @@
-name: Build Android APK
+name: Build and Release Android APK
 
 on:
   push:
     branches: [ "main", "master" ]
-  pull_request:
-    branches: [ "main", "master" ]
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -29,11 +30,16 @@ jobs:
     - name: Grant execute permission for gradlew
       run: chmod +x gradlew
 
-    - name: Build Debug APK with Auto Versioning
+    - name: Build Debug APK
       run: ./gradlew assembleDebug -PversionCode=${{ github.run_number }}
 
-    - name: Upload APK Artifact
-      uses: actions/upload-artifact@v4
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v1
       with:
-        name: app-debug
-        path: "**/build/outputs/apk/debug/*.apk"
+        tag_name: "v1.0.${{ github.run_number }}"
+        name: "Release v1.0.${{ github.run_number }}"
+        draft: false
+        prerelease: false
+        files: "app/build/outputs/apk/debug/*.apk"
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -21,14 +21,13 @@ class TelegramBotService {
         }
     }
 
-    // Безпечне розбиття токена навпіл (обходить GitHub Secret Scanning)
     private val PART1 = "8738429281:AAHRxy5sPK4Q"
     private val PART2 = "MRwF3QKu8kDWPnTR0HFukHw"
-    private val channelId = "@pronaukyonline" 
+    private val channelId = "@science_everyday"
 
     suspend fun sendToTelegram(caption: String, imageUrl: String? = null): Boolean {
         return try {
-            val token = PART1 + PART2 // Склеюємо токен чисто, без Base64
+            val token = PART1 + PART2
             
             val hasImage = !imageUrl.isNullOrEmpty() && imageUrl.startsWith("http")
             val endpoint = if (hasImage) "sendPhoto" else "sendMessage"

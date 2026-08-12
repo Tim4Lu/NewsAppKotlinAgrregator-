@@ -7,5 +7,7 @@ data class NewsItem(
     val link: String,
     val pubDate: String,
     val imageUrl: String? = null,
-    val source: String = "NASA"
+    val source: String = "NASA",
+    val status: String = "Нова",
+    val telegramCaption: String = ""
 )
