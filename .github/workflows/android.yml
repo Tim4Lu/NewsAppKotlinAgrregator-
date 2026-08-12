@@ -17,13 +17,27 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
 
-    - name: Restore Keystore from Secret
+    - name: Restore Keystore using Python
       env:
         KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
       run: |
-        if [ -n "$KEYSTORE_BASE64" ]; then
-          echo "$KEYSTORE_BASE64" | tr -d '\r\n\t ' | base64 -di > app/newsapp-key.keystore
-        fi
+        python3 -c '
+        import os, base64, re
+
+        data = os.environ.get("KEYSTORE_BASE64", "")
+        if data:
+            # Залишаємо тільки валідні символи Base64
+            cleaned = re.sub(r"[^A-Za-z0-9+/=]", "", data)
+            
+            # Додаємо відсутній падинг "=" до кратності 4
+            missing_padding = len(cleaned) % 4
+            if missing_padding:
+                cleaned += "=" * (4 - missing_padding)
+            
+            with open("app/newsapp-key.keystore", "wb") as f:
+                f.write(base64.b64decode(cleaned))
+            print("Keystore successfully restored!")
+        '
 
     - name: Setup Gradle
       uses: gradle/actions/setup-gradle@v3
