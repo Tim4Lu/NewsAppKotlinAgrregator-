@@ -28,7 +28,7 @@ jobs:
     - name: Setup Gradle
       uses: gradle/actions/setup-gradle@v3
 
-    - name: Build APK
+    - name: Build Release APK
       run: ./gradlew assembleRelease
 
     - name: Create GitHub Release
@@ -39,7 +39,7 @@ jobs:
         name: Release v1.0.${{ github.run_number }}
         body: |
           Автоматична збірка додатка News Aggregator.
-          Версія: 1.0.${{ github.run_number }} (build ${{ github.run_number }})
+          Версія: 1.0.${{ github.run_number }}
         files: app/build/outputs/apk/release/app-release.apk
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
