@@ -13,128 +13,69 @@ import java.io.FileOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
 
-data class UpdateInfo(
-    val tagName: String,
-    val downloadUrl: String,
-    val buildNumber: Int
-)
-
 class UpdateManager(private val context: Context) {
 
-    private val githubRepo = "Tim4Lu/NewsAppKotlinAgrregator-"
-
-    suspend fun checkForUpdate(currentBuildNumber: Int): UpdateInfo? = withContext(Dispatchers.IO) {
+    suspend fun checkForUpdate(currentBuildNumber: Int): String? = withContext(Dispatchers.IO) {
         try {
-            val url = URL("https://api.github.com/repos/$githubRepo/releases/latest")
-            val connection = url.openConnection() as HttpURLConnection
-            connection.apply {
-                requestMethod = "GET"
-                setRequestProperty("User-Agent", "Mozilla/5.0")
-                connectTimeout = 10000
-                readTimeout = 10000
-            }
-
-            if (connection.responseCode == 200) {
-                val jsonStr = connection.inputStream.bufferedReader().use { it.readText() }
-                val json = JSONObject(jsonStr)
-                val tagName = json.getString("tag_name")
-
-                // Витягуємо чисте число версії (наприклад з "v1.0.105" отримуємо 105)
+            val url = URL("https://api.github.com/repos/Tim4Lu/NewsAppKotlinAgrregator-/releases/latest")
+            val conn = url.openConnection() as HttpURLConnection
+            conn.requestMethod = "GET"
+            conn.setRequestProperty("User-Agent", "Mozilla/5.0")
+            conn.connectTimeout = 5000
+            
+            if (conn.responseCode == 200) {
+                val json = JSONObject(conn.inputStream.bufferedReader().use { it.readText() })
+                val tagName = json.getString("tag_name") // "v109"
                 val remoteBuild = tagName.replace(Regex("[^0-9]"), "").toIntOrNull() ?: 0
-
-                LogManager.log("UPDATE_CHECK", "Ter GitHub: $tagName (build: $remoteBuild), Поточна версія: $currentBuildNumber")
-
+                
                 if (remoteBuild > currentBuildNumber) {
                     val assets = json.getJSONArray("assets")
-                    if (assets.length() > 0) {
-                        val downloadUrl = assets.getJSONObject(0).getString("browser_download_url")
-                        return@withContext UpdateInfo(tagName, downloadUrl, remoteBuild)
-                    }
+                    return@withContext assets.getJSONObject(0).getString("browser_download_url")
                 }
             }
         } catch (e: Exception) {
-            LogManager.log("UPDATE_ERR", "Помилка перевірки оновлень: ${e.message}")
+            LogManager.log("UPDATE_ERR", "Помилка перевірки: ${e.message}")
         }
         return@withContext null
     }
 
     suspend fun downloadAndInstallApk(downloadUrl: String) = withContext(Dispatchers.IO) {
         try {
-            LogManager.log("UPDATE", "Завантаження оновлення з $downloadUrl...")
-
-            var currentUrl = downloadUrl
-            var connection: HttpURLConnection
-            var redirect: Boolean
-            var redirectsCount = 0
-
-            // Обробка HTTP 301/302/303 редиректів GitHub CDN
-            do {
-                val url = URL(currentUrl)
-                connection = url.openConnection() as HttpURLConnection
-                connection.apply {
-                    instanceFollowRedirects = false
-                    setRequestProperty("User-Agent", "Mozilla/5.0")
-                    connectTimeout = 15000
-                    readTimeout = 15000
-                }
-
-                val status = connection.responseCode
-                redirect = status == HttpURLConnection.HTTP_MOVED_TEMP ||
-                        status == HttpURLConnection.HTTP_MOVED_PERM ||
-                        status == HttpURLConnection.HTTP_SEE_OTHER
-
-                if (redirect) {
-                    currentUrl = connection.getHeaderField("Location")
-                    redirectsCount++
-                }
-            } while (redirect && redirectsCount < 5)
-
-            val totalSize = connection.contentLength
-            val inputStream = connection.inputStream
+            LogManager.log("UPDATE", "Завантаження...")
+            
+            // Чистий URLConnection, який сам обробляє редиректи
+            val url = URL(downloadUrl)
+            val conn = url.openConnection() as HttpURLConnection
+            conn.instanceFollowRedirects = true
+            conn.setRequestProperty("User-Agent", "Mozilla/5.0")
+            
+            val inputStream = conn.inputStream
             val apkFile = File(context.cacheDir, "update.apk")
             val outputStream = FileOutputStream(apkFile)
-
+            
             val buffer = ByteArray(8192)
-            var bytesRead: Int
-            var downloaded = 0L
-            var lastLoggedProgress = -1
-
-            while (inputStream.read(buffer).also { bytesRead = it } != -1) {
-                outputStream.write(buffer, 0, bytesRead)
-                downloaded += bytesRead
-
-                if (totalSize > 0) {
-                    val progress = ((downloaded * 100) / totalSize).toInt()
-                    if (progress % 25 == 0 && progress != lastLoggedProgress) {
-                        LogManager.log("UPDATE_PROGRESS", "Завантаження APK: $progress%")
-                        lastLoggedProgress = progress
-                    }
-                }
+            var bytes: Int
+            while (inputStream.read(buffer).also { bytes = it } != -1) {
+                outputStream.write(buffer, 0, bytes)
             }
-
-            outputStream.flush()
             outputStream.close()
             inputStream.close()
-
-            LogManager.log("UPDATE_OK", "APK успішно завантажено. Запуск встановлення...")
+            
             installApk(apkFile)
-
         } catch (e: Exception) {
-            LogManager.log("UPDATE_ERR", "Помилка завантаження: ${e.message}")
+            LogManager.log("UPDATE_ERR", "Помилка: ${e.message}")
         }
     }
 
     private fun installApk(file: File) {
-        val uri: Uri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+        val uri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             FileProvider.getUriForFile(context, "${context.packageName}.provider", file)
         } else {
             Uri.fromFile(file)
         }
-
         val intent = Intent(Intent.ACTION_VIEW).apply {
             setDataAndType(uri, "application/vnd.android.package-archive")
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
         context.startActivity(intent)
     }
