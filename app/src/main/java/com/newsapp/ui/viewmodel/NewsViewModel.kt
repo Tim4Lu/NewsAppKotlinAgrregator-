@@ -1,6 +1,7 @@
 package com.newsapp.ui.viewmodel
 
 import android.app.Application
+import android.os.Build
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.newsapp.data.LogManager
@@ -62,16 +63,30 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
         checkForAppUpdates()
     }
 
+    private fun getCurrentVersionCode(): Int {
+        return try {
+            val pInfo = getApplication<Application>().packageManager.getPackageInfo(getApplication<Application>().packageName, 0)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                pInfo.longVersionCode.toInt()
+            } else {
+                @Suppress("DEPRECATION")
+                pInfo.versionCode
+            }
+        } catch (e: Exception) {
+            1
+        }
+    }
+
     private fun checkForAppUpdates() {
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                // Вказуємо поточний build 84 (або беремо з versionName)
-                val updateInfo = updateManager.checkForUpdate(currentBuildNumber = 84)
+                val currentVersion = getCurrentVersionCode()
+                val updateInfo = updateManager.checkForUpdate(currentBuildNumber = currentVersion)
                 if (updateInfo != null) {
                     LogManager.log("UPDATE", "Знайдено нову версію: ${updateInfo.tagName}. Починаємо завантаження...")
                     updateManager.downloadAndInstallApk(updateInfo.downloadUrl)
                 } else {
-                    LogManager.log("UPDATE", "У вас встановлено найновішу версію додатка.")
+                    LogManager.log("UPDATE", "У вас встановлено найновішу версію додатка (v$currentVersion).")
                 }
             } catch (e: Exception) {
                 LogManager.log("UPDATE_ERR", "Помилка під час перевірки оновлень: ${e.message}")
