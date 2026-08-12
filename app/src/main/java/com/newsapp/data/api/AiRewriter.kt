@@ -21,6 +21,7 @@ class AiRewriter {
         expectSuccess = false
     }
 
+    // Зашифровані ключі Gemini у Base64
     private val GEMINI_B64_KEYS = listOf(
         "QVEuQWI4Uk42Sk1Pb1FrSWFETzVUSFdsS0pJNC13WW4yUjhyS0s2YzY4NVRmRUVLN0V1bnc=",
         "QVEuQWI4Uk42SUFyYnJwVEJWZi1ZQXFGbHJYNmpNeG5UWXNMTzktV3JnUVRrOVIwQTNzdlE=",
@@ -121,7 +122,7 @@ class AiRewriter {
                     }
                 }
             } catch (e: Exception) {
-                // Ігноруємо і йдемо далі
+                // Ігноруємо і йдемо до наступного ключа
             }
         }
 
