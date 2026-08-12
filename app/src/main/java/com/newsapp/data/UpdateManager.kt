@@ -8,16 +8,15 @@ import androidx.core.content.FileProvider
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
 import io.ktor.client.request.get
-import io.ktor.client.statement.bodyAsChannel
+import io.ktor.client.request.header
 import io.ktor.client.statement.bodyAsText
-import io.ktor.utils.io.ByteReadChannel
-import io.ktor.utils.io.core.isEmpty
-import io.ktor.utils.io.core.readBytes
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
+import java.net.HttpURLConnection
+import java.net.URL
 
 class UpdateManager(private val context: Context) {
     private val client = HttpClient(CIO) {
@@ -30,7 +29,10 @@ class UpdateManager(private val context: Context) {
 
     suspend fun checkForUpdate(currentBuildNumber: Int = 1): UpdateInfo? = withContext(Dispatchers.IO) {
         try {
-            val response = client.get(repoUrl).bodyAsText()
+            val response = client.get(repoUrl) {
+                header("User-Agent", "Mozilla/5.0 (Android; Mobile)")
+            }.bodyAsText()
+            
             val json = JSONObject(response)
             val tagName = json.optString("tag_name", "")
             
@@ -58,20 +60,40 @@ class UpdateManager(private val context: Context) {
 
             LogManager.log("UPDATE", "Завантаження оновлення з $downloadUrl...")
 
-            val response = client.get(downloadUrl)
-            val channel: ByteReadChannel = response.bodyAsChannel()
-            val outputStream = FileOutputStream(apkFile)
+            var currentUrl = downloadUrl
+            var connection: HttpURLConnection
+            var redirect: Boolean
 
-            while (!channel.isClosedForRead) {
-                val packet = channel.readRemaining(8192)
-                while (!packet.isEmpty) {
-                    val bytes = packet.readBytes()
-                    outputStream.write(bytes)
+            // Обробка HTTP перенаправлень (301/302) для GitHub Releases
+            do {
+                val url = URL(currentUrl)
+                connection = url.openConnection() as HttpURLConnection
+                connection.instanceFollowRedirects = true
+                connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Android; Mobile)")
+                connection.connect()
+
+                val status = connection.responseCode
+                redirect = status == HttpURLConnection.HTTP_MOVED_TEMP || 
+                           status == HttpURLConnection.HTTP_MOVED_PERM || 
+                           status == HttpURLConnection.HTTP_SEE_OTHER
+
+                if (redirect) {
+                    currentUrl = connection.getHeaderField("Location")
                 }
+            } while (redirect)
+
+            val inputStream = connection.inputStream
+            val outputStream = FileOutputStream(apkFile)
+            val buffer = ByteArray(8192)
+            var bytesRead: Int
+
+            while (inputStream.read(buffer).also { bytesRead = it } != -1) {
+                outputStream.write(buffer, 0, bytesRead)
             }
 
             outputStream.flush()
             outputStream.close()
+            inputStream.close()
 
             LogManager.log("UPDATE_OK", "Завантажено успішно. Запуск встановлення...")
             installApk(apkFile)
