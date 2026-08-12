@@ -5,11 +5,6 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import androidx.core.content.FileProvider
-import io.ktor.client.HttpClient
-import io.ktor.client.engine.cio.CIO
-import io.ktor.client.request.get
-import io.ktor.client.request.header
-import io.ktor.client.statement.bodyAsText
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -18,85 +13,97 @@ import java.io.FileOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
 
+data class UpdateInfo(
+    val tagName: String,
+    val downloadUrl: String,
+    val buildNumber: Int
+)
+
 class UpdateManager(private val context: Context) {
-    private val client = HttpClient(CIO) {
-        followRedirects = true
-    }
-    
-    private val repoUrl = "https://api.github.com/repos/Tim4Lu/NewsAppKotlinAgrregator-/releases/latest"
 
-    data class UpdateInfo(val versionCode: Int, val downloadUrl: String, val tagName: String)
+    private val githubRepo = "Tim4Lu/NewsAppKotlinAgrregator-"
 
-    suspend fun checkForUpdate(currentBuildNumber: Int = 1): UpdateInfo? = withContext(Dispatchers.IO) {
+    suspend fun checkForUpdate(currentBuildNumber: Int): UpdateInfo? = withContext(Dispatchers.IO) {
         try {
-            val response = client.get(repoUrl) {
-                header("User-Agent", "Mozilla/5.0 (Android; Mobile)")
-            }.bodyAsText()
-            
-            val json = JSONObject(response)
-            val tagName = json.optString("tag_name", "")
-            
-            val latestBuild = tagName.substringAfterLast(".").toIntOrNull() ?: 0
-            LogManager.log("UPDATE_CHECK", "Тег GitHub: $tagName (build: $latestBuild), Поточна версія: $currentBuildNumber")
+            val url = URL("https://api.github.com/repos/$githubRepo/releases/latest")
+            val connection = url.openConnection() as HttpURLConnection
+            connection.apply {
+                requestMethod = "GET"
+                setRequestProperty("User-Agent", "Mozilla/5.0")
+                connectTimeout = 10000
+                readTimeout = 10000
+            }
 
-            if (latestBuild > currentBuildNumber) {
-                val assets = json.optJSONArray("assets")
-                if (assets != null && assets.length() > 0) {
-                    val apkAsset = assets.getJSONObject(0)
-                    val downloadUrl = apkAsset.getString("browser_download_url")
-                    return@withContext UpdateInfo(latestBuild, downloadUrl, tagName)
+            if (connection.responseCode == 200) {
+                val jsonStr = connection.inputStream.bufferedReader().use { it.readText() }
+                val json = JSONObject(jsonStr)
+                val tagName = json.getString("tag_name") // "v1.0.103"
+
+                val remoteBuild = tagName.replace(Regex("[^0-9]"), "").toIntOrNull() ?: 0
+
+                LogManager.log("UPDATE_CHECK", "Ter GitHub: $tagName (build: $remoteBuild), Поточна версія: $currentBuildNumber")
+
+                if (remoteBuild > currentBuildNumber) {
+                    val assets = json.getJSONArray("assets")
+                    if (assets.length() > 0) {
+                        val downloadUrl = assets.getJSONObject(0).getString("browser_download_url")
+                        return@withContext UpdateInfo(tagName, downloadUrl, remoteBuild)
+                    }
                 }
-            } else {
-                LogManager.log("UPDATE", "Встановлено актуальну версію ($currentBuildNumber). Оновлення не потрібні.")
             }
         } catch (e: Exception) {
-            LogManager.log("UPDATE_ERR", "Помилка перевірки оновлення: ${e.message}")
+            LogManager.log("UPDATE_ERR", "Помилка перевірки оновлень: ${e.message}")
         }
         return@withContext null
     }
 
     suspend fun downloadAndInstallApk(downloadUrl: String) = withContext(Dispatchers.IO) {
         try {
-            val apkFile = File(context.getExternalFilesDir(null), "update.apk")
-            if (apkFile.exists()) apkFile.delete()
-
             LogManager.log("UPDATE", "Завантаження оновлення з $downloadUrl...")
 
             var currentUrl = downloadUrl
             var connection: HttpURLConnection
             var redirect: Boolean
+            var redirectsCount = 0
 
+            // Обробка HTTP 301/302/303 редиректів GitHub CDN
             do {
                 val url = URL(currentUrl)
                 connection = url.openConnection() as HttpURLConnection
-                connection.instanceFollowRedirects = true
-                connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Android; Mobile)")
-                connection.connect()
+                connection.apply {
+                    instanceFollowRedirects = false
+                    setRequestProperty("User-Agent", "Mozilla/5.0")
+                    connectTimeout = 15000
+                    readTimeout = 15000
+                }
 
                 val status = connection.responseCode
-                redirect = status == HttpURLConnection.HTTP_MOVED_TEMP || 
-                           status == HttpURLConnection.HTTP_MOVED_PERM || 
-                           status == HttpURLConnection.HTTP_SEE_OTHER
+                redirect = status == HttpURLConnection.HTTP_MOVED_TEMP ||
+                        status == HttpURLConnection.HTTP_MOVED_PERM ||
+                        status == HttpURLConnection.HTTP_SEE_OTHER
 
                 if (redirect) {
                     currentUrl = connection.getHeaderField("Location")
+                    redirectsCount++
                 }
-            } while (redirect)
+            } while (redirect && redirectsCount < 5)
 
-            val fileLength = connection.contentLength
+            val totalSize = connection.contentLength
             val inputStream = connection.inputStream
+            val apkFile = File(context.cacheDir, "update.apk")
             val outputStream = FileOutputStream(apkFile)
+
             val buffer = ByteArray(8192)
             var bytesRead: Int
-            var totalBytesRead: Long = 0
+            var downloaded = 0L
             var lastLoggedProgress = -1
 
             while (inputStream.read(buffer).also { bytesRead = it } != -1) {
-                totalBytesRead += bytesRead
                 outputStream.write(buffer, 0, bytesRead)
+                downloaded += bytesRead
 
-                if (fileLength > 0) {
-                    val progress = ((totalBytesRead * 100) / fileLength).toInt()
+                if (totalSize > 0) {
+                    val progress = ((downloaded * 100) / totalSize).toInt()
                     if (progress % 25 == 0 && progress != lastLoggedProgress) {
                         LogManager.log("UPDATE_PROGRESS", "Завантаження APK: $progress%")
                         lastLoggedProgress = progress
@@ -110,21 +117,24 @@ class UpdateManager(private val context: Context) {
 
             LogManager.log("UPDATE_OK", "APK успішно завантажено. Запуск встановлення...")
             installApk(apkFile)
+
         } catch (e: Exception) {
             LogManager.log("UPDATE_ERR", "Помилка завантаження: ${e.message}")
         }
     }
 
     private fun installApk(file: File) {
-        val intent = Intent(Intent.ACTION_VIEW)
-        val apkUri: Uri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+        val uri: Uri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            FileProvider.getUriForFile(context, "${context.packageName}.provider", file)
         } else {
             Uri.fromFile(file)
         }
 
-        intent.setDataAndType(apkUri, "application/vnd.android.package-archive")
-        intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, "application/vnd.android.package-archive")
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
         context.startActivity(intent)
     }
 }
