@@ -23,17 +23,23 @@ class UpdateManager(private val context: Context) {
 
     suspend fun checkForUpdate(currentBuildNumber: Int): UpdateInfo? = withContext(Dispatchers.IO) {
         try {
-            val url = URL("https://api.github.com/repos/Tim4Lu/NewsAppKotlinAgrregator-/releases/latest")
+            // Додаємо timestamp, щоб обійти кеш GitHub API
+            val url = URL("https://api.github.com/repos/Tim4Lu/NewsAppKotlinAgrregator-/releases/latest?t=${System.currentTimeMillis()}")
             val conn = url.openConnection() as HttpURLConnection
             conn.requestMethod = "GET"
-            conn.setRequestProperty("User-Agent", "Mozilla/5.0")
+            conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Android; Mobile)")
+            conn.setRequestProperty("Cache-Control", "no-cache")
             conn.connectTimeout = 5000
 
             if (conn.responseCode == 200) {
                 val jsonStr = conn.inputStream.bufferedReader().use { it.readText() }
                 val json = JSONObject(jsonStr)
                 val tagName = json.getString("tag_name")
-                val remoteBuild = tagName.replace(Regex("[^0-9]"), "").toIntOrNull() ?: 0
+                
+                // Правильний парсинг: витягуємо останні цифри з тегу (наприклад "v1.0.117" -> 117, "v117" -> 117)
+                val remoteBuild = Regex("(\\d+)$").find(tagName)?.value?.toIntOrNull() 
+                    ?: tagName.replace(Regex("[^0-9]"), "").toIntOrNull() 
+                    ?: 0
 
                 LogManager.log("UPDATE_CHECK", "GitHub: $tagName (build: $remoteBuild), Поточна: $currentBuildNumber")
 
@@ -42,8 +48,12 @@ class UpdateManager(private val context: Context) {
                     if (assets.length() > 0) {
                         val downloadUrl = assets.getJSONObject(0).getString("browser_download_url")
                         return@withContext UpdateInfo(tagName, downloadUrl, remoteBuild)
+                    } else {
+                        LogManager.log("UPDATE_ERR", "Реліз $tagName знайдено, але в ньому немає APK файлу")
                     }
                 }
+            } else {
+                LogManager.log("UPDATE_ERR", "Код відповіді GitHub API: ${conn.responseCode}")
             }
         } catch (e: Exception) {
             LogManager.log("UPDATE_ERR", "Помилка перевірки: ${e.message}")
