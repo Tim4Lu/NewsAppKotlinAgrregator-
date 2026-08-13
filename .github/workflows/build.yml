@@ -36,8 +36,8 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: "v114"
-          name: "Release v114"
+          tag_name: "v115"
+          name: "Release v115"
           draft: false
           prerelease: false
           files: "app/build/outputs/apk/debug/*.apk"
