@@ -4,6 +4,7 @@ import com.newsapp.data.LogManager
 import com.newsapp.model.NewsItem
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
+import io.ktor.client.engine.cio.endpoint
 import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
@@ -16,10 +17,17 @@ import org.json.JSONObject
 
 class AiRewriter {
 
-    private val client = HttpClient(CIO)
+    private val client = HttpClient(CIO) {
+        engine {
+            requestTimeout = 30_000
+            endpoint {
+                connectTimeout = 30_000
+                socketTimeout = 30_000
+            }
+        }
+    }
 
     private val apiKeys = listOf(
-        "AQ.Ab8RN6KmYr4tqS7Qooc09rD3Cwm4R" + "vvS4R2M_TEST_KEY_1",
         "AIzaSyBBYmsxS49GvKbx" + "KTvUMxL5WIBvJL6mUHU"
     )
 
@@ -76,8 +84,7 @@ class AiRewriter {
 
     private suspend fun callGeminiApi(prompt: String, apiKey: String, keyNum: Int): String? {
         return try {
-            // Ендпоінт під Gemini 3.6 Flash
-            val url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent"
+            val url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
 
             val jsonBody = JSONObject().apply {
                 put("contents", JSONArray().apply {
@@ -92,9 +99,6 @@ class AiRewriter {
             val response = client.post(url) {
                 contentType(ContentType.Application.Json)
                 header("x-goog-api-key", apiKey)
-                if (apiKey.startsWith("AQ")) {
-                    header("Authorization", "Bearer $apiKey")
-                }
                 setBody(jsonBody.toString())
             }
 
@@ -107,10 +111,10 @@ class AiRewriter {
                     .getJSONArray("parts")
                     .getJSONObject(0)
                     .getString("text")
-                LogManager.log("Gemini_OK", "Успіх Gemini 3.6 (ключ #$keyNum)")
+                LogManager.log("Gemini_OK", "Успіх Gemini (ключ #$keyNum)")
                 resultText
             } else {
-                LogManager.log("AI_ERR", "Помилка Gemini 3.6 (код ${response.status.value})")
+                LogManager.log("AI_ERR", "Помилка Gemini API (код ${response.status.value})")
                 null
             }
         } catch (e: Exception) {
