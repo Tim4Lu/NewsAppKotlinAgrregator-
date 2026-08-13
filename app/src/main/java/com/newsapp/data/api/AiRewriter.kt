@@ -18,9 +18,8 @@ class AiRewriter {
 
     private val client = HttpClient(CIO)
 
-    // Валідні ключі з Google AI Studio
     private val apiKeys = listOf(
-        "AQ.Ab8RN6KmYr4tqS7Qooc09rD3Cwm4R" + "vvS4R2M_TEST_KEY_1", // заміни на свій новий ключ зі скріншота
+        "AQ.Ab8RN6KmYr4tqS7Qooc09rD3Cwm4R" + "vvS4R2M_TEST_KEY_1",
         "AIzaSyBBYmsxS49GvKbx" + "KTvUMxL5WIBvJL6mUHU"
     )
 
@@ -28,7 +27,7 @@ class AiRewriter {
 
     private fun getNextKey(): Pair<String, Int> {
         val index = currentKeyIndex % apiKeys.size
-        val key = apiKeys[index].trim()
+        val key = apiKeys[index].replace(Regex("\\s+"), "")
         val keyNumber = index + 1
         currentKeyIndex++
         return Pair(key, keyNumber)
@@ -39,14 +38,13 @@ class AiRewriter {
         onItemProcessed: (NewsItem) -> Unit
     ) {
         val total = newsList.size
-        LogManager.log("AI_START", "Розпочинаємо обробку $total новин (5 новин/хв)")
+        LogManager.log("AI_START", "Обробка $total новин (5 новин/хв)")
 
         newsList.forEachIndexed { index, item ->
             LogManager.log("AI_QUEUE", "[${index + 1}/$total] Обробка...")
 
             val cleanTitle = item.title.replace("\"", "'").replace("\n", " ")
             val cleanDesc = item.description.replace("\"", "'").replace("\n", " ")
-
             val prompt = "Переклади українською та зроби короткий рерайт новини для Telegram:\nЗаголовок: $cleanTitle\nТекст: $cleanDesc"
 
             var translatedText: String? = null
@@ -65,40 +63,27 @@ class AiRewriter {
                 val parts = translatedText.split("\n", limit = 2)
                 val newTitle = parts.getOrNull(0)?.replace(Regex("^[#*\\s]+"), "")?.trim() ?: item.title
                 val newDesc = parts.getOrNull(1)?.trim() ?: translatedText
-                
-                item.copy(
-                    title = newTitle,
-                    description = newDesc,
-                    status = "Готово",
-                    telegramCaption = "🚀 <b>$newTitle</b>\n\n$newDesc\n\n• <b>Джерело:</b> ${item.source}"
-                )
+                item.copy(title = newTitle, description = newDesc, status = "Готово")
             } else {
                 LogManager.log("AI_FALLBACK", "ШІ недоступний. Використовуємо оригінальний текст.")
-                item.copy(
-                    status = "Готово",
-                    telegramCaption = "🚀 <b>${item.title}</b>\n\n${item.description}\n\n• <b>Джерело:</b> ${item.source}"
-                )
+                item.copy(status = "Готово")
             }
 
             onItemProcessed(finalItem)
-
-            if (index < total - 1) {
-                delay(12000)
-            }
+            if (index < total - 1) delay(12000)
         }
     }
 
     private suspend fun callGeminiApi(prompt: String, apiKey: String, keyNum: Int): String? {
         return try {
-            val url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=$apiKey"
+            // Ендпоінт під Gemini 3.6 Flash
+            val url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent"
 
             val jsonBody = JSONObject().apply {
                 put("contents", JSONArray().apply {
                     put(JSONObject().apply {
                         put("parts", JSONArray().apply {
-                            put(JSONObject().apply {
-                                put("text", prompt)
-                            })
+                            put(JSONObject().apply { put("text", prompt) })
                         })
                     })
                 })
@@ -106,26 +91,26 @@ class AiRewriter {
 
             val response = client.post(url) {
                 contentType(ContentType.Application.Json)
-                // Передаємо ключ і в Заголовок, і в URL для сумісності з токенами AQ...
                 header("x-goog-api-key", apiKey)
+                if (apiKey.startsWith("AQ")) {
+                    header("Authorization", "Bearer $apiKey")
+                }
                 setBody(jsonBody.toString())
             }
 
             if (response.status.value == 200) {
                 val responseText = response.bodyAsText()
-                val jsonResponse = JSONObject(responseText)
-                val resultText = jsonResponse
+                val resultText = JSONObject(responseText)
                     .getJSONArray("candidates")
                     .getJSONObject(0)
                     .getJSONObject("content")
                     .getJSONArray("parts")
                     .getJSONObject(0)
                     .getString("text")
-
-                LogManager.log("Gemini_OK", "Успішно через Gemini (ключ #$keyNum)")
+                LogManager.log("Gemini_OK", "Успіх Gemini 3.6 (ключ #$keyNum)")
                 resultText
             } else {
-                LogManager.log("AI_ERR", "Помилка Gemini API (код ${response.status.value})")
+                LogManager.log("AI_ERR", "Помилка Gemini 3.6 (код ${response.status.value})")
                 null
             }
         } catch (e: Exception) {
