@@ -28,15 +28,16 @@ jobs:
       - name: Build Debug APK
         run: ./gradlew assembleDebug
 
-      - name: Create GitHub Release via GH CLI
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Extract Version Code
         run: |
-          VERSION_CODE=$(grep -oP 'versionCode = \K[0-9]+' app/build.gradle.kts)
-          TAG_NAME="v${VERSION_CODE}"
-          
-          echo "Creating Release $TAG_NAME..."
-          gh release create "$TAG_NAME" app/build/outputs/apk/debug/app-debug.apk \
-            --title "Release $TAG_NAME" \
-            --notes "Automated build $TAG_NAME" \
-            --clobber || true
+          VC=$(grep -oP 'versionCode = \K[0-9]+' app/build.gradle.kts)
+          echo "VERSION_CODE=$VC" >> $GITHUB_ENV
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: "v${{ env.VERSION_CODE }}"
+          name: "Release v${{ env.VERSION_CODE }}"
+          files: app/build/outputs/apk/debug/app-debug.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
