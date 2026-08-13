@@ -113,7 +113,6 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
                         )
                     )
                 }
-                // Застосовуємо ліміт 280 новин при зчитуванні з диска
                 _newsList.value = cached.take(MAX_NEWS_LIMIT)
                 LogManager.log("CACHE", "Завантажено ${_newsList.value.size} збережених новин з пам'яті")
             }
@@ -125,7 +124,6 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
     private fun saveNewsToDisk(list: List<NewsItem>) {
         try {
             val jsonArray = JSONArray()
-            // Обрізаємо список до 280 найсвіжіших перед збереженням
             val trimmedList = list.take(MAX_NEWS_LIMIT)
             trimmedList.forEach { item ->
                 val obj = JSONObject().apply {
@@ -169,7 +167,6 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
                     LogManager.log("RSS", "Знайдено ${trulyNewItems.size} нових свіжих новин")
                     val freshInitial = trulyNewItems.map { it.copy(status = "В черзі", telegramCaption = "Обробка...") }
                     
-                    // Об'єднуємо та утримуємо строго не більше 280 новин (найстаріші відсікаються)
                     val combinedList = (freshInitial + _newsList.value).take(MAX_NEWS_LIMIT)
                     _newsList.value = combinedList
                     _isLoading.value = false
@@ -209,7 +206,7 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
             val cleanHtml = html.replace(Regex("<(nav|header|footer|script|style|button|aside|noscript)[^>]*>[\\s\\S]*?<\\/\\1>", RegexOption.IGNORE_CASE), "")
             val pTags = Regex("<p[^>]*>([^<]{50,})<\\/p>", RegexOption.IGNORE_CASE).findAll(cleanHtml).map { it.groupValues[1] }.toList()
             val validParagraphs = pTags
-                .map { it.replace(Regex("<[^>]*>"), "").trim() }
+                .map { cleanText(it) }
                 .filter { t -> t.length > 100 && t.contains(".") }
 
             val scrapedText = validParagraphs.take(4).joinToString("\n\n")
@@ -217,6 +214,17 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
         } catch (e: Exception) {
             return Pair("", null)
         }
+    }
+
+    private fun cleanText(raw: String): String {
+        return raw.replace(Regex("<.*?>"), "")
+            .replace("&nbsp;", " ")
+            .replace("&quot;", "\"")
+            .replace("&apos;", "'")
+            .replace("&amp;", "&")
+            .replace("&lt;", "<")
+            .replace("&gt;", ">")
+            .trim()
     }
 
     private suspend fun processNewsWithScraperAndAi(rawNews: List<NewsItem>) {
@@ -250,9 +258,11 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
 
     fun sendNews(newsItem: NewsItem) {
         viewModelScope.launch(Dispatchers.IO) {
-            telegramBotService.sendToTelegram(newsItem.telegramCaption, newsItem.image)
-            _newsList.value = _newsList.value.map { if (it.id == newsItem.id) it.copy(status = "Опубліковано") else it }
-            saveNewsToDisk(_newsList.value)
+            val success = telegramBotService.sendToTelegram(newsItem.telegramCaption, newsItem.image)
+            if (success) {
+                _newsList.value = _newsList.value.map { if (it.id == newsItem.id) it.copy(status = "Опубліковано") else it }
+                saveNewsToDisk(_newsList.value)
+            }
         }
     }
 
@@ -293,7 +303,12 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
                         val name = parser.name ?: ""
                         if (name.equals("item", true) || name.equals("entry", true)) {
                             if (!title.isNullOrEmpty()) {
-                                items.add(NewsItem(title = title!!.trim(), link = link?.trim() ?: "", description = desc?.replace(Regex("<.*?>"), "")?.trim() ?: "", source = sourceName))
+                                items.add(NewsItem(
+                                    title = cleanText(title!!),
+                                    link = link?.trim() ?: "",
+                                    description = cleanText(desc ?: ""),
+                                    source = sourceName
+                                ))
                             }
                             insideItem = false
                         }

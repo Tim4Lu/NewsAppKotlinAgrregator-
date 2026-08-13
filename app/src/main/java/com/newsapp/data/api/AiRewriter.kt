@@ -46,7 +46,7 @@ class AiRewriter {
         onItemProcessed: (NewsItem) -> Unit
     ) {
         val total = newsList.size
-        LogManager.log("AI_START", "Обробка $total новин (5 новин/хв)")
+        LogManager.log("AI_START", "Обробка $total новин через Gemini 3.6 Flash")
 
         newsList.forEachIndexed { index, item ->
             LogManager.log("AI_QUEUE", "[${index + 1}/$total] Обробка...")
@@ -71,10 +71,18 @@ class AiRewriter {
                 val parts = translatedText.split("\n", limit = 2)
                 val newTitle = parts.getOrNull(0)?.replace(Regex("^[#*\\s]+"), "")?.trim() ?: item.title
                 val newDesc = parts.getOrNull(1)?.trim() ?: translatedText
-                item.copy(title = newTitle, description = newDesc, status = "Готово")
+                val caption = "🚀 <b>$newTitle</b>\n\n$newDesc\n\n• <b>Джерело:</b> ${item.source}"
+                
+                item.copy(
+                    title = newTitle,
+                    description = newDesc,
+                    telegramCaption = caption,
+                    status = "Готово"
+                )
             } else {
                 LogManager.log("AI_FALLBACK", "ШІ недоступний. Використовуємо оригінальний текст.")
-                item.copy(status = "Готово")
+                val caption = "🚀 <b>${item.title}</b>\n\n${item.description}\n\n• <b>Джерело:</b> ${item.source}"
+                item.copy(telegramCaption = caption, status = "Готово")
             }
 
             onItemProcessed(finalItem)
@@ -84,7 +92,7 @@ class AiRewriter {
 
     private suspend fun callGeminiApi(prompt: String, apiKey: String, keyNum: Int): String? {
         return try {
-            val url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
+            val url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent"
 
             val jsonBody = JSONObject().apply {
                 put("contents", JSONArray().apply {
@@ -111,7 +119,7 @@ class AiRewriter {
                     .getJSONArray("parts")
                     .getJSONObject(0)
                     .getString("text")
-                LogManager.log("Gemini_OK", "Успіх Gemini (ключ #$keyNum)")
+                LogManager.log("Gemini_OK", "Успіх Gemini 3.6 Flash (ключ #$keyNum)")
                 resultText
             } else {
                 LogManager.log("AI_ERR", "Помилка Gemini API (код ${response.status.value})")

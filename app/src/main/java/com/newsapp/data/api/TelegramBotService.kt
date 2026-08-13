@@ -25,9 +25,23 @@ class TelegramBotService {
     private val PART2 = "MRwF3QKu8kDWPnTR0HFukHw"
     private val channelId = "@science_everyday"
 
+    private fun sanitizeHtml(text: String): String {
+        return text
+            .replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replace("&lt;b&gt;", "<b>")
+            .replace("&lt;/b&gt;", "</b>")
+            .replace("&lt;i&gt;", "<i>")
+            .replace("&lt;/i&gt;", "</i>")
+            .replace("&lt;a href=", "<a href=")
+            .replace("&lt;/a&gt;", "</a>")
+    }
+
     suspend fun sendToTelegram(caption: String, imageUrl: String? = null): Boolean {
         return try {
             val token = PART1 + PART2
+            val safeCaption = sanitizeHtml(caption)
             
             val hasImage = !imageUrl.isNullOrEmpty() && imageUrl.startsWith("http")
             val endpoint = if (hasImage) "sendPhoto" else "sendMessage"
@@ -37,10 +51,10 @@ class TelegramBotService {
                 put("chat_id", channelId)
                 if (hasImage) {
                     put("photo", imageUrl)
-                    put("caption", caption)
+                    put("caption", safeCaption)
                     put("parse_mode", "HTML")
                 } else {
-                    put("text", caption)
+                    put("text", safeCaption)
                     put("parse_mode", "HTML")
                 }
             }
