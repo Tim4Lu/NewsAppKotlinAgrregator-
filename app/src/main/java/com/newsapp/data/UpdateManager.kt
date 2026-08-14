@@ -33,7 +33,9 @@ class UpdateManager(private val context: Context) {
                 val jsonStr = conn.inputStream.bufferedReader().use { it.readText() }
                 val json = JSONObject(jsonStr)
                 val tagName = json.getString("tag_name")
-                val remoteBuild = tagName.replace(Regex("[^0-9]"), "").toIntOrNull() ?: 0
+                
+                // Виправляємо парсинг: коректно зчитуємо номер збірки після 'v'
+                val remoteBuild = tagName.removePrefix("v").removePrefix("V").trim().toIntOrNull() ?: 0
 
                 LogManager.log("UPDATE_CHECK", "GitHub: $tagName (build: $remoteBuild), Поточна: $currentBuildNumber")
 
