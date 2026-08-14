@@ -116,3 +116,4 @@ class UpdateManager(private val context: Context) {
         context.startActivity(intent)
     }
 }
+
