@@ -2,17 +2,15 @@ name: Build and Release Android APK
 
 on:
   push:
-    branches: [ "main", "master" ]
-
-permissions:
-  contents: write
+    tags:
+      - 'v*'
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout code
         uses: actions/checkout@v4
 
       - name: Set up JDK 17
@@ -20,12 +18,7 @@ jobs:
         with:
           distribution: 'temurin'
           java-version: '17'
-
-      - name: Setup Gradle Wrapper if missing
-        run: |
-          if [ ! -f gradlew ]; then
-            gradle wrapper
-          fi
+          cache: 'gradle'
 
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
@@ -33,13 +26,13 @@ jobs:
       - name: Build Debug APK
         run: ./gradlew assembleDebug
 
-      - name: Create GitHub Release
+      - name: Create GitHub Release and Upload APK
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: "v115"
-          name: "Release v115"
+          files: app/build/outputs/apk/debug/app-debug.apk
+          tag_name: ${{ github.ref_name }}
+          name: Release ${{ github.ref_name }}
           draft: false
           prerelease: false
-          files: "app/build/outputs/apk/debug/*.apk"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
