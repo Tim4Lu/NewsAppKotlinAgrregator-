@@ -122,17 +122,11 @@ class AiRewriter {
                 LogManager.log("Gemini_OK", "Успіх Gemini 3.6 Flash (ключ #$keyNum)")
                 resultText
             } else {
-                val errorDetail = e.localizedMessage ?: e::class.java.simpleName
-            val errorDetail = e.localizedMessage ?: e::class.java.simpleName
-            LogManager.log("AI_ERR", "Помилка (ключ #${currentKeyIndex + 1}): $errorDetail")
-            switchToNextKey()
+                LogManager.log("AI_ERR", "Помилка Gemini API (код ${response.status.value})")
                 null
             }
         } catch (e: Exception) {
-            val errorDetail = e.localizedMessage ?: e::class.java.simpleName
-            val errorDetail = e.localizedMessage ?: e::class.java.simpleName
-            LogManager.log("AI_ERR", "Помилка (ключ #${currentKeyIndex + 1}): $errorDetail")
-            switchToNextKey()
+            LogManager.log("AI_ERR", "Помилка з'єднання: ${e.message}")
             null
         }
     }
