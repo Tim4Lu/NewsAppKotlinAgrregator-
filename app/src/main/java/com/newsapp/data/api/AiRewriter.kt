@@ -124,11 +124,13 @@ class AiRewriter {
             } else {
                 val errorDetail = e.localizedMessage ?: e::class.java.simpleName
             val errorDetail = e.localizedMessage ?: e::class.java.simpleName
+            val errorDetail = e.localizedMessage ?: e::class.java.simpleName
             LogManager.log("AI_ERR", "Помилка (ключ #${currentKeyIndex + 1}): $errorDetail")
             switchToNextKey()
                 null
             }
         } catch (e: Exception) {
+            val errorDetail = e.localizedMessage ?: e::class.java.simpleName
             val errorDetail = e.localizedMessage ?: e::class.java.simpleName
             val errorDetail = e.localizedMessage ?: e::class.java.simpleName
             LogManager.log("AI_ERR", "Помилка (ключ #${currentKeyIndex + 1}): $errorDetail")
