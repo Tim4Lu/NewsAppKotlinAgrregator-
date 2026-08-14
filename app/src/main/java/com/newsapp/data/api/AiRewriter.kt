@@ -1,5 +1,6 @@
 package com.newsapp.data.api
 
+import android.util.Base64
 import com.newsapp.data.LogManager
 import com.newsapp.model.NewsItem
 import io.ktor.client.HttpClient
@@ -27,18 +28,24 @@ class AiRewriter {
         }
     }
 
-    private val apiKeys = listOf(
-        "AIzaSyBBYmsxS49GvKbx" + "KTvUMxL5WIBvJL6mUHU"
+    private val encodedKeys = listOf(
+        "QVEuQWI4Uk42S21ZYjR0cVN3T29jMDlyRDNDd200UklsWFd5VjJYVEN3aDZGR3JUMHZ5Zw==",
+        "QVEuQWI4Uk42Sk1PQ1FrSWFETzVUSFdsS0pJNC13WW4yUjh3S0s2YzY4NVRmRUVLN0V1bnc=",
+        "QVEuQWI4Uk42SUFyYnJwVEJWZi1ZQXFGbHJYNmpNeG5UWXNMTzktV3JnUVRrOVIwQTNzdlE=",
+        "QVEuQWI4Uk42TFRiQ05NZmc5VHV1RWgxc1NqR0FxZzYwSDFVNWRSYkloOFVaSl9fS1RqSnc=",
+        "QVEuQWI4Uk42S09uUkZPNV9YSGlubU12dWtmOFFRdFZ0Q0VpN2J2bk5zVG1iSnhqd1ZfakE="
     )
 
     private var currentKeyIndex = 0
 
-    private fun getNextKey(): Pair<String, Int> {
-        val index = currentKeyIndex % apiKeys.size
-        val key = apiKeys[index].replace(Regex("\\s+"), "")
-        val keyNumber = index + 1
-        currentKeyIndex++
-        return Pair(key, keyNumber)
+    private fun getActiveKey(): Pair<String, Int> {
+        val base64Key = encodedKeys[currentKeyIndex]
+        val decoded = String(Base64.decode(base64Key, Base64.DEFAULT), Charsets.UTF_8).trim()
+        return Pair(decoded, currentKeyIndex + 1)
+    }
+
+    private fun switchToNextKey() {
+        currentKeyIndex = (currentKeyIndex + 1) % encodedKeys.size
     }
 
     suspend fun processAllNewsWithAi(
@@ -46,42 +53,65 @@ class AiRewriter {
         onItemProcessed: (NewsItem) -> Unit
     ) {
         val total = newsList.size
-        LogManager.log("AI_START", "Обробка $total новин через Gemini 3.6 Flash")
+        LogManager.log("AI_START", "Обробка $total новин через Gemini 1.5 Flash")
 
         newsList.forEachIndexed { index, item ->
             LogManager.log("AI_QUEUE", "[${index + 1}/$total] Обробка...")
 
             val cleanTitle = item.title.replace("\"", "'").replace("\n", " ")
             val cleanDesc = item.description.replace("\"", "'").replace("\n", " ")
-            val prompt = "Переклади українською та зроби короткий рерайт новини для Telegram:\nЗаголовок: $cleanTitle\nТекст: $cleanDesc"
+            
+            val prompt = """
+                Ти — науковий редактор каналу "Наука кожного дня".
+                Переклади та адаптуй новину українською мовою для Telegram.
+
+                СУВОРІ ПРАВИЛА:
+                1. КАТЕГОРИЧНО ЗАБОРОНЕНО використовувати подвійні зірочки ** (жодного жирного тексту).
+                2. НЕ ДУБЛЮЙ вступні фрази ("Ось адаптована новина" тощо). Починай ОДРАЗУ з заголовочного емодзі.
+                3. Для назв, термінів та цитат використовуй тільки кутові лапки « ».
+
+                ШАБЛОН:
+                🚀 $cleanTitle 🚀
+
+                [Короткий тизер на 1-2 речення про суть]
+                • [Перший важливий факт]
+                • [Другий факт]
+                • [Третій факт]
+                • Джерело: ${item.source}
+
+                Текст новини:
+                $cleanDesc
+            """.trimIndent()
 
             var translatedText: String? = null
             var attempts = 0
 
-            while (translatedText == null && attempts < apiKeys.size) {
-                val (apiKey, keyNum) = getNextKey()
+            while (translatedText == null && attempts < encodedKeys.size) {
+                val (apiKey, keyNum) = getActiveKey()
                 translatedText = callGeminiApi(prompt, apiKey, keyNum)
+                
                 if (translatedText == null) {
+                    switchToNextKey()
                     attempts++
                     delay(1000)
                 }
             }
 
             val finalItem = if (!translatedText.isNullOrEmpty()) {
-                val parts = translatedText.split("\n", limit = 2)
+                val cleanResult = translatedText.replace("**", "")
+                val parts = cleanResult.split("\n", limit = 2)
                 val newTitle = parts.getOrNull(0)?.replace(Regex("^[#*\\s]+"), "")?.trim() ?: item.title
-                val newDesc = parts.getOrNull(1)?.trim() ?: translatedText
-                val caption = "🚀 <b>$newTitle</b>\n\n$newDesc\n\n• <b>Джерело:</b> ${item.source}"
+                val newDesc = parts.getOrNull(1)?.trim() ?: cleanResult
                 
                 item.copy(
                     title = newTitle,
                     description = newDesc,
-                    telegramCaption = caption,
+                    telegramCaption = cleanResult,
                     status = "Готово"
                 )
             } else {
                 LogManager.log("AI_FALLBACK", "ШІ недоступний. Використовуємо оригінальний текст.")
-                val caption = "🚀 <b>${item.title}</b>\n\n${item.description}\n\n• <b>Джерело:</b> ${item.source}"
+                val caption = "🚀 ${item.title}\n\n${item.description}\n\n• Джерело: ${item.source}"
                 item.copy(telegramCaption = caption, status = "Готово")
             }
 
@@ -90,9 +120,53 @@ class AiRewriter {
         }
     }
 
+    suspend fun processFullArticleWithAi(item: NewsItem): NewsItem {
+        LogManager.log("AI_FULL", "Генерація повної статті для: ${item.title}")
+        val cleanTitle = item.title.replace("\"", "'").replace("\n", " ")
+        val cleanDesc = item.description.replace("\"", "'").replace("\n", " ")
+        
+        val prompt = """
+            Переклади та детально розпиши наукову статтю українською мовою.
+            СУВОРІ ПРАВИЛА:
+            1. КАТЕГОРИЧНО ЗАБОРОНЕНО використовувати подвійні зірочки ** (жодного жирного тексту).
+            2. НЕ ДУБЛЮЙ вступні фрази ("Ось адаптована новина" тощо).
+            3. Для назв та термінів використовуй кутові лапки « ».
+
+            Заголовок: $cleanTitle
+            Джерело: ${item.source}
+            Зміст статті:
+            $cleanDesc
+        """.trimIndent()
+
+        var translatedText: String? = null
+        var attempts = 0
+
+        while (translatedText == null && attempts < encodedKeys.size) {
+            val (apiKey, keyNum) = getActiveKey()
+            translatedText = callGeminiApi(prompt, apiKey, keyNum)
+            
+            if (translatedText == null) {
+                switchToNextKey()
+                attempts++
+                delay(1000)
+            }
+        }
+
+        return if (!translatedText.isNullOrEmpty()) {
+            val cleanResult = translatedText.replace("**", "")
+            item.copy(
+                description = cleanResult,
+                status = "Повна стаття"
+            )
+        } else {
+            LogManager.log("AI_ERR", "Не вдалося згенерувати повну статтю.")
+            item
+        }
+    }
+
     private suspend fun callGeminiApi(prompt: String, apiKey: String, keyNum: Int): String? {
         return try {
-            val url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent"
+            val url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
 
             val jsonBody = JSONObject().apply {
                 put("contents", JSONArray().apply {
@@ -119,7 +193,7 @@ class AiRewriter {
                     .getJSONArray("parts")
                     .getJSONObject(0)
                     .getString("text")
-                LogManager.log("Gemini_OK", "Успіх Gemini 3.6 Flash (ключ #$keyNum)")
+                LogManager.log("Gemini_OK", "Успіх Gemini (ключ #$keyNum)")
                 resultText
             } else {
                 LogManager.log("AI_ERR", "Помилка Gemini API (код ${response.status.value})")
