@@ -198,6 +198,7 @@ class AiRewriter {
 
             val response = client.post(url) {
                 header("x-goog-api-key", apiKey)
+                header("x-goog-api-key", apiKey)
                 contentType(ContentType.Application.Json)
                 setBody(jsonBody.toString())
             }
