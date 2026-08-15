@@ -93,7 +93,7 @@ class AiRewriter {
                 if (translatedText == null) {
                     switchToNextKey()
                     attempts++
-                    delay(1000)
+                    delay(12000)
                 }
             }
 
@@ -148,7 +148,7 @@ class AiRewriter {
             if (translatedText == null) {
                 switchToNextKey()
                 attempts++
-                delay(1000)
+                delay(12000)
             }
         }
 
