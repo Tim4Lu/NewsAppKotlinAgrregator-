@@ -4,7 +4,7 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.newsapp.data.LogManager
-import com.newsapp.data.TelegramBotService
+import com.newsapp.data.api.TelegramBotService
 import com.newsapp.data.api.AiRewriter
 import com.newsapp.model.NewsItem
 import io.ktor.client.HttpClient
@@ -42,7 +42,8 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
 
     private val rssUrls = listOf(
         "https://www.nasa.gov/rss/dyn/breaking_news.rss",
-        "https://www.space.com/feeds/all"
+        "https://www.space.com/feeds/all",
+        "https://www.universetoday.com/feed"
     )
 
     init {
@@ -204,18 +205,9 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
             _newsList.value = _newsList.value.map {
                 if (it.id == newsItem.id) it.copy(status = "Переклад...", telegramCaption = "Обробка AI...") else it
             }
-            val result = aiRewriter.processWithGeminiOrGroq(newsItem.description, newsItem.title)
-            if (result != null) {
-                val (finalTitle, finalText) = result
-                val telegramFormattedCaption = "$finalTitle\n\n$finalText\n\n• <b>Джерело:</b> ${newsItem.source}"
-                
-                val updated = newsItem.copy(
-                    title = finalTitle,
-                    description = finalText,
-                    status = "Готово",
-                    telegramCaption = telegramFormattedCaption
-                )
-                _newsList.value = _newsList.value.map { if (it.id == newsItem.id) updated else it }
+            // Використовуємо 100% публічну функцію, передаючи їй список з 1 елемента
+            aiRewriter.processAllNewsWithAi(listOf(newsItem)) { finishedItem ->
+                _newsList.value = _newsList.value.map { if (it.id == newsItem.id) finishedItem else it }
                 saveNewsToDisk(_newsList.value)
             }
         }
@@ -234,9 +226,12 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
 
     fun sendNews(newsItem: NewsItem) {
         viewModelScope.launch(Dispatchers.IO) {
-            telegramBotService.sendNewsToChannel(newsItem)
-            _newsList.value = _newsList.value.map { if (it.id == newsItem.id) it.copy(status = "Опубліковано") else it }
-            saveNewsToDisk(_newsList.value)
+            // Викликаємо правильний метод з правильного класу
+            val success = telegramBotService.sendToTelegram(newsItem.telegramCaption, newsItem.image)
+            if (success) {
+                _newsList.value = _newsList.value.map { if (it.id == newsItem.id) it.copy(status = "Опубліковано") else it }
+                saveNewsToDisk(_newsList.value)
+            }
         }
     }
 
