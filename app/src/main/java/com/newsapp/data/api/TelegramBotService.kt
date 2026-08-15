@@ -23,7 +23,7 @@ class TelegramBotService {
 
     private val PART1 = "8738429281:AAHRxy5sPK4Q"
     private val PART2 = "MRwF3QKu8kDWPnTR0HFukHw"
-    private val channelId = "@science_everyday"
+    private val channelId = "@pronaukyonline"
 
     private fun sanitizeHtml(text: String): String {
         return text
