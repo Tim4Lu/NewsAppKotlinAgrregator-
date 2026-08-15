@@ -8,7 +8,6 @@ import com.newsapp.service.NewsProcessingService
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
 import io.ktor.client.engine.cio.endpoint
-import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
@@ -31,19 +30,25 @@ class AiRewriter {
     }
 
     private val apiKeys: List<String>
-        get() = BuildConfig.GEMINI_KEYS.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+        get() = BuildConfig.GEMINI_KEYS
+            .replace("\"", "")
+            .split(",")
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
 
     private var currentKeyIndex = 0
 
     private fun getActiveKey(): Pair<String, Int> {
-        if (apiKeys.isEmpty()) return Pair("", 0)
-        val key = apiKeys[currentKeyIndex % apiKeys.size]
-        return Pair(key, (currentKeyIndex % apiKeys.size) + 1)
+        val keys = apiKeys
+        if (keys.isEmpty()) return Pair("", 0)
+        val index = currentKeyIndex % keys.size
+        return Pair(keys[index], index + 1)
     }
 
     private fun switchToNextKey() {
-        if (apiKeys.isNotEmpty()) {
-            currentKeyIndex = (currentKeyIndex + 1) % apiKeys.size
+        val keys = apiKeys
+        if (keys.isNotEmpty()) {
+            currentKeyIndex = (currentKeyIndex + 1) % keys.size
         }
     }
 
@@ -56,9 +61,10 @@ class AiRewriter {
 
         try {
             val total = newsList.size
-            LogManager.log("AI_START", "Обробка $total новин (доступно ключів: ${apiKeys.size})")
+            val keysCount = apiKeys.size
+            LogManager.log("AI_START", "Обробка $total новин (доступно ключів: $keysCount)")
 
-            if (apiKeys.isEmpty()) {
+            if (keysCount == 0) {
                 LogManager.log("AI_ERR", "УВАГА: Ключі GEMINI_KEYS порожні! Перевірте GitHub Secrets.")
             }
 
@@ -92,15 +98,16 @@ class AiRewriter {
 
                 var translatedText: String? = null
                 var attempts = 0
+                val keys = apiKeys
 
-                while (translatedText == null && attempts < apiKeys.size) {
+                while (translatedText == null && attempts < keys.size) {
                     val (apiKey, keyNum) = getActiveKey()
                     translatedText = callGeminiApi(prompt, apiKey, keyNum)
                     
                     if (translatedText == null) {
                         switchToNextKey()
                         attempts++
-                        delay(12000)
+                        delay(5000)
                     }
                 }
 
@@ -123,7 +130,7 @@ class AiRewriter {
                 }
 
                 onItemProcessed(finalItem)
-                if (index < total - 1) delay(12000)
+                if (index < total - 1) delay(10000)
             }
         } finally {
             context?.let { NewsProcessingService.stop(it) }
@@ -150,15 +157,16 @@ class AiRewriter {
 
         var translatedText: String? = null
         var attempts = 0
+        val keys = apiKeys
 
-        while (translatedText == null && attempts < apiKeys.size) {
+        while (translatedText == null && attempts < keys.size) {
             val (apiKey, keyNum) = getActiveKey()
             translatedText = callGeminiApi(prompt, apiKey, keyNum)
             
             if (translatedText == null) {
                 switchToNextKey()
                 attempts++
-                delay(12000)
+                delay(5000)
             }
         }
 
@@ -176,7 +184,7 @@ class AiRewriter {
 
     private suspend fun callGeminiApi(prompt: String, apiKey: String, keyNum: Int): String? {
         return try {
-            val url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
+            val url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=$apiKey"
 
             val jsonBody = JSONObject().apply {
                 put("contents", JSONArray().apply {
@@ -190,7 +198,6 @@ class AiRewriter {
 
             val response = client.post(url) {
                 contentType(ContentType.Application.Json)
-                header("x-goog-api-key", apiKey)
                 setBody(jsonBody.toString())
             }
 
