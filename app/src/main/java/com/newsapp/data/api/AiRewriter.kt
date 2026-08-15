@@ -29,10 +29,11 @@ class AiRewriter {
     }
 
     private val encodedKeys = listOf(
-        "QVEuQWI4Uk42S21ZYjR0cVN3T29jMDlyRDNDd200UklsWFd5VjJYVEN3aDZGR3JUMHZ5Zw==",
-        "QVEuQWI4Uk42Sk1PQ1FrSWFETzVUSFdsS0pJNC13WW4yUjh3S0s2YzY4NVRmRUVLN0V1bnc=",
+        "QVEuQWI4Uk42S21ZcjR0cVM3UW9vYzA5ckQzQ3dtNFJJbFhXeVYyWFRDN2g2RkdyVDB2eWc=",
+        "QVEuQWI4Uk42Sm0xZG1vUjRtelFQVTZmV0VFTzJjS1Y5eEhSRERDTTl5QThyaFRaMDduRVE=",
         "QVEuQWI4Uk42SUFyYnJwVEJWZi1ZQXFGbHJYNmpNeG5UWXNMTzktV3JnUVRrOVIwQTNzdlE=",
         "QVEuQWI4Uk42TFRiQ05NZmc5VHV1RWgxc1NqR0FxZzYwSDFVNWRSYkloOFVaSl9fS1RqSnc=",
+        "QUl6YVN5QkJZbXN4UzQ5R3ZLYnhLVHZVTXhMNVdJQnZKTDZtVUhV",
         "QVEuQWI4Uk42S09uUkZPNV9YSGlubU12dWtmOFFRdFZ0Q0VpN2J2bk5zVG1iSnhqd1ZfakE="
     )
 
@@ -53,7 +54,7 @@ class AiRewriter {
         onItemProcessed: (NewsItem) -> Unit
     ) {
         val total = newsList.size
-        LogManager.log("AI_START", "Обробка $total новин через Gemini 1.5 Flash")
+        LogManager.log("AI_START", "Обробка $total новин через Gemini 3.6 Flash")
 
         newsList.forEachIndexed { index, item ->
             LogManager.log("AI_QUEUE", "[${index + 1}/$total] Обробка...")
