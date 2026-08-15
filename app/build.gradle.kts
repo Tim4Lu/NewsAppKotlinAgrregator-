@@ -12,7 +12,6 @@ fun getSecret(key: String): String {
         if (file.exists()) load(file.inputStream())
     }
     val rawValue = System.getenv(key) ?: localProperties.getProperty(key) ?: ""
-    // Видаляємо пробіли, символи перенесення рядків \n та \r
     return rawValue.replace("\r", "").replace("\n", "").trim()
 }
 
@@ -24,8 +23,8 @@ android {
         applicationId = "com.newsapp"
         minSdk = 24
         targetSdk = 34
-        versionCode = 146
-        versionName = "1.0.146"
+        versionCode = 152
+        versionName = "1.0.152"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -37,11 +36,19 @@ android {
     }
 
     signingConfigs {
-        getByName("debug") {
-            storeFile = file("debug.keystore")
-            storePassword = "android"
-            keyAlias = "androiddebugkey"
-            keyPassword = "android"
+        create("release") {
+            val ksFile = file("release.keystore")
+            if (ksFile.exists()) {
+                storeFile = ksFile
+                storePassword = getSecret("KEYSTORE_PASSWORD").ifEmpty { "mypassword123" }
+                keyAlias = getSecret("KEY_ALIAS").ifEmpty { "newsappkey" }
+                keyPassword = getSecret("KEY_PASSWORD").ifEmpty { "mypassword123" }
+            } else {
+                storeFile = file("debug.keystore")
+                storePassword = "android"
+                keyAlias = "androiddebugkey"
+                keyPassword = "android"
+            }
         }
     }
 
@@ -51,7 +58,7 @@ android {
         }
         release {
             isMinifyEnabled = false
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

@@ -28,7 +28,10 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           GEMINI_KEYS: ${{ secrets.GEMINI_KEYS }}
-        run: ./gradlew assembleRelease
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: ./gradlew clean assembleRelease
 
       - name: Upload Release Asset
         uses: softprops/action-gh-release@v1
