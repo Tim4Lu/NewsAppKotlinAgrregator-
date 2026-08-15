@@ -49,7 +49,7 @@ class NewsWorker(
             try {
                 val response = client.get(url) { header(HttpHeaders.UserAgent, "Mozilla/5.0") }
                 if (response.status.value in 200..299) {
-                    rawNews.addAll(parseRss(response.bodyAsText(), URL(url).host))
+                    rawNews.addAll(parseRss(response.bodyAsText(), getSourceName(url)))
                 }
             } catch (e: Exception) {
                 LogManager.log("WORKER_ERR", "Помилка RSS: ${e.message}")
@@ -132,6 +132,18 @@ class NewsWorker(
             .build()
 
         notificationManager.notify(item.id.hashCode(), notification)
+    }
+
+    
+    private fun getSourceName(url: String): String {
+        return when {
+            url.contains("nasa.gov") -> "NASA"
+            url.contains("space.com") -> "Space.com"
+            url.contains("universetoday.com") -> "Universe Today"
+            url.contains("spacedaily.com") -> "Space Daily"
+            url.contains("phys.org") -> "Phys.org"
+            else -> java.net.URL(url).host
+        }
     }
 
     private fun parseRss(xml: String, sourceName: String): List<NewsItem> {

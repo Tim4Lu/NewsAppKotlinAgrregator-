@@ -23,7 +23,7 @@ fun NewsScreen(viewModel: NewsViewModel) {
     var showLogsDialog by remember { mutableStateOf(false) }
     
     var selectedSource by remember { mutableStateOf("Усі") }
-    val sources = listOf("Усі", "NASA", "Space.com", "Space Daily", "Universe Today")
+    val sources = listOf("Усі", "NASA", "Space.com", "Space Daily", "Universe Today", "Phys.org")
 
     val filteredNews = if (selectedSource == "Усі") {
         newsList

@@ -82,7 +82,7 @@ class UpdateManager(private val context: Context) {
             } while (redirect && redirectsCount < 5)
 
             val inputStream = conn.inputStream
-            val apkFile = File(context.cacheDir, "update.apk")
+            val apkFile = File(context.getExternalFilesDir(null), "update.apk")
             val outputStream = FileOutputStream(apkFile)
 
             val buffer = ByteArray(8192)
