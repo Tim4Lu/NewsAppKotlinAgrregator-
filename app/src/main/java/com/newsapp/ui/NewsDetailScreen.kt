@@ -1,4 +1,6 @@
 package com.newsapp.ui
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.collectAsState
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons

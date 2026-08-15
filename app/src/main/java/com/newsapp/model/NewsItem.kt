@@ -1,4 +1,6 @@
 package com.newsapp.model
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.collectAsState
 
 import java.util.UUID
 

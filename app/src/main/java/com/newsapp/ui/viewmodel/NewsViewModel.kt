@@ -1,4 +1,6 @@
 package com.newsapp.ui.viewmodel
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.collectAsState
 
 import android.app.Application
 import android.os.Build

@@ -1,4 +1,6 @@
 package com.newsapp.ui.components
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.collectAsState
 
 import android.content.Intent
 import android.net.Uri
