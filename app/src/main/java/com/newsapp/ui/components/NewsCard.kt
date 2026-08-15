@@ -27,7 +27,8 @@ fun NewsCard(
     item: NewsItem,
     onPublish: suspend (NewsItem) -> Unit,
     onUpdateText: (String, String) -> Unit,
-    onToggleEdit: (String) -> Unit
+    onToggleEdit: (String) -> Unit,
+    onRewrite: (NewsItem) -> Unit
 ) {
     var localText by remember(item.id, item.description) { mutableStateOf(item.description) }
     var isPublishing by remember { mutableStateOf(false) }
@@ -57,7 +58,6 @@ fun NewsCard(
             )
 
             Column(modifier = Modifier.padding(16.dp)) {
-                // Джерело та Статус
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -91,7 +91,6 @@ fun NewsCard(
                     }
                 }
 
-                // Заголовок
                 Text(
                     text = item.title,
                     color = Color.White,
@@ -100,7 +99,6 @@ fun NewsCard(
                     modifier = Modifier.padding(bottom = 12.dp)
                 )
 
-                // Редагування чи перегляд
                 if (item.isEditing) {
                     OutlinedTextField(
                         value = localText,
@@ -138,19 +136,30 @@ fun NewsCard(
                         lineHeight = 22.sp,
                         modifier = Modifier.padding(bottom = 16.dp)
                     )
-                    Text(
-                        text = "✏️ Редагувати текст",
-                        color = Color(0xFF818CF8),
-                        fontSize = 14.sp,
+                    
+                    Row(
                         modifier = Modifier
-                            .padding(bottom = 16.dp)
-                            .clickable { onToggleEdit(item.id) }
-                    )
+                            .fillMaxWidth()
+                            .padding(bottom = 16.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = "✏️ Редагувати",
+                            color = Color(0xFF818CF8),
+                            fontSize = 14.sp,
+                            modifier = Modifier.clickable { onToggleEdit(item.id) }
+                        )
+                        Text(
+                            text = "🔄 Перекласти заново",
+                            color = Color(0xFF38BDF8),
+                            fontSize = 14.sp,
+                            modifier = Modifier.clickable { onRewrite(item) }
+                        )
+                    }
                 }
 
                 HorizontalDivider(color = Color(0xFF334155), modifier = Modifier.padding(bottom = 16.dp))
 
-                // Кнопки дій
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween
@@ -198,7 +207,7 @@ fun NewsCard(
                             )
                         } else {
                             Text(
-                                text = if (isPublished) "✓ В каналі" else "🚀 В Телеграм",
+                                text = if (isPublished) "✓ В каналі" else "🚀 В Telegram",
                                 color = Color.White,
                                 fontWeight = FontWeight.Bold
                             )

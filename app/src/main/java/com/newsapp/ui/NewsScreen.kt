@@ -2,15 +2,12 @@ package com.newsapp.ui
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.newsapp.ui.components.LogViewerDialog
@@ -23,111 +20,59 @@ fun NewsScreen(viewModel: NewsViewModel) {
     val newsList by viewModel.newsList.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
     var showLogsDialog by remember { mutableStateOf(false) }
-    var selectedSource by remember { mutableStateOf("Усі") }
-
-    // Видалено українські сайти з вкладок
-    val sources = listOf(
-        "Усі",
-        "NASA News",
-        "SpaceNews",
-        "BBC Tech",
-        "TechCrunch",
-        "Wired",
-        "MIT Tech Review",
-        "Nature"
-    )
-
-    val filteredNews = if (selectedSource == "Усі") {
-        newsList
-    } else {
-        newsList.filter { it.source.equals(selectedSource, ignoreCase = true) }
-    }
 
     Scaffold(
         containerColor = Color(0xFF0F172A),
         topBar = {
             TopAppBar(
-                title = {
-                    Text(
-                        text = "Наука та Космос",
-                        style = MaterialTheme.typography.titleLarge,
-                        color = Color.White,
-                        fontWeight = FontWeight.Bold
-                    )
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color(0xFF0F172A)
-                )
+                title = { Text("Наука та Космос", color = Color.White) },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color(0xFF1E293B)),
+                actions = {
+                    IconButton(onClick = { viewModel.loadNews() }) {
+                        Text("🔄", fontSize = 18.sp)
+                    }
+                }
             )
         },
         floatingActionButton = {
             FloatingActionButton(
                 onClick = { showLogsDialog = true },
-                containerColor = Color(0xFF312E81),
-                contentColor = Color(0xFFA5B4FC),
-                shape = RoundedCornerShape(16.dp)
+                containerColor = Color(0xFF818CF8)
             ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(text = "📜 Логи", fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                }
+                Text("📜", modifier = Modifier.padding(16.dp))
             }
         }
     ) { paddingValues ->
-        Column(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
-            LazyRow(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                items(sources) { source ->
-                    FilterChip(
-                        selected = selectedSource == source,
-                        onClick = { selectedSource = source },
-                        label = { Text(source) },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = Color(0xFF6366F1),
-                            selectedLabelColor = Color.White,
-                            containerColor = Color(0xFF1E293B),
-                            labelColor = Color(0xFF94A3B8)
+            if (isLoading && newsList.isEmpty()) {
+                CircularProgressIndicator(
+                    modifier = Modifier.align(Alignment.Center),
+                    color = Color(0xFF818CF8)
+                )
+            } else {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                ) {
+                    items(newsList, key = { it.id }) { item ->
+                        NewsCard(
+                            item = item,
+                            onPublish = { viewModel.sendNews(it) },
+                            onUpdateText = { id, text -> viewModel.updateNewsText(id, text) },
+                            onToggleEdit = { id -> viewModel.toggleEdit(id) },
+                            onRewrite = { newsItem -> viewModel.rewriteSingleNews(newsItem) }
                         )
-                    )
+                    }
                 }
             }
 
-            Box(modifier = Modifier.fillMaxSize()) {
-                if (isLoading && newsList.isEmpty()) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.align(Alignment.Center),
-                        color = Color(0xFF818CF8)
-                    )
-                } else {
-                    LazyColumn(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(horizontal = 16.dp)
-                    ) {
-                        items(filteredNews, key = { it.id }) { item ->
-                            NewsCard(
-                                item = item,
-                                onPublish = { viewModel.sendNews(it) },
-                                onUpdateText = { id, text -> viewModel.updateNewsText(id, text) },
-                                onToggleEdit = { id -> viewModel.toggleEdit(id) }
-                            )
-                        }
-                    }
-                }
-
-                if (showLogsDialog) {
-                    LogViewerDialog(onDismiss = { showLogsDialog = false })
-                }
+            if (showLogsDialog) {
+                LogViewerDialog(onDismiss = { showLogsDialog = false })
             }
         }
     }
