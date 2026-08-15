@@ -22,8 +22,8 @@ android {
         applicationId = "com.newsapp"
         minSdk = 24
         targetSdk = 34
-        versionCode = 143
-        versionName = "1.0.143"
+        versionCode = 144
+        versionName = "1.0.144"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {

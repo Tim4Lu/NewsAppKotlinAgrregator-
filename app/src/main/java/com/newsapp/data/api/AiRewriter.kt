@@ -50,7 +50,11 @@ class AiRewriter {
         onItemProcessed: (NewsItem) -> Unit
     ) {
         val total = newsList.size
-        LogManager.log("AI_START", "Обробка $total новин через Gemini 3.6 Flash")
+        LogManager.log("AI_START", "Обробка $total новин (доступно ключів: ${apiKeys.size})")
+
+        if (apiKeys.isEmpty()) {
+            LogManager.log("AI_ERR", "УВАГА: Ключі GEMINI_KEYS порожні! Перевірте GitHub Secrets.")
+        }
 
         newsList.forEachIndexed { index, item ->
             LogManager.log("AI_QUEUE", "[${index + 1}/$total] Обробка...")
@@ -163,7 +167,7 @@ class AiRewriter {
 
     private suspend fun callGeminiApi(prompt: String, apiKey: String, keyNum: Int): String? {
         return try {
-            val url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent"
+            val url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
 
             val jsonBody = JSONObject().apply {
                 put("contents", JSONArray().apply {
