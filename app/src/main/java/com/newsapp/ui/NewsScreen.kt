@@ -2,6 +2,7 @@ package com.newsapp.ui
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -20,6 +21,15 @@ fun NewsScreen(viewModel: NewsViewModel) {
     val newsList by viewModel.newsList.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
     var showLogsDialog by remember { mutableStateOf(false) }
+    
+    var selectedSource by remember { mutableStateOf("Усі") }
+    val sources = listOf("Усі", "NASA", "Space.com", "Space Daily", "Universe Today")
+
+    val filteredNews = if (selectedSource == "Усі") {
+        newsList
+    } else {
+        newsList.filter { it.source.equals(selectedSource, ignoreCase = true) }
+    }
 
     Scaffold(
         containerColor = Color(0xFF0F172A),
@@ -43,30 +53,53 @@ fun NewsScreen(viewModel: NewsViewModel) {
             }
         }
     ) { paddingValues ->
-        Box(
+        Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
-            if (isLoading && newsList.isEmpty()) {
-                CircularProgressIndicator(
-                    modifier = Modifier.align(Alignment.Center),
-                    color = Color(0xFF818CF8)
-                )
-            } else {
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 16.dp, vertical = 8.dp)
-                ) {
-                    items(newsList, key = { it.id }) { item ->
-                        NewsCard(
-                            item = item,
-                            onPublish = { viewModel.sendNews(it) },
-                            onUpdateText = { id, text -> viewModel.updateNewsText(id, text) },
-                            onToggleEdit = { id -> viewModel.toggleEdit(id) },
-                            onRewrite = { newsItem -> viewModel.rewriteSingleNews(newsItem) }
+            // Панель фільтрів
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
+            ) {
+                items(sources) { source ->
+                    FilterChip(
+                        selected = (selectedSource == source),
+                        onClick = { selectedSource = source },
+                        label = { Text(source) },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = Color(0xFF818CF8),
+                            selectedLabelColor = Color.White,
+                            labelColor = Color(0xFFCBD5E1)
                         )
+                    )
+                }
+            }
+
+            Box(modifier = Modifier.fillMaxSize()) {
+                if (isLoading && newsList.isEmpty()) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.align(Alignment.Center),
+                        color = Color(0xFF818CF8)
+                    )
+                } else {
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 16.dp)
+                    ) {
+                        items(filteredNews, key = { it.id }) { item ->
+                            NewsCard(
+                                item = item,
+                                onPublish = { viewModel.sendNews(it) },
+                                onUpdateText = { id, text -> viewModel.updateNewsText(id, text) },
+                                onToggleEdit = { id -> viewModel.toggleEdit(id) },
+                                onRewrite = { newsItem -> viewModel.rewriteSingleNews(newsItem) }
+                            )
+                        }
                     }
                 }
             }
