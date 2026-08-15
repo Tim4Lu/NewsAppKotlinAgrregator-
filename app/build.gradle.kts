@@ -1,7 +1,17 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
+}
+
+fun getSecret(key: String): String {
+    val localProperties = Properties().apply {
+        val file = rootProject.file("local.properties")
+        if (file.exists()) load(file.inputStream())
+    }
+    return System.getenv(key) ?: localProperties.getProperty(key) ?: ""
 }
 
 android {
@@ -19,6 +29,9 @@ android {
         vectorDrawables {
             useSupportLibrary = true
         }
+
+        buildConfigField("String", "TELEGRAM_BOT_TOKEN", "\"${getSecret("TELEGRAM_BOT_TOKEN")}\"")
+        buildConfigField("String", "GEMINI_KEYS", "\"${getSecret("GEMINI_KEYS")}\"")
     }
 
     signingConfigs {
@@ -53,6 +66,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
     packaging {
         resources {

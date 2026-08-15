@@ -1,6 +1,6 @@
 package com.newsapp.data.api
 
-import android.util.Base64
+import com.newsapp.BuildConfig
 import com.newsapp.data.LogManager
 import com.newsapp.model.NewsItem
 import io.ktor.client.HttpClient
@@ -28,25 +28,21 @@ class AiRewriter {
         }
     }
 
-    private val encodedKeys = listOf(
-        "QVEuQWI4Uk42S21ZcjR0cVM3UW9vYzA5ckQzQ3dtNFJJbFhXeVYyWFRDN2g2RkdyVDB2eWc=",
-        "QVEuQWI4Uk42Sm0xZG1vUjRtelFQVTZmV0VFTzJjS1Y5eEhSRERDTTl5QThyaFRaMDduRVE=",
-        "QVEuQWI4Uk42SUFyYnJwVEJWZi1ZQXFGbHJYNmpNeG5UWXNMTzktV3JnUVRrOVIwQTNzdlE=",
-        "QVEuQWI4Uk42TFRiQ05NZmc5VHV1RWgxc1NqR0FxZzYwSDFVNWRSYkloOFVaSl9fS1RqSnc=",
-        "QUl6YVN5QkJZbXN4UzQ5R3ZLYnhLVHZVTXhMNVdJQnZKTDZtVUhV",
-        "QVEuQWI4Uk42S09uUkZPNV9YSGlubU12dWtmOFFRdFZ0Q0VpN2J2bk5zVG1iSnhqd1ZfakE="
-    )
+    private val apiKeys: List<String>
+        get() = BuildConfig.GEMINI_KEYS.split(",").map { it.trim() }.filter { it.isNotEmpty() }
 
     private var currentKeyIndex = 0
 
     private fun getActiveKey(): Pair<String, Int> {
-        val base64Key = encodedKeys[currentKeyIndex]
-        val decoded = String(Base64.decode(base64Key, Base64.DEFAULT), Charsets.UTF_8).trim()
-        return Pair(decoded, currentKeyIndex + 1)
+        if (apiKeys.isEmpty()) return Pair("", 0)
+        val key = apiKeys[currentKeyIndex % apiKeys.size]
+        return Pair(key, (currentKeyIndex % apiKeys.size) + 1)
     }
 
     private fun switchToNextKey() {
-        currentKeyIndex = (currentKeyIndex + 1) % encodedKeys.size
+        if (apiKeys.isNotEmpty()) {
+            currentKeyIndex = (currentKeyIndex + 1) % apiKeys.size
+        }
     }
 
     suspend fun processAllNewsWithAi(
@@ -87,7 +83,7 @@ class AiRewriter {
             var translatedText: String? = null
             var attempts = 0
 
-            while (translatedText == null && attempts < encodedKeys.size) {
+            while (translatedText == null && attempts < apiKeys.size) {
                 val (apiKey, keyNum) = getActiveKey()
                 translatedText = callGeminiApi(prompt, apiKey, keyNum)
                 
@@ -142,7 +138,7 @@ class AiRewriter {
         var translatedText: String? = null
         var attempts = 0
 
-        while (translatedText == null && attempts < encodedKeys.size) {
+        while (translatedText == null && attempts < apiKeys.size) {
             val (apiKey, keyNum) = getActiveKey()
             translatedText = callGeminiApi(prompt, apiKey, keyNum)
             

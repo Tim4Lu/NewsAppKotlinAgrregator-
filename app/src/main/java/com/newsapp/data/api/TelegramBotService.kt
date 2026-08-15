@@ -2,6 +2,7 @@ package com.newsapp.data.api
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import com.newsapp.BuildConfig
 import com.newsapp.data.LogManager
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
@@ -30,8 +31,6 @@ class TelegramBotService {
         }
     }
 
-    private val PART1 = "8738429281:AAHRxy5sPK4Q"
-    private val PART2 = "MRwF3QKu8kDWPnTR0HFukHw"
     private val channelId = "@pronaukyonline"
 
     private fun sanitizeHtml(text: String): String {
@@ -47,7 +46,6 @@ class TelegramBotService {
             .replace("&lt;/a&gt;", "</a>")
     }
 
-    // Завантаження картинки і конвертація в JPEG (100% якість)
     private suspend fun getJpegBytesFromUrl(url: String): ByteArray? {
         return try {
             LogManager.log("Telegram", "Завантаження картинки для конвертації...")
@@ -58,7 +56,6 @@ class TelegramBotService {
                 ?: return null
 
             val outputStream = ByteArrayOutputStream()
-            // Використовуємо якість 100, щоб зберегти максимальну відповідність оригіналу
             bitmap.compress(Bitmap.CompressFormat.JPEG, 100, outputStream)
             val jpegBytes = outputStream.toByteArray()
             
@@ -72,15 +69,12 @@ class TelegramBotService {
 
     suspend fun sendToTelegram(caption: String, imageUrl: String? = null): Boolean {
         return try {
-            val token = PART1 + PART2
+            val token = BuildConfig.TELEGRAM_BOT_TOKEN
             val safeCaption = sanitizeHtml(caption)
             val hasImage = !imageUrl.isNullOrEmpty() && imageUrl.startsWith("http")
 
             if (hasImage) {
-                // 1. Пробуємо завантажити та конвертувати
                 val jpegBytes = getJpegBytesFromUrl(imageUrl!!)
-                
-                // 2. Якщо проблема з фото - ПЕРЕРИВАЄМО ВІДПРАВКУ (не відправляємо без картинки)
                 if (jpegBytes == null) {
                     LogManager.log("Telegram_ERR", "Відправку скасовано: не вдалося обробити картинку.")
                     return false 
@@ -116,7 +110,6 @@ class TelegramBotService {
                     false
                 }
             } else {
-                // Якщо картинки не було з самого початку (текстова новина)
                 val url = "https://api.telegram.org/bot$token/sendMessage"
                 LogManager.log("Telegram", "Публікація лише тексту...")
                 
