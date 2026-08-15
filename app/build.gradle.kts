@@ -11,7 +11,9 @@ fun getSecret(key: String): String {
         val file = rootProject.file("local.properties")
         if (file.exists()) load(file.inputStream())
     }
-    return System.getenv(key) ?: localProperties.getProperty(key) ?: ""
+    val rawValue = System.getenv(key) ?: localProperties.getProperty(key) ?: ""
+    // Видаляємо пробіли, символи перенесення рядків \n та \r
+    return rawValue.replace("\r", "").replace("\n", "").trim()
 }
 
 android {
@@ -22,8 +24,8 @@ android {
         applicationId = "com.newsapp"
         minSdk = 24
         targetSdk = 34
-        versionCode = 144
-        versionName = "1.0.144"
+        versionCode = 145
+        versionName = "1.0.145"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
