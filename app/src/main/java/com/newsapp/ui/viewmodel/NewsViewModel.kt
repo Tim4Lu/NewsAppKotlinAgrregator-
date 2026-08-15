@@ -1,12 +1,10 @@
 package com.newsapp.ui.viewmodel
 
 import android.app.Application
-import android.os.Build
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.newsapp.data.LogManager
-import com.newsapp.data.UpdateManager
-import com.newsapp.data.api.TelegramBotService
+import com.newsapp.data.TelegramBotService
 import com.newsapp.data.api.AiRewriter
 import com.newsapp.model.NewsItem
 import io.ktor.client.HttpClient
@@ -31,8 +29,6 @@ import java.net.URL
 
 class NewsViewModel(application: Application) : AndroidViewModel(application) {
 
-    private val MAX_NEWS_LIMIT = 280
-
     private val _newsList = MutableStateFlow<List<NewsItem>>(emptyList())
     val newsList: StateFlow<List<NewsItem>> = _newsList.asStateFlow()
 
@@ -42,54 +38,16 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
     private val client = HttpClient(CIO) { followRedirects = true }
     private val aiRewriter = AiRewriter()
     private val telegramBotService = TelegramBotService()
-    private val updateManager = UpdateManager(application)
     private val cacheFile = File(application.filesDir, "saved_news.json")
 
-    private val rssSources = listOf(
-        "NASA News" to "https://www.nasa.gov/rss/dyn/breaking_news.rss",
-        "SpaceNews" to "https://spacenews.com/feed/",
-        "BBC Tech" to "https://feeds.bbci.co.uk/news/technology/rss.xml",
-        "TechCrunch" to "https://techcrunch.com/feed/",
-        "Wired" to "https://www.wired.com/feed/rss",
-        "MIT Tech Review" to "https://www.technologyreview.com/feed/",
-        "Nature" to "https://www.nature.com/nature.rss"
+    private val rssUrls = listOf(
+        "https://www.nasa.gov/rss/dyn/breaking_news.rss",
+        "https://www.space.com/feeds/all"
     )
 
     init {
         loadCachedNews()
         loadNews()
-        checkForAppUpdates()
-    }
-
-    private fun getCurrentVersionCode(): Int {
-        return try {
-            val pInfo = getApplication<Application>().packageManager.getPackageInfo(getApplication<Application>().packageName, 0)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                pInfo.longVersionCode.toInt()
-            } else {
-                @Suppress("DEPRECATION")
-                pInfo.versionCode
-            }
-        } catch (e: Exception) {
-            1
-        }
-    }
-
-    private fun checkForAppUpdates() {
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val currentVersion = getCurrentVersionCode()
-                val updateInfo = updateManager.checkForUpdate(currentBuildNumber = currentVersion)
-                if (updateInfo != null) {
-                    LogManager.log("UPDATE", "Знайдено нову версію: ${updateInfo.tagName}. Починаємо завантаження...")
-                    updateManager.downloadAndInstallApk(updateInfo.downloadUrl)
-                } else {
-                    LogManager.log("UPDATE", "Встановлено актуальну версію ($currentVersion).")
-                }
-            } catch (e: Exception) {
-                LogManager.log("UPDATE_ERR", "Помилка оновлень: ${e.message}")
-            }
-        }
     }
 
     private fun loadCachedNews() {
@@ -113,19 +71,18 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
                         )
                     )
                 }
-                _newsList.value = cached.take(MAX_NEWS_LIMIT)
-                LogManager.log("CACHE", "Завантажено ${_newsList.value.size} збережених новин з пам'яті")
+                _newsList.value = cached
+                LogManager.log("Cache", "Завантажено ${cached.size} новин із диска")
             }
         } catch (e: Exception) {
-            LogManager.log("CACHE_ERR", "Помилка читання кешу: ${e.message}")
+            LogManager.log("Cache_ERR", "Збій кешу: ${e.message}")
         }
     }
 
     private fun saveNewsToDisk(list: List<NewsItem>) {
         try {
             val jsonArray = JSONArray()
-            val trimmedList = list.take(MAX_NEWS_LIMIT)
-            trimmedList.forEach { item ->
+            list.filter { it.status == "Готово" || it.status == "Опубліковано" }.forEach { item ->
                 val obj = JSONObject().apply {
                     put("id", item.id)
                     put("title", item.title)
@@ -140,7 +97,7 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
             }
             cacheFile.writeText(jsonArray.toString())
         } catch (e: Exception) {
-            LogManager.log("CACHE_ERR", "Помилка збереження кешу: ${e.message}")
+            LogManager.log("Cache_ERR", "Збій збереження: ${e.message}")
         }
     }
 
@@ -150,30 +107,26 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch(Dispatchers.IO) {
             val rawNews = mutableListOf<NewsItem>()
 
-            for ((sourceName, url) in rssSources) {
+            for (url in rssUrls) {
                 try {
                     val response = client.get(url) { header(HttpHeaders.UserAgent, "Mozilla/5.0") }
                     if (response.status.value in 200..299) {
-                        rawNews.addAll(parseRss(response.bodyAsText(), sourceName))
+                        rawNews.addAll(parseRss(response.bodyAsText(), URL(url).host))
                     }
                 } catch (e: Exception) { }
             }
 
             if (rawNews.isNotEmpty()) {
-                val existingLinksAndTitles = _newsList.value.flatMap { listOf(it.link, it.title) }.filter { it.isNotBlank() }.toSet()
-                val trulyNewItems = rawNews.filter { !existingLinksAndTitles.contains(it.link) && !existingLinksAndTitles.contains(it.title) }
+                val currentTitles = _newsList.value.map { it.title }.toSet()
+                val freshNews = rawNews.filter { !currentTitles.contains(it.title) }
 
-                if (trulyNewItems.isNotEmpty()) {
-                    LogManager.log("RSS", "Знайдено ${trulyNewItems.size} нових свіжих новин")
-                    val freshInitial = trulyNewItems.map { it.copy(status = "В черзі", telegramCaption = "Обробка...") }
-                    
-                    val combinedList = (freshInitial + _newsList.value).take(MAX_NEWS_LIMIT)
-                    _newsList.value = combinedList
+                if (freshNews.isNotEmpty()) {
+                    val freshInitial = freshNews.map { it.copy(status = "В черзі", telegramCaption = "Обробка...") }
+                    _newsList.value = freshInitial + _newsList.value
                     _isLoading.value = false
 
-                    processNewsWithScraperAndAi(trulyNewItems)
+                    processNewsWithScraperAndAi(freshNews)
                 } else {
-                    LogManager.log("RSS", "Усі новини з RSS вже є у пам'яті.")
                     _isLoading.value = false
                 }
             } else {
@@ -185,17 +138,29 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
     private suspend fun scrapeArticle(url: String): Pair<String, String?> {
         try {
             val response: HttpResponse = client.get(url) {
-                header(HttpHeaders.UserAgent, "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+                header(HttpHeaders.UserAgent, "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
             }
             val html = response.bodyAsText()
+
             var imageUrl: String? = null
 
             val ogMatch = Regex("<meta[^>]+(?:property|name)=[\"'](?:og:image|twitter:image)[\"'][^>]+content=[\"']([^\"']+)[\"']", RegexOption.IGNORE_CASE).find(html)
-            if (ogMatch != null) imageUrl = ogMatch.groupValues[1]
+            if (ogMatch != null) {
+                imageUrl = ogMatch.groupValues[1]
+            }
 
             if (imageUrl.isNullOrEmpty()) {
                 val jsonLdMatch = Regex("\"image\"\\s*:\\s*[\"']([^\"']+)[\"']", RegexOption.IGNORE_CASE).find(html)
-                if (jsonLdMatch != null) imageUrl = jsonLdMatch.groupValues[1]
+                if (jsonLdMatch != null) {
+                    imageUrl = jsonLdMatch.groupValues[1]
+                }
+            }
+
+            if (imageUrl.isNullOrEmpty()) {
+                val imgMatch = Regex("<img[^>]+src=[\"']([^\"']+)[\"']", RegexOption.IGNORE_CASE).find(html)
+                if (imgMatch != null) {
+                    imageUrl = imgMatch.groupValues[1]
+                }
             }
 
             if (!imageUrl.isNullOrEmpty() && !imageUrl.startsWith("http")) {
@@ -206,25 +171,15 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
             val cleanHtml = html.replace(Regex("<(nav|header|footer|script|style|button|aside|noscript)[^>]*>[\\s\\S]*?<\\/\\1>", RegexOption.IGNORE_CASE), "")
             val pTags = Regex("<p[^>]*>([^<]{50,})<\\/p>", RegexOption.IGNORE_CASE).findAll(cleanHtml).map { it.groupValues[1] }.toList()
             val validParagraphs = pTags
-                .map { cleanText(it) }
+                .map { it.replace(Regex("<[^>]*>"), "").trim() }
                 .filter { t -> t.length > 100 && t.contains(".") }
 
             val scrapedText = validParagraphs.take(4).joinToString("\n\n")
             return Pair(if (scrapedText.length >= 200) scrapedText else "", imageUrl)
+
         } catch (e: Exception) {
             return Pair("", null)
         }
-    }
-
-    private fun cleanText(raw: String): String {
-        return raw.replace(Regex("<.*?>"), "")
-            .replace("&nbsp;", " ")
-            .replace("&quot;", "\"")
-            .replace("&apos;", "'")
-            .replace("&amp;", "&")
-            .replace("&lt;", "<")
-            .replace("&gt;", ">")
-            .trim()
     }
 
     private suspend fun processNewsWithScraperAndAi(rawNews: List<NewsItem>) {
@@ -239,9 +194,30 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
         aiRewriter.processAllNewsWithAi(updatedList) { finishedItem ->
             _newsList.value = _newsList.value.map { current ->
                 if (current.id == finishedItem.id || current.title == finishedItem.title) finishedItem else current
-            }.take(MAX_NEWS_LIMIT)
-            
+            }
             saveNewsToDisk(_newsList.value)
+        }
+    }
+
+    fun rewriteSingleNews(newsItem: NewsItem) {
+        viewModelScope.launch(Dispatchers.IO) {
+            _newsList.value = _newsList.value.map {
+                if (it.id == newsItem.id) it.copy(status = "Переклад...", telegramCaption = "Обробка AI...") else it
+            }
+            val result = aiRewriter.processWithGeminiOrGroq(newsItem.description, newsItem.title)
+            if (result != null) {
+                val (finalTitle, finalText) = result
+                val telegramFormattedCaption = "$finalTitle\n\n$finalText\n\n• <b>Джерело:</b> ${newsItem.source}"
+                
+                val updated = newsItem.copy(
+                    title = finalTitle,
+                    description = finalText,
+                    status = "Готово",
+                    telegramCaption = telegramFormattedCaption
+                )
+                _newsList.value = _newsList.value.map { if (it.id == newsItem.id) updated else it }
+                saveNewsToDisk(_newsList.value)
+            }
         }
     }
 
@@ -258,11 +234,9 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
 
     fun sendNews(newsItem: NewsItem) {
         viewModelScope.launch(Dispatchers.IO) {
-            val success = telegramBotService.sendToTelegram(newsItem.telegramCaption, newsItem.image)
-            if (success) {
-                _newsList.value = _newsList.value.map { if (it.id == newsItem.id) it.copy(status = "Опубліковано") else it }
-                saveNewsToDisk(_newsList.value)
-            }
+            telegramBotService.sendNewsToChannel(newsItem)
+            _newsList.value = _newsList.value.map { if (it.id == newsItem.id) it.copy(status = "Опубліковано") else it }
+            saveNewsToDisk(_newsList.value)
         }
     }
 
@@ -303,12 +277,7 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
                         val name = parser.name ?: ""
                         if (name.equals("item", true) || name.equals("entry", true)) {
                             if (!title.isNullOrEmpty()) {
-                                items.add(NewsItem(
-                                    title = cleanText(title!!),
-                                    link = link?.trim() ?: "",
-                                    description = cleanText(desc ?: ""),
-                                    source = sourceName
-                                ))
+                                items.add(NewsItem(title = title!!.trim(), link = link?.trim() ?: "", description = desc?.replace(Regex("<.*?>"), "")?.trim() ?: "", source = sourceName))
                             }
                             insideItem = false
                         }
