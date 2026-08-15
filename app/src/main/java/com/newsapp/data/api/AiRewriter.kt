@@ -9,7 +9,6 @@ import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
 import io.ktor.client.engine.cio.endpoint
 import io.ktor.client.request.post
-import io.ktor.client.request.header
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
@@ -22,10 +21,10 @@ class AiRewriter {
 
     private val client = HttpClient(CIO) {
         engine {
-            requestTimeout = 30_000
+            requestTimeout = 12_000
             endpoint {
-                connectTimeout = 30_000
-                socketTimeout = 30_000
+                connectTimeout = 12_000
+                socketTimeout = 12_000
             }
         }
     }
@@ -63,10 +62,10 @@ class AiRewriter {
         try {
             val total = newsList.size
             val keysCount = apiKeys.size
-            LogManager.log("AI_START", "Обробка $total новин (доступно ключів: $keysCount)")
+            LogManager.log("AI_START", "Обробка $total новин (доступно ключів у масиві: $keysCount)")
 
             if (keysCount == 0) {
-                LogManager.log("AI_ERR", "УВАГА: Ключі GEMINI_KEYS порожні! Перевірте GitHub Secrets.")
+                LogManager.log("AI_ERR", "УВАГА: Масиви ключів GEMINI_KEYS порожні!")
             }
 
             newsList.forEachIndexed { index, item ->
@@ -108,7 +107,7 @@ class AiRewriter {
                     if (translatedText == null) {
                         switchToNextKey()
                         attempts++
-                        delay(5000)
+                        delay(2000)
                     }
                 }
 
@@ -125,61 +124,16 @@ class AiRewriter {
                         status = "Готово"
                     )
                 } else {
-                    LogManager.log("AI_FALLBACK", "ШІ недоступний. Використовуємо оригінальний текст.")
+                    LogManager.log("AI_FALLBACK", "ШІ недоступний (усі ключі вичерпано). Використовуємо оригінал.")
                     val caption = "🚀 ${item.title}\n\n${item.description}\n\n• Джерело: ${item.source}"
                     item.copy(telegramCaption = caption, status = "Готово")
                 }
 
                 onItemProcessed(finalItem)
-                if (index < total - 1) delay(10000)
+                if (index < total - 1) delay(5000)
             }
         } finally {
             context?.let { NewsProcessingService.stop(it) }
-        }
-    }
-
-    suspend fun processFullArticleWithAi(item: NewsItem): NewsItem {
-        LogManager.log("AI_FULL", "Генерація повної статті для: ${item.title}")
-        val cleanTitle = item.title.replace("\"", "'").replace("\n", " ")
-        val cleanDesc = item.description.replace("\"", "'").replace("\n", " ")
-        
-        val prompt = """
-            Переклади та детально розпиши наукову статтю українською мовою.
-            СУВОРІ ПРАВИЛА:
-            1. КАТЕГОРИЧНО ЗАБОРОНЕНО використовувати подвійні зірочки ** (жодного жирного тексту).
-            2. НЕ ДУБЛЮЙ вступні фрази ("Ось адаптована новина" тощо).
-            3. Для назв та термінів використовуй кутові лапки « ».
-
-            Заголовок: $cleanTitle
-            Джерело: ${item.source}
-            Зміст статті:
-            $cleanDesc
-        """.trimIndent()
-
-        var translatedText: String? = null
-        var attempts = 0
-        val keys = apiKeys
-
-        while (translatedText == null && attempts < keys.size) {
-            val (apiKey, keyNum) = getActiveKey()
-            translatedText = callGeminiApi(prompt, apiKey, keyNum)
-            
-            if (translatedText == null) {
-                switchToNextKey()
-                attempts++
-                delay(5000)
-            }
-        }
-
-        return if (!translatedText.isNullOrEmpty()) {
-            val cleanResult = translatedText.replace("**", "")
-            item.copy(
-                description = cleanResult,
-                status = "Повна стаття"
-            )
-        } else {
-            LogManager.log("AI_ERR", "Не вдалося згенерувати повну статтю.")
-            item
         }
     }
 
@@ -211,14 +165,14 @@ class AiRewriter {
                     .getJSONArray("parts")
                     .getJSONObject(0)
                     .getString("text")
-                LogManager.log("Gemini_OK", "Успіх Gemini (ключ #$keyNum)")
+                LogManager.log("Gemini_OK", "Успіх Gemini (ключ з масиву #$keyNum)")
                 resultText
             } else {
-                LogManager.log("AI_ERR", "Помилка Gemini API (код ${response.status.value})")
+                LogManager.log("AI_ERR", "Помилка Gemini API для ключа #$keyNum (код ${response.status.value})")
                 null
             }
         } catch (e: Exception) {
-            LogManager.log("AI_ERR", "Помилка з'єднання: ${e.message}")
+            LogManager.log("AI_ERR", "Помилка з'єднання з ключем #$keyNum: ${e.message ?: "null"}")
             null
         }
     }
