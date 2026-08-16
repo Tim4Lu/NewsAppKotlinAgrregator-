@@ -50,7 +50,7 @@ fun NewsScreen(viewModel: NewsViewModel) {
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Color(0xFF1E293B)),
                 actions = {
                     IconButton(onClick = { viewModel.loadNews() }) {
-                        Text("🔄", fontSize = 18.sp)
+                        Text("⚡", fontSize = 18.sp)
                     }
                 }
             )
