@@ -20,6 +20,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -95,18 +96,14 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
 
                 _newsList.value = uniqueCached.sortedByDescending { it.timestamp }
                 saveNewsToDisk(_newsList.value)
-                LogManager.log("Cache", "Завантажено ${uniqueCached.size} унікальних новин із диска")
             }
-        } catch (e: Exception) {
-            LogManager.log("Cache_ERR", "Збій кешу: ${e.message}")
-        }
+        } catch (e: Exception) {}
     }
 
     private fun saveNewsToDisk(list: List<NewsItem>) {
         try {
             val jsonArray = JSONArray()
-            val limitedList = list.take(250)
-            limitedList.forEach { item ->
+            list.take(250).forEach { item ->
                 val obj = JSONObject().apply {
                     put("id", item.id)
                     put("title", item.title)
@@ -122,9 +119,7 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
                 jsonArray.put(obj)
             }
             cacheFile.writeText(jsonArray.toString())
-        } catch (e: Exception) {
-            LogManager.log("Cache_ERR", "Збій збереження: ${e.message}")
-        }
+        } catch (e: Exception) {}
     }
 
     fun loadNews() {
@@ -138,7 +133,6 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
                     var fetchedItems = listOf<NewsItem>()
                     var successDirect = false
 
-                    // 1. Прямий запит
                     val response = client.get(url) {
                         header(HttpHeaders.UserAgent, "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
                         header(HttpHeaders.Accept, "application/rss+xml, application/xml, text/xml")
@@ -150,11 +144,8 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
                         if (fetchedItems.isNotEmpty()) successDirect = true
                     }
 
-                    // 2. Фолбек через RSS2JSON (якщо Cloudflare заблокував)
                     if (!successDirect) {
-                        LogManager.log("FETCH_WARN", "Блокування $url. Спроба через RSS2JSON...")
                         val apiUrl = "https://api.rss2json.com/v1/api.json?rss_url=${URLEncoder.encode(url, "UTF-8")}"
-                        
                         val jsonResponse = client.get(apiUrl)
                         if (jsonResponse.status.value in 200..299) {
                             val json = JSONObject(jsonResponse.bodyAsText())
@@ -173,8 +164,7 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
 
                                 for (i in 0 until (itemsArray?.length() ?: 0)) {
                                     val obj = itemsArray!!.getJSONObject(i)
-                                    var rawDesc = obj.optString("description", "")
-                                    rawDesc = rawDesc.replace(Regex("<[^>]*>"), "").trim()
+                                    var rawDesc = obj.optString("description", "").replace(Regex("<[^>]*>"), "").trim()
                                     if (rawDesc.length > 300) rawDesc = rawDesc.take(300) + "..."
                                     
                                     var img = obj.optString("thumbnail", "")
@@ -196,14 +186,11 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
                                     )
                                 }
                                 fetchedItems = fallbackItems
-                                LogManager.log("FETCH_OK", "RSS2JSON: Успішно (${fetchedItems.size} шт) для $sourceName")
                             }
                         }
                     }
                     rawNews.addAll(fetchedItems)
-                } catch (e: Exception) {
-                    LogManager.log("FETCH_ERR", "Помилка завантаження $url: ${e.message}")
-                }
+                } catch (e: Exception) {}
             }
 
             if (rawNews.isNotEmpty()) {
@@ -213,26 +200,30 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
 
                 val existingLinks = _newsList.value.map { it.link.normalizeUrl() }.filter { it.isNotEmpty() }.toSet()
 
-                val freshNews = rawNews.filter { item ->
+                val uniqueRawNews = rawNews.distinctBy { 
+                    val norm = it.link.normalizeUrl()
+                    if (norm.isNotEmpty()) norm else it.originalTitle.trim().lowercase()
+                }
+
+                val freshNews = uniqueRawNews.filter { item ->
                     val normTitle = item.title.trim().lowercase()
+                    val origTitle = item.originalTitle.trim().lowercase()
                     val normLink = item.link.normalizeUrl()
 
-                    normTitle.isNotEmpty() &&
-                            !existingTitles.contains(normTitle) &&
-                            (normLink.isEmpty() || !existingLinks.contains(normLink))
+                    val isTitleDuplicate = existingTitles.contains(normTitle) || (origTitle.isNotEmpty() && existingTitles.contains(origTitle))
+                    val isLinkDuplicate = normLink.isNotEmpty() && existingLinks.contains(normLink)
+
+                    !isTitleDuplicate && !isLinkDuplicate
                 }
 
                 if (freshNews.isNotEmpty()) {
-                    LogManager.log("NEWS", "Знайдено ${freshNews.size} нових новин")
                     val freshInitial = freshNews.map { it.copy(status = "В черзі", telegramCaption = "Обробка...") }
-                    val combined = freshInitial + _newsList.value
-                    _newsList.value = combined.sortedByDescending { it.timestamp }
+                    _newsList.value = (freshInitial + _newsList.value).sortedByDescending { it.timestamp }
                     saveNewsToDisk(_newsList.value)
                     _isLoading.value = false
 
                     processNewsWithScraperAndAi(freshNews)
                 } else {
-                    LogManager.log("NEWS", "Нових новин немає")
                     _isLoading.value = false
                 }
             } else {
@@ -248,16 +239,10 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
                 header(HttpHeaders.UserAgent, "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
             }
             val html = response.bodyAsText()
-
             var imageUrl: String? = null
 
             val ogMatch = Regex("<meta[^>]+(?:property|name)=[\"'](?:og:image|twitter:image)[\"'][^>]+content=[\"']([^\"']+)[\"']", RegexOption.IGNORE_CASE).find(html)
             if (ogMatch != null) imageUrl = ogMatch.groupValues[1]
-
-            if (imageUrl.isNullOrEmpty()) {
-                val jsonLdMatch = Regex("\"image\"\\s*:\\s*[\"']([^\"']+)[\"']", RegexOption.IGNORE_CASE).find(html)
-                if (jsonLdMatch != null) imageUrl = jsonLdMatch.groupValues[1]
-            }
 
             if (!imageUrl.isNullOrEmpty() && !imageUrl.startsWith("http")) {
                 val baseUrl = URL(url)
@@ -273,7 +258,6 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
 
             val scrapedText = validParagraphs.take(4).joinToString("\n\n")
             return Pair(if (scrapedText.length >= 150) scrapedText else "", imageUrl)
-
         } catch (e: Exception) {
             return Pair("", null)
         }
@@ -314,13 +298,25 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
 
     fun updateNewsText(id: String, newText: String) {
         _newsList.value = _newsList.value.map {
-            if (it.id == id) it.copy(description = newText, telegramCaption = "🚀 <b>${it.title}</b>\n\n$newText\n\n• <b>Джерело:</b> ${it.source}") else it
+            if (it.id == id) {
+                val cleanTitle = it.title.replace("🚀", "").trim()
+                var cleanDesc = newText
+                val sourceIndex = cleanDesc.indexOf("Джерело:", ignoreCase = true)
+                if (sourceIndex != -1) {
+                    cleanDesc = cleanDesc.substring(0, sourceIndex).trimEnd(' ', '\n', '•', '\r')
+                }
+                
+                it.copy(
+                    description = cleanDesc, 
+                    telegramCaption = "🚀 <b>$cleanTitle</b> 🚀\n\n$cleanDesc\n\n• <b>Джерело:</b> ${it.source}"
+                )
+            } else it
         }
         saveNewsToDisk(_newsList.value)
     }
 
-    fun sendNews(newsItem: NewsItem) {
-        viewModelScope.launch(Dispatchers.IO) {
+    suspend fun sendNews(newsItem: NewsItem) {
+        withContext(Dispatchers.IO) {
             val success = telegramBotService.sendToTelegram(newsItem.telegramCaption, newsItem.image)
             if (success) {
                 _newsList.value = _newsList.value.map { if (it.id == newsItem.id) it.copy(status = "Опубліковано") else it }

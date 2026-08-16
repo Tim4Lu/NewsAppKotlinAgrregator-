@@ -74,7 +74,7 @@ class AiRewriter {
                 try {
                     LogManager.log("AI_QUEUE", "[${index + 1}/$total] Обробка: ${item.title.take(30)}...")
 
-                    val cleanTitle = item.title.replace("\"", "'").replace("\n", " ")
+                    val cleanTitle = item.title.replace("\"", "'").replace("\n", " ").replace("🚀", "")
                     val cleanDesc = item.description.replace("\"", "'").replace("\n", " ")
 
                     val prompt = """
@@ -82,18 +82,18 @@ class AiRewriter {
                         Переклади та адаптуй новину українською мовою для Telegram.
 
                         СУВОРІ ПРАВИЛА:
-                        1. КАТЕГОРИЧНО ЗАБОРОНЕНО використовувати подвійні зірочки ** (жодного жирного тексту).
-                        2. НЕ ДУБЛЮЙ вступні фрази ("Ось адаптована новина" тощо). Починай ОДРАЗУ з заголовочного емодзі.
-                        3. Для назв, термінів та цитат використовуй тільки кутові лапки « ».
+                        1. КАТЕГОРИЧНО ЗАБОРОНЕНО використовувати подвійні зірочки **.
+                        2. НЕ ДУБЛЮЙ вступні фрази. Починай ОДРАЗУ з заголовка.
+                        3. Для назв та термінів використовуй кутові лапки « ».
+                        4. НЕ ПИШИ ДЖЕРЕЛО В КІНЦІ! ПРОГРАМА ДОДАСТЬ ЙОГО САМА.
 
                         ШАБЛОН:
-                        🚀 $cleanTitle 🚀
+                        $cleanTitle
 
                         [Короткий тизер на 1-2 речення про суть]
                         • [Перший важливий факт]
                         • [Другий факт]
                         • [Третій факт]
-                        • Джерело: ${item.source}
 
                         Текст новини:
                         $cleanDesc
@@ -114,21 +114,40 @@ class AiRewriter {
                     }
 
                     val finalItem = if (!translatedText.isNullOrEmpty()) {
-                        val cleanResult = translatedText.replace("**", "")
+                        val cleanResult = translatedText.replace("**", "").trim()
                         val parts = cleanResult.split("\n", limit = 2)
-                        val newTitle = parts.getOrNull(0)?.replace(Regex("^[#*\\s]+"), "")?.trim() ?: item.title
-                        val newDesc = parts.getOrNull(1)?.trim() ?: cleanResult
+                        
+                        val rawTitle = parts.getOrNull(0)?.replace(Regex("^[#*\\s🚀]+"), "")?.trim() ?: item.title
+                        var newDesc = parts.getOrNull(1)?.trim() ?: cleanResult
+                        
+                        val sourceIndex = newDesc.indexOf("Джерело:", ignoreCase = true)
+                        if (sourceIndex != -1) {
+                            newDesc = newDesc.substring(0, sourceIndex).trimEnd(' ', '\n', '•', '\r')
+                        }
+                        
+                        val finalCaption = "🚀 <b>$rawTitle</b> 🚀\n\n$newDesc\n\n• <b>Джерело:</b> ${item.source}"
 
                         item.copy(
-                            title = newTitle,
+                            title = rawTitle,
                             description = newDesc,
-                            telegramCaption = cleanResult,
+                            telegramCaption = finalCaption,
                             status = "Готово"
                         )
                     } else {
-                        LogManager.log("AI_FALLBACK", "ШІ недоступний (усі ключі вичерпано). Використовуємо оригінал.")
-                        val caption = "🚀 ${item.title}\n\n${item.description}\n\n• Джерело: ${item.source}"
-                        item.copy(telegramCaption = caption, status = "Готово")
+                        LogManager.log("AI_FALLBACK", "ШІ недоступний. Використовуємо оригінал.")
+                        val cleanOrigTitle = item.title.replace("🚀", "").trim()
+                        
+                        var cleanOrigDesc = item.description
+                        val sourceIdx = cleanOrigDesc.indexOf("Джерело:", ignoreCase = true)
+                        if (sourceIdx != -1) cleanOrigDesc = cleanOrigDesc.substring(0, sourceIdx).trimEnd(' ', '\n', '•', '\r')
+                        
+                        val caption = "🚀 <b>$cleanOrigTitle</b> 🚀\n\n$cleanOrigDesc\n\n• <b>Джерело:</b> ${item.source}"
+                        item.copy(
+                            title = cleanOrigTitle,
+                            description = cleanOrigDesc,
+                            telegramCaption = caption, 
+                            status = "Готово"
+                        )
                     }
 
                     onItemProcessed(finalItem)
@@ -146,7 +165,7 @@ class AiRewriter {
         val timeSinceLastRequest = now - lastRequestTimestamp
         if (timeSinceLastRequest < 12_000) {
             val waitTime = 12_000 - timeSinceLastRequest
-            LogManager.log("AI_RATE", "Пауза ${waitTime / 1000} сек для дотримання ліміту (1 запит / 12 сек)...")
+            LogManager.log("AI_RATE", "Пауза ${waitTime / 1000} сек для дотримання ліміту...")
             delay(waitTime)
         }
         lastRequestTimestamp = System.currentTimeMillis()
@@ -179,27 +198,11 @@ class AiRewriter {
                 val parts = content?.optJSONArray("parts")
                 val resultText = parts?.optJSONObject(0)?.optString("text")
 
-                if (!resultText.isNullOrEmpty()) {
-                    LogManager.log("Gemini_OK", "Успіх ($modelName, ключ #$keyNum)")
-                    resultText
-                } else {
-                    val finishReason = firstCandidate?.optString("finishReason") ?: "UNKNOWN"
-                    LogManager.log("AI_ERR", "Порожня відповідь $modelName (ключ #$keyNum, причина: $finishReason)")
-                    null
-                }
-            } else if (response.status.value == 401) {
-                LogManager.log("AI_ERR", "Ключ #$keyNum недійсний (401 Unauthorized). Пропускаємо...")
-                null
-            } else if (response.status.value == 503) {
-                LogManager.log("AI_ERR", "Сервер $modelName перевантажений (503). Повторна спроба...")
-                delay(2000)
-                null
+                if (!resultText.isNullOrEmpty()) resultText else null
             } else {
-                LogManager.log("AI_ERR", "Помилка $modelName (ключ #$keyNum, код ${response.status.value}): ${responseText.take(120)}")
                 null
             }
         } catch (e: Exception) {
-            LogManager.log("AI_ERR", "Помилка з'єднання ($modelName, ключ #$keyNum): ${e.message ?: "null"}")
             null
         }
     }
