@@ -1,7 +1,11 @@
 package com.newsapp.ui.components
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -30,7 +34,7 @@ fun NewsCard(
     onToggleEdit: (String) -> Unit,
     onRewrite: (NewsItem) -> Unit
 ) {
-        com.newsapp.data.LogManager.log("TRACE", "Викликано функцію: NewsCard")
+    com.newsapp.data.LogManager.log("TRACE", "Викликано функцію: NewsCard")
     var localText by remember(item.id, item.description) { mutableStateOf(item.description) }
     var isPublishing by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
@@ -149,6 +153,21 @@ fun NewsCard(
                             color = Color(0xFF818CF8),
                             fontSize = 14.sp,
                             modifier = Modifier.clickable { onToggleEdit(item.id) }
+                        )
+                        Text(
+                            text = "📋 Копіювати посилання",
+                            color = Color(0xFF34D399),
+                            fontSize = 14.sp,
+                            modifier = Modifier.clickable {
+                                if (item.link.isNotEmpty()) {
+                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                    val clip = ClipData.newPlainText("Source Link", item.link)
+                                    clipboard.setPrimaryClip(clip)
+                                    Toast.makeText(context, "Посилання скопійовано!", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    Toast.makeText(context, "Посилання відсутнє", Toast.LENGTH_SHORT).show()
+                                }
+                            }
                         )
                         Text(
                             text = "🔄 Перекласти заново",
