@@ -31,14 +31,7 @@ fun NewsScreen(viewModel: NewsViewModel) {
     } else {
         newsList.filter { item ->
             val src = item.source.lowercase()
-            when (selectedSource.lowercase()) {
-                "nasa" -> src.contains("nasa")
-                "space.com" -> src.contains("space.com")
-                "space daily" -> src.contains("spacedaily")
-                "universe today" -> src.contains("universetoday")
-                "phys.org" -> src.contains("phys.org")
-                else -> src.contains(selectedSource.lowercase())
-            }
+            src.equals(selectedSource, ignoreCase = true) || src.contains(selectedSource, ignoreCase = true)
         }
     }
 

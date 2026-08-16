@@ -263,7 +263,7 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
         com.newsapp.data.LogManager.log("TRACE", "Викликано функцію: parseRss")
         val items = mutableListOf<NewsItem>()
         try {
-            val parser = XmlPullParserFactory.newInstance().apply { isNamespaceAware = true }.newPullParser()
+            val parser = XmlPullParserFactory.newInstance().apply { isNamespaceAware = false }.newPullParser()
             parser.setInput(StringReader(xml))
 
             var eventType = parser.eventType
@@ -278,7 +278,10 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
                     XmlPullParser.START_TAG -> {
                         currentTag = parser.name?.lowercase() ?: ""
                         if (currentTag == "item" || currentTag == "entry") {
-                            insideItem = true; title = null; link = null; desc = null
+                            insideItem = true
+                            title = null
+                            link = null
+                            desc = null
                         } else if (insideItem && currentTag == "link") {
                             val href = parser.getAttributeValue(null, "href")
                             if (!href.isNullOrEmpty()) link = href
@@ -289,15 +292,23 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
                             when (currentTag) {
                                 "title" -> title = (title ?: "") + parser.text
                                 "link" -> if (link.isNullOrEmpty()) link = parser.text
-                                "description", "summary" -> desc = (desc ?: "") + parser.text
+                                "description", "summary", "content" -> desc = (desc ?: "") + parser.text
                             }
                         }
                     }
                     XmlPullParser.END_TAG -> {
-                        val name = parser.name ?: ""
-                        if (name.equals("item", true) || name.equals("entry", true)) {
+                        val name = parser.name?.lowercase() ?: ""
+                        if (name == "item" || name == "entry") {
                             if (!title.isNullOrEmpty()) {
-                                items.add(NewsItem(title = title!!.trim(), link = link?.trim() ?: "", description = desc?.replace(Regex("<.*?>"), "")?.trim() ?: "", source = sourceName))
+                                val cleanDesc = (desc ?: "").replace(Regex("<.*?>"), "").trim()
+                                items.add(
+                                    NewsItem(
+                                        title = title!!.trim(),
+                                        link = link?.trim() ?: "",
+                                        description = cleanDesc,
+                                        source = sourceName
+                                    )
+                                )
                             }
                             insideItem = false
                         }
@@ -306,7 +317,9 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 eventType = parser.next()
             }
-        } catch (e: Exception) { }
+        } catch (e: Exception) {
+            LogManager.log("RSS_ERR", "Збій парсингу $sourceName: \${e.message}")
+        }
         return items
     }
 }
