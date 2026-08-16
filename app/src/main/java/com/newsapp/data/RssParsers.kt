@@ -12,6 +12,19 @@ class SpaceDailyParser : BaseRssParser { override fun parse(xml: String) = parse
 class UniverseTodayParser : BaseRssParser { override fun parse(xml: String) = parseRobust(xml, "Universe Today") }
 class PhysOrgParser : BaseRssParser { override fun parse(xml: String) = parseRobust(xml, "Phys.org") }
 
+private fun String.cleanHtmlAndEntities(): String {
+    return this.replace(Regex("(?s)(?i)<!\\[CDATA\\[(.*?)\\]\\]>"), "$1")
+        .replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .replace("&apos;", "'")
+        .replace("&nbsp;", " ")
+        .replace(Regex("<[^>]*>"), "")
+        .trim()
+}
+
 private fun parseRobust(xml: String, sourceName: String): List<NewsItem> {
     val items = mutableListOf<NewsItem>()
     try {
@@ -23,26 +36,26 @@ private fun parseRobust(xml: String, sourceName: String): List<NewsItem> {
 
             // Title
             val titleMatch = Regex("(?s)(?i)<title[^>]*>(.*?)</title>").find(block)
-            var rawTitle = titleMatch?.groupValues?.getOrNull(1) ?: ""
-            rawTitle = rawTitle.replace(Regex("(?s)(?i)<!\\[CDATA\\[(.*?)\\]\\]>"), "$1").trim()
+            val rawTitle = titleMatch?.groupValues?.getOrNull(1)?.cleanHtmlAndEntities() ?: ""
 
-            // Link
+            // Link (підтримка href, link tag та guid)
             val linkHref = Regex("(?i)<link[^>]*href=[\"']([^\"']+)[\"']").find(block)?.groupValues?.getOrNull(1)
             val linkTag = Regex("(?s)(?i)<link[^>]*>(.*?)</link>").find(block)?.groupValues?.getOrNull(1)
-            val rawLink = (linkHref ?: linkTag ?: "").replace(Regex("(?s)(?i)<!\\[CDATA\\[(.*?)\\]\\]>"), "$1").trim()
+            val guidTag = Regex("(?s)(?i)<guid[^>]*>(.*?)</guid>").find(block)?.groupValues?.getOrNull(1)
+            var rawLink = (linkHref ?: linkTag ?: guidTag ?: "").cleanHtmlAndEntities()
+            if (rawLink.contains(" ")) rawLink = rawLink.split(" ")[0]
 
             // Description
             val descMatch = Regex("(?s)(?i)<(?:description|summary|content|content:encoded)[^>]*>(.*?)</(?:description|summary|content|content:encoded)>").find(block)
-            var rawDesc = descMatch?.groupValues?.getOrNull(1) ?: ""
-            rawDesc = rawDesc.replace(Regex("(?s)(?i)<!\\[CDATA\\[(.*?)\\]\\]>"), "$1").trim()
+            val rawDesc = descMatch?.groupValues?.getOrNull(1)?.cleanHtmlAndEntities() ?: ""
 
             // Image
             var img: String? = null
-            val encMatch = Regex("(?i)<(?:enclosure|media:content)[^>]*url=[\"']([^\"']+)[\"']").find(block)
+            val encMatch = Regex("(?i)<(?:enclosure|media:content|media:thumbnail)[^>]*url=[\"']([^\"']+)[\"']").find(block)
             if (encMatch != null) {
                 img = encMatch.groupValues.getOrNull(1)
             } else if (rawDesc.isNotEmpty()) {
-                val imgMatch = Regex("(?i)<img[^>]+src=[\"']([^\"']+)[\"']").find(rawDesc)
+                val imgMatch = Regex("(?i)<img[^>]+src=[\"']([^\"']+)[\"']").find(block)
                 if (imgMatch != null) img = imgMatch.groupValues.getOrNull(1)
             }
 
@@ -51,19 +64,18 @@ private fun parseRobust(xml: String, sourceName: String): List<NewsItem> {
             val dateMatch = Regex("(?i)<(?:pubDate|published|dc:date)[^>]*>(.*?)</(?:pubDate|published|dc:date)>").find(block)
             if (dateMatch != null) {
                 try {
-                    val dateStr = dateMatch.groupValues[1].trim()
+                    val dateStr = dateMatch.groupValues[1].cleanHtmlAndEntities()
                     timestamp = java.util.Date(dateStr).time
                 } catch (e: Exception) {}
             }
 
             if (rawTitle.isNotEmpty()) {
-                var cleanDesc = rawDesc.replace(Regex("<[^>]*>"), "").trim()
+                var cleanDesc = rawDesc
                 if (cleanDesc.length > 300) cleanDesc = cleanDesc.take(300) + "..."
-                
-                val cleanTitle = rawTitle.replace(Regex("<[^>]*>"), "").trim()
 
                 items.add(NewsItem(
-                    title = cleanTitle,
+                    title = rawTitle,
+                    originalTitle = rawTitle,
                     link = rawLink,
                     description = cleanDesc,
                     source = sourceName,

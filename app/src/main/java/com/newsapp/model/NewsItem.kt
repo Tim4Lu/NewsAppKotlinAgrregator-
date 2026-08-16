@@ -5,6 +5,7 @@ import java.util.UUID
 data class NewsItem(
     val id: String = UUID.randomUUID().toString(),
     val title: String,
+    val originalTitle: String = "",
     val link: String,
     val description: String,
     val source: String = "Новина",
