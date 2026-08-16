@@ -8,6 +8,7 @@ import androidx.core.app.NotificationCompat
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.newsapp.data.LogManager
+import com.newsapp.data.NewsParserFactory
 import com.newsapp.data.api.AiRewriter
 import com.newsapp.model.NewsItem
 import io.ktor.client.HttpClient
@@ -18,11 +19,7 @@ import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpHeaders
 import org.json.JSONArray
 import org.json.JSONObject
-import com.newsapp.data.NewsParserFactory
-import com.newsapp.data.NewsParserFactoryFactory
 import java.io.File
-import java.io.StringReader
-import java.net.URL
 
 class NewsWorker(
     private val appContext: Context,
@@ -108,6 +105,7 @@ class NewsWorker(
                     put("image", item.image)
                     put("status", item.status)
                     put("telegramCaption", item.telegramCaption)
+                    put("timestamp", item.timestamp)
                 }
                 jsonArray.put(obj)
             }
@@ -143,6 +141,4 @@ class NewsWorker(
             com.newsapp.data.LogManager.log("WORKER_ERR", "Сповіщення не показано: ${e.message}")
         }
     }
-
-    
-    }
+}
