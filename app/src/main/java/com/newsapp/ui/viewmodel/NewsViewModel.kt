@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.newsapp.data.LogManager
+import com.newsapp.data.NewsParserFactory
 import com.newsapp.data.api.TelegramBotService
 import com.newsapp.data.api.AiRewriter
 import com.newsapp.model.NewsItem
@@ -21,10 +22,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
-import org.xmlpull.v1.XmlPullParser
-import org.xmlpull.v1.XmlPullParserFactory
 import java.io.File
-import java.io.StringReader
 import java.net.URL
 
 class NewsViewModel(application: Application) : AndroidViewModel(application) {
@@ -54,7 +52,6 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun loadCachedNews() {
-        com.newsapp.data.LogManager.log("TRACE", "Викликано функцію: loadCachedNews")
         try {
             if (cacheFile.exists()) {
                 val jsonText = cacheFile.readText()
@@ -84,7 +81,6 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun saveNewsToDisk(list: List<NewsItem>) {
-        com.newsapp.data.LogManager.log("TRACE", "Викликано функцію: saveNewsToDisk")
         try {
             val jsonArray = JSONArray()
             list.filter { it.status == "Готово" || it.status == "Опубліковано" }.forEach { item ->
@@ -107,7 +103,6 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun loadNews() {
-        com.newsapp.data.LogManager.log("TRACE", "Викликано функцію: loadNews")
         if (_newsList.value.isEmpty()) _isLoading.value = true
 
         viewModelScope.launch(Dispatchers.IO) {
@@ -117,22 +112,38 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
                 try {
                     val response = client.get(url) { header(HttpHeaders.UserAgent, "Mozilla/5.0") }
                     if (response.status.value in 200..299) {
-                        rawNews.addAll(parseRss(response.bodyAsText(), getSourceName(url)))
+                        val xml = response.bodyAsText()
+                        val parser = NewsParserFactory.getParser(url)
+                        val parsedItems = parser.parse(xml)
+                        rawNews.addAll(parsedItems)
                     }
-                } catch (e: Exception) { }
+                } catch (e: Exception) {
+                    LogManager.log("RSS_ERR", "Збій завантаження $url: ${e.message}")
+                }
             }
 
             if (rawNews.isNotEmpty()) {
-                val currentTitles = _newsList.value.map { it.title }.toSet()
-                val freshNews = rawNews.filter { !currentTitles.contains(it.title) }
+                val existingTitles = _newsList.value.map { it.title.trim().lowercase() }.toSet()
+                val existingLinks = _newsList.value.map { it.link.trim().lowercase() }.toSet()
+
+                val freshNews = rawNews.filter { item ->
+                    val cleanTitle = item.title.trim().lowercase()
+                    val cleanLink = item.link.trim().lowercase()
+                    cleanTitle.isNotEmpty() &&
+                            !existingTitles.contains(cleanTitle) &&
+                            (cleanLink.isEmpty() || !existingLinks.contains(cleanLink))
+                }
 
                 if (freshNews.isNotEmpty()) {
+                    LogManager.log("NEWS", "Знайдено ${freshNews.size} нових новин")
                     val freshInitial = freshNews.map { it.copy(status = "В черзі", telegramCaption = "Обробка...") }
+                    
                     _newsList.value = freshInitial + _newsList.value
                     _isLoading.value = false
 
                     processNewsWithScraperAndAi(freshNews)
                 } else {
+                    LogManager.log("NEWS", "Нових новин немає")
                     _isLoading.value = false
                 }
             } else {
@@ -142,8 +153,8 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private suspend fun scrapeArticle(url: String): Pair<String, String?> {
-        com.newsapp.data.LogManager.log("TRACE", "Викликано функцію: scrapeArticle")
         try {
+            if (url.isEmpty()) return Pair("", null)
             val response: HttpResponse = client.get(url) {
                 header(HttpHeaders.UserAgent, "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
             }
@@ -190,12 +201,11 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private suspend fun processNewsWithScraperAndAi(rawNews: List<NewsItem>) {
-        com.newsapp.data.LogManager.log("TRACE", "Викликано функцію: processNewsWithScraperAndAi")
         val updatedList = rawNews.map { item ->
             val (fullText, scrapedImage) = scrapeArticle(item.link)
             item.copy(
                 description = if (fullText.isNotEmpty()) fullText else item.description,
-                image = scrapedImage ?: item.image
+                image = if (!scrapedImage.isNullOrEmpty()) scrapedImage else item.image
             )
         }
 
@@ -208,12 +218,10 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun rewriteSingleNews(newsItem: NewsItem) {
-        com.newsapp.data.LogManager.log("TRACE", "Викликано функцію: rewriteSingleNews")
         viewModelScope.launch(Dispatchers.IO) {
             _newsList.value = _newsList.value.map {
                 if (it.id == newsItem.id) it.copy(status = "Переклад...", telegramCaption = "Обробка AI...") else it
             }
-            // Використовуємо 100% публічну функцію, передаючи їй список з 1 елемента
             aiRewriter.processAllNewsWithAi(listOf(newsItem)) { finishedItem ->
                 _newsList.value = _newsList.value.map { if (it.id == newsItem.id) finishedItem else it }
                 saveNewsToDisk(_newsList.value)
@@ -222,12 +230,10 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun toggleEdit(id: String) {
-        com.newsapp.data.LogManager.log("TRACE", "Викликано функцію: toggleEdit")
         _newsList.value = _newsList.value.map { if (it.id == id) it.copy(isEditing = !it.isEditing) else it }
     }
 
     fun updateNewsText(id: String, newText: String) {
-        com.newsapp.data.LogManager.log("TRACE", "Викликано функцію: updateNewsText")
         _newsList.value = _newsList.value.map {
             if (it.id == id) it.copy(description = newText, telegramCaption = "🚀 <b>${it.title}</b>\n\n$newText\n\n• <b>Джерело:</b> ${it.source}") else it
         }
@@ -235,91 +241,12 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun sendNews(newsItem: NewsItem) {
-        com.newsapp.data.LogManager.log("TRACE", "Викликано функцію: sendNews")
         viewModelScope.launch(Dispatchers.IO) {
-            // Викликаємо правильний метод з правильного класу
             val success = telegramBotService.sendToTelegram(newsItem.telegramCaption, newsItem.image)
             if (success) {
                 _newsList.value = _newsList.value.map { if (it.id == newsItem.id) it.copy(status = "Опубліковано") else it }
                 saveNewsToDisk(_newsList.value)
             }
         }
-    }
-
-    
-    private fun getSourceName(url: String): String {
-        com.newsapp.data.LogManager.log("TRACE", "Викликано функцію: getSourceName")
-        return when {
-            url.contains("nasa.gov") -> "NASA"
-            url.contains("space.com") -> "Space.com"
-            url.contains("universetoday.com") -> "Universe Today"
-            url.contains("spacedaily.com") -> "Space Daily"
-            url.contains("phys.org") -> "Phys.org"
-            else -> java.net.URL(url).host
-        }
-    }
-
-    private fun parseRss(xml: String, sourceName: String): List<NewsItem> {
-        com.newsapp.data.LogManager.log("TRACE", "Викликано функцію: parseRss")
-        val items = mutableListOf<NewsItem>()
-        try {
-            val parser = XmlPullParserFactory.newInstance().apply { isNamespaceAware = false }.newPullParser()
-            parser.setInput(StringReader(xml))
-
-            var eventType = parser.eventType
-            var title: String? = null
-            var link: String? = null
-            var desc: String? = null
-            var insideItem = false
-            var currentTag = ""
-
-            while (eventType != XmlPullParser.END_DOCUMENT) {
-                when (eventType) {
-                    XmlPullParser.START_TAG -> {
-                        currentTag = parser.name?.lowercase() ?: ""
-                        if (currentTag == "item" || currentTag == "entry") {
-                            insideItem = true
-                            title = null
-                            link = null
-                            desc = null
-                        } else if (insideItem && currentTag == "link") {
-                            val href = parser.getAttributeValue(null, "href")
-                            if (!href.isNullOrEmpty()) link = href
-                        }
-                    }
-                    XmlPullParser.TEXT -> {
-                        if (insideItem && parser.text?.isNotBlank() == true) {
-                            when (currentTag) {
-                                "title" -> title = (title ?: "") + parser.text
-                                "link" -> if (link.isNullOrEmpty()) link = parser.text
-                                "description", "summary", "content" -> desc = (desc ?: "") + parser.text
-                            }
-                        }
-                    }
-                    XmlPullParser.END_TAG -> {
-                        val name = parser.name?.lowercase() ?: ""
-                        if (name == "item" || name == "entry") {
-                            if (!title.isNullOrEmpty()) {
-                                val cleanDesc = (desc ?: "").replace(Regex("<.*?>"), "").trim()
-                                items.add(
-                                    NewsItem(
-                                        title = title!!.trim(),
-                                        link = link?.trim() ?: "",
-                                        description = cleanDesc,
-                                        source = sourceName
-                                    )
-                                )
-                            }
-                            insideItem = false
-                        }
-                        currentTag = ""
-                    }
-                }
-                eventType = parser.next()
-            }
-        } catch (e: Exception) {
-            LogManager.log("RSS_ERR", "Збій парсингу $sourceName: \${e.message}")
-        }
-        return items
     }
 }
