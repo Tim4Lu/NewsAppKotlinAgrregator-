@@ -113,29 +113,32 @@ class NewsWorker(
     }
 
     private fun showNewsNotification(item: NewsItem) {
-        com.newsapp.data.LogManager.log("TRACE", "Викликано функцію: showNewsNotification")
-        val channelId = "news_updates_channel"
-        val notificationManager = appContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        try {
+            val channelId = "news_updates_channel"
+            val notificationManager = appContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                channelId,
-                "Нові новини",
-                NotificationManager.IMPORTANCE_DEFAULT
-            )
-            notificationManager.createNotificationChannel(channel)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                val channel = NotificationChannel(
+                    channelId,
+                    "Нові новини",
+                    NotificationManager.IMPORTANCE_DEFAULT
+                )
+                notificationManager.createNotificationChannel(channel)
+            }
+
+            val notification = NotificationCompat.Builder(appContext, channelId)
+                .setSmallIcon(appContext.applicationInfo.icon)
+                .setContentTitle("🚀 " + item.title)
+                .setContentText(item.description)
+                .setStyle(NotificationCompat.BigTextStyle().bigText(item.description))
+                .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+                .setAutoCancel(true)
+                .build()
+
+            notificationManager.notify(item.id.hashCode(), notification)
+        } catch (e: Exception) {
+            com.newsapp.data.LogManager.log("WORKER_ERR", "Сповіщення не показано: ${e.message}")
         }
-
-        val notification = NotificationCompat.Builder(appContext, channelId)
-            .setSmallIcon(android.R.drawable.ic_dialog_info)
-            .setContentTitle("🚀 " + item.title)
-            .setContentText(item.description)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(item.description))
-            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
-            .setAutoCancel(true)
-            .build()
-
-        notificationManager.notify(item.id.hashCode(), notification)
     }
 
     

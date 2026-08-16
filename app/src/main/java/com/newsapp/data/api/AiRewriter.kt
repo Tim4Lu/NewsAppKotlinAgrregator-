@@ -70,7 +70,8 @@ class AiRewriter {
             }
 
             newsList.forEachIndexed { index, item ->
-                LogManager.log("AI_QUEUE", "[${index + 1}/$total] Обробка...")
+                try {
+                    LogManager.log("AI_QUEUE", "[${index + 1}/$total] Обробка...")
 
                 val cleanTitle = item.title.replace("\"", "'").replace("\n", " ")
                 val cleanDesc = item.description.replace("\"", "'").replace("\n", " ")
@@ -130,6 +131,9 @@ class AiRewriter {
                 }
 
                 onItemProcessed(finalItem)
+                } catch (e: Exception) {
+                    LogManager.log("AI_CRITICAL", "Збій обробки новини: ${e.message}")
+                }
             }
         } finally {
             context?.let { NewsProcessingService.stop(it) }

@@ -15,16 +15,19 @@ class NewsProcessingService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        com.newsapp.data.LogManager.log("TRACE", "Викликано функцію: onStartCommand")
         if (intent?.action == ACTION_STOP) {
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
             return START_NOT_STICKY
         }
 
-        createNotificationChannel()
-        val notification = createNotification("Обробка та відправка новин у фоновому режимі...")
-        startForeground(NOTIFICATION_ID, notification)
+        try {
+            createNotificationChannel()
+            val notification = createNotification("Обробка та відправка новин у фоновому режимі...")
+            startForeground(NOTIFICATION_ID, notification)
+        } catch (e: Exception) {
+            com.newsapp.data.LogManager.log("SERVICE_ERR", "Помилка служби: ${e.message}")
+        }
 
         return START_STICKY
     }
@@ -47,7 +50,7 @@ class NewsProcessingService : Service() {
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("NewsApp працює у фоні")
             .setContentText(contentText)
-            .setSmallIcon(android.R.drawable.stat_notify_sync)
+            .setSmallIcon(applicationInfo.icon)
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
