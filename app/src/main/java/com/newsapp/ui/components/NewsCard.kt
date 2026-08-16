@@ -149,15 +149,13 @@ fun NewsCard(
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Text(
-                            text = "✏️ Редагувати",
-                            color = Color(0xFF818CF8),
-                            fontSize = 14.sp,
+                            text = "✏️",
+                            fontSize = 40.sp,
                             modifier = Modifier.clickable { onToggleEdit(item.id) }
                         )
                         Text(
-                            text = "📋 Копіювати посилання",
-                            color = Color(0xFF34D399),
-                            fontSize = 14.sp,
+                            text = "📋",
+                            fontSize = 40.sp,
                             modifier = Modifier.clickable {
                                 if (item.link.isNotEmpty()) {
                                     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
@@ -170,9 +168,8 @@ fun NewsCard(
                             }
                         )
                         Text(
-                            text = "🔄 Перекласти заново",
-                            color = Color(0xFF38BDF8),
-                            fontSize = 14.sp,
+                            text = "⟳",
+                            fontSize = 40.sp,
                             modifier = Modifier.clickable { onRewrite(item) }
                         )
                     }
