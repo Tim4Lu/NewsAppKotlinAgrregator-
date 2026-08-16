@@ -83,7 +83,6 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
                     )
                 }
 
-                // Видаляємо дублікати з кешу
                 val uniqueCached = cached.distinctBy {
                     val normLink = it.link.normalizeUrl()
                     if (normLink.isNotEmpty()) normLink else it.originalTitle.ifEmpty { it.title }
@@ -184,7 +183,8 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
         try {
             if (url.isEmpty()) return Pair("", null)
             val response: HttpResponse = client.get(url) {
-                header(HttpHeaders.UserAgent, "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                header(HttpHeaders.UserAgent, "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36")
+                header(HttpHeaders.Accept, "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
             }
             val html = response.bodyAsText()
 
@@ -204,13 +204,14 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
             }
 
             val cleanHtml = html.replace(Regex("<(nav|header|footer|script|style|button|aside|noscript)[^>]*>[\\s\\S]*?<\\/\\1>", RegexOption.IGNORE_CASE), "")
-            val pTags = Regex("<p[^>]*>([^<]{50,})<\\/p>", RegexOption.IGNORE_CASE).findAll(cleanHtml).map { it.groupValues[1] }.toList()
-            val validParagraphs = pTags
-                .map { it.replace(Regex("<[^>]*>"), "").trim() }
-                .filter { t -> t.length > 100 && t.contains(".") }
+            val pMatches = Regex("<p[^>]*>(.*?)</p>", RegexOption.IGNORE_CASE).findAll(cleanHtml)
+            val validParagraphs = pMatches
+                .map { it.groupValues[1].replace(Regex("<[^>]*>"), "").trim() }
+                .filter { t -> t.length > 80 && t.contains(".") }
+                .toList()
 
             val scrapedText = validParagraphs.take(4).joinToString("\n\n")
-            return Pair(if (scrapedText.length >= 200) scrapedText else "", imageUrl)
+            return Pair(if (scrapedText.length >= 150) scrapedText else "", imageUrl)
 
         } catch (e: Exception) {
             return Pair("", null)

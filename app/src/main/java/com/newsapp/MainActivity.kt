@@ -12,11 +12,18 @@ import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
+import androidx.work.Constraints
+import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.NetworkType
+import androidx.work.PeriodicWorkRequestBuilder
+import androidx.work.WorkManager
 import com.newsapp.data.LogManager
 import com.newsapp.data.UpdateManager
+import com.newsapp.service.NewsWorker
 import com.newsapp.ui.NewsScreen
 import com.newsapp.ui.viewmodel.NewsViewModel
 import kotlinx.coroutines.launch
+import java.util.concurrent.TimeUnit
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -26,8 +33,8 @@ class MainActivity : ComponentActivity() {
 
         val viewModel = ViewModelProvider(this)[NewsViewModel::class.java]
 
-        // Запускаємо перевірку оновлень при старті
         checkForUpdates()
+        setupBackgroundWork()
 
         setContent {
             MaterialTheme {
@@ -35,10 +42,32 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    // ТЕПЕР ВИКЛИКАЄМО НАШ ПРАВИЛЬНИЙ ЕКРАН
                     NewsScreen(viewModel = viewModel)
                 }
             }
+        }
+    }
+
+    private fun setupBackgroundWork() {
+        try {
+            val constraints = Constraints.Builder()
+                .setRequiredNetworkType(NetworkType.CONNECTED)
+                .build()
+
+            val workRequest = PeriodicWorkRequestBuilder<NewsWorker>(
+                15, TimeUnit.MINUTES
+            )
+                .setConstraints(constraints)
+                .build()
+
+            WorkManager.getInstance(this).enqueueUniquePeriodicWork(
+                "NewsBackgroundWorker",
+                ExistingPeriodicWorkPolicy.KEEP,
+                workRequest
+            )
+            LogManager.log("WORKER", "Фоновий воркер успішно заплановано (кожні 15 хв)")
+        } catch (e: Exception) {
+            LogManager.log("WORKER_ERR", "Не вдалося запустити воркер: ${e.message}")
         }
     }
 
@@ -48,7 +77,6 @@ class MainActivity : ComponentActivity() {
             try {
                 val updateManager = UpdateManager(this@MainActivity)
                 
-                // Динамічно отримуємо поточний versionCode (currentBuildNumber)
                 val packageInfo = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                     packageManager.getPackageInfo(packageName, PackageManager.PackageInfoFlags.of(0))
                 } else {
@@ -65,10 +93,8 @@ class MainActivity : ComponentActivity() {
 
                 LogManager.log("APP_START", "Поточна версія збірки: $currentBuildNumber")
 
-                // Перевіряємо GitHub
                 val updateInfo = updateManager.checkForUpdate(currentBuildNumber)
                 
-                // Якщо є новіша версія — завантажуємо і встановлюємо
                 if (updateInfo != null) {
                     LogManager.log("UPDATE", "Знайдено оновлення! Версія: ${updateInfo.buildNumber}")
                     updateManager.downloadAndInstallApk(updateInfo.downloadUrl)
