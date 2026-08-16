@@ -30,6 +30,7 @@ fun NewsCard(
     onToggleEdit: (String) -> Unit,
     onRewrite: (NewsItem) -> Unit
 ) {
+        com.newsapp.data.LogManager.log("TRACE", "Викликано функцію: NewsCard")
     var localText by remember(item.id, item.description) { mutableStateOf(item.description) }
     var isPublishing by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()

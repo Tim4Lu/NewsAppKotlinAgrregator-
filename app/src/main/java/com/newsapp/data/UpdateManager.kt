@@ -104,6 +104,7 @@ class UpdateManager(private val context: Context) {
     }
 
     private fun installApk(file: File) {
+        com.newsapp.data.LogManager.log("TRACE", "Викликано функцію: installApk")
         val uri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             FileProvider.getUriForFile(context, "${context.packageName}.provider", file)
         } else {

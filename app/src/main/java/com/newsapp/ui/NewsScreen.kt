@@ -18,6 +18,7 @@ import com.newsapp.ui.viewmodel.NewsViewModel
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun NewsScreen(viewModel: NewsViewModel) {
+        com.newsapp.data.LogManager.log("TRACE", "Викликано функцію: NewsScreen")
     val newsList by viewModel.newsList.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
     var showLogsDialog by remember { mutableStateOf(false) }

@@ -20,6 +20,7 @@ import com.newsapp.data.LogManager
 
 @Composable
 fun LogViewerDialog(onDismiss: () -> Unit) {
+        com.newsapp.data.LogManager.log("TRACE", "Викликано функцію: LogViewerDialog")
     val logs by LogManager.logs.collectAsState()
 
     Dialog(onDismissRequest = onDismiss) {

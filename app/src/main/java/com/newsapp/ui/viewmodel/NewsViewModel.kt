@@ -52,6 +52,7 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun loadCachedNews() {
+        com.newsapp.data.LogManager.log("TRACE", "Викликано функцію: loadCachedNews")
         try {
             if (cacheFile.exists()) {
                 val jsonText = cacheFile.readText()
@@ -81,6 +82,7 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun saveNewsToDisk(list: List<NewsItem>) {
+        com.newsapp.data.LogManager.log("TRACE", "Викликано функцію: saveNewsToDisk")
         try {
             val jsonArray = JSONArray()
             list.filter { it.status == "Готово" || it.status == "Опубліковано" }.forEach { item ->
@@ -103,6 +105,7 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun loadNews() {
+        com.newsapp.data.LogManager.log("TRACE", "Викликано функцію: loadNews")
         if (_newsList.value.isEmpty()) _isLoading.value = true
 
         viewModelScope.launch(Dispatchers.IO) {
@@ -137,6 +140,7 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private suspend fun scrapeArticle(url: String): Pair<String, String?> {
+        com.newsapp.data.LogManager.log("TRACE", "Викликано функцію: scrapeArticle")
         try {
             val response: HttpResponse = client.get(url) {
                 header(HttpHeaders.UserAgent, "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
@@ -184,6 +188,7 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private suspend fun processNewsWithScraperAndAi(rawNews: List<NewsItem>) {
+        com.newsapp.data.LogManager.log("TRACE", "Викликано функцію: processNewsWithScraperAndAi")
         val updatedList = rawNews.map { item ->
             val (fullText, scrapedImage) = scrapeArticle(item.link)
             item.copy(
@@ -201,6 +206,7 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun rewriteSingleNews(newsItem: NewsItem) {
+        com.newsapp.data.LogManager.log("TRACE", "Викликано функцію: rewriteSingleNews")
         viewModelScope.launch(Dispatchers.IO) {
             _newsList.value = _newsList.value.map {
                 if (it.id == newsItem.id) it.copy(status = "Переклад...", telegramCaption = "Обробка AI...") else it
@@ -214,10 +220,12 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun toggleEdit(id: String) {
+        com.newsapp.data.LogManager.log("TRACE", "Викликано функцію: toggleEdit")
         _newsList.value = _newsList.value.map { if (it.id == id) it.copy(isEditing = !it.isEditing) else it }
     }
 
     fun updateNewsText(id: String, newText: String) {
+        com.newsapp.data.LogManager.log("TRACE", "Викликано функцію: updateNewsText")
         _newsList.value = _newsList.value.map {
             if (it.id == id) it.copy(description = newText, telegramCaption = "🚀 <b>${it.title}</b>\n\n$newText\n\n• <b>Джерело:</b> ${it.source}") else it
         }
@@ -225,6 +233,7 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun sendNews(newsItem: NewsItem) {
+        com.newsapp.data.LogManager.log("TRACE", "Викликано функцію: sendNews")
         viewModelScope.launch(Dispatchers.IO) {
             // Викликаємо правильний метод з правильного класу
             val success = telegramBotService.sendToTelegram(newsItem.telegramCaption, newsItem.image)
@@ -237,6 +246,7 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
 
     
     private fun getSourceName(url: String): String {
+        com.newsapp.data.LogManager.log("TRACE", "Викликано функцію: getSourceName")
         return when {
             url.contains("nasa.gov") -> "NASA"
             url.contains("space.com") -> "Space.com"
@@ -248,6 +258,7 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun parseRss(xml: String, sourceName: String): List<NewsItem> {
+        com.newsapp.data.LogManager.log("TRACE", "Викликано функцію: parseRss")
         val items = mutableListOf<NewsItem>()
         try {
             val parser = XmlPullParserFactory.newInstance().apply { isNamespaceAware = true }.newPullParser()

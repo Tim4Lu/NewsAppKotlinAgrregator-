@@ -20,6 +20,7 @@ import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
+        com.newsapp.data.LogManager.log("TRACE", "Викликано функцію: onCreate")
         super.onCreate(savedInstanceState)
         Log.d("MainActivity", "[LOG] onCreate запущено")
 
@@ -42,6 +43,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun checkForUpdates() {
+        com.newsapp.data.LogManager.log("TRACE", "Викликано функцію: checkForUpdates")
         lifecycleScope.launch {
             try {
                 val updateManager = UpdateManager(this@MainActivity)

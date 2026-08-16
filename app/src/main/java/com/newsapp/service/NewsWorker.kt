@@ -34,6 +34,7 @@ class NewsWorker(
     private val cacheFile = File(appContext.filesDir, "saved_news.json")
 
     override suspend fun doWork(): Result {
+        com.newsapp.data.LogManager.log("TRACE", "Викликано функцію: doWork")
         LogManager.log("WORKER", "Запуск фонової перевірки новин...")
 
         val rssUrls = listOf(
@@ -77,6 +78,7 @@ class NewsWorker(
     }
 
     private fun getCachedTitles(): Set<String> {
+        com.newsapp.data.LogManager.log("TRACE", "Викликано функцію: getCachedTitles")
         val set = mutableSetOf<String>()
         try {
             if (cacheFile.exists()) {
@@ -90,6 +92,7 @@ class NewsWorker(
     }
 
     private fun saveToCache(newItems: List<NewsItem>) {
+        com.newsapp.data.LogManager.log("TRACE", "Викликано функцію: saveToCache")
         try {
             val jsonArray = if (cacheFile.exists()) JSONArray(cacheFile.readText()) else JSONArray()
             newItems.forEach { item ->
@@ -110,6 +113,7 @@ class NewsWorker(
     }
 
     private fun showNewsNotification(item: NewsItem) {
+        com.newsapp.data.LogManager.log("TRACE", "Викликано функцію: showNewsNotification")
         val channelId = "news_updates_channel"
         val notificationManager = appContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
@@ -136,6 +140,7 @@ class NewsWorker(
 
     
     private fun getSourceName(url: String): String {
+        com.newsapp.data.LogManager.log("TRACE", "Викликано функцію: getSourceName")
         return when {
             url.contains("nasa.gov") -> "NASA"
             url.contains("space.com") -> "Space.com"
@@ -147,6 +152,7 @@ class NewsWorker(
     }
 
     private fun parseRss(xml: String, sourceName: String): List<NewsItem> {
+        com.newsapp.data.LogManager.log("TRACE", "Викликано функцію: parseRss")
         val items = mutableListOf<NewsItem>()
         try {
             val parser = XmlPullParserFactory.newInstance().apply { isNamespaceAware = true }.newPullParser()

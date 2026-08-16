@@ -34,6 +34,7 @@ class TelegramBotService {
     private val channelId = "@pronaukyonline"
 
     private fun sanitizeHtml(text: String): String {
+        com.newsapp.data.LogManager.log("TRACE", "Викликано функцію: sanitizeHtml")
         return text
             .replace("&", "&amp;")
             .replace("<", "&lt;")
@@ -47,6 +48,7 @@ class TelegramBotService {
     }
 
     private suspend fun getJpegBytesFromUrl(url: String): ByteArray? {
+        com.newsapp.data.LogManager.log("TRACE", "Викликано функцію: getJpegBytesFromUrl")
         return try {
             LogManager.log("Telegram", "Завантаження картинки для конвертації...")
             val response = client.get(url)

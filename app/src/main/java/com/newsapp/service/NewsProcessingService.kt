@@ -15,6 +15,7 @@ class NewsProcessingService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        com.newsapp.data.LogManager.log("TRACE", "Викликано функцію: onStartCommand")
         if (intent?.action == ACTION_STOP) {
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
@@ -29,6 +30,7 @@ class NewsProcessingService : Service() {
     }
 
     private fun createNotificationChannel() {
+        com.newsapp.data.LogManager.log("TRACE", "Викликано функцію: createNotificationChannel")
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
@@ -41,6 +43,7 @@ class NewsProcessingService : Service() {
     }
 
     private fun createNotification(contentText: String): Notification {
+        com.newsapp.data.LogManager.log("TRACE", "Викликано функцію: createNotification")
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("NewsApp працює у фоні")
             .setContentText(contentText)
@@ -57,6 +60,7 @@ class NewsProcessingService : Service() {
         const val ACTION_STOP = "ACTION_STOP"
 
         fun start(context: Context) {
+        com.newsapp.data.LogManager.log("TRACE", "Викликано функцію: start")
             try {
                 val intent = Intent(context, NewsProcessingService::class.java).apply {
                     action = ACTION_START
@@ -72,6 +76,7 @@ class NewsProcessingService : Service() {
         }
 
         fun stop(context: Context) {
+        com.newsapp.data.LogManager.log("TRACE", "Викликано функцію: stop")
             try {
                 val intent = Intent(context, NewsProcessingService::class.java).apply {
                     action = ACTION_STOP
