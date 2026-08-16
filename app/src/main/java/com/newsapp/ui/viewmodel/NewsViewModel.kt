@@ -24,6 +24,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.net.URL
+import java.net.URLEncoder
 
 class NewsViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -33,7 +34,11 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
-    private val client = HttpClient(CIO) { followRedirects = true }
+    private val client = HttpClient(CIO) { 
+        expectSuccess = false 
+        followRedirects = true 
+    }
+    
     private val aiRewriter = AiRewriter()
     private val telegramBotService = TelegramBotService()
     private val cacheFile = File(application.filesDir, "saved_news.json")
@@ -130,15 +135,72 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
 
             for (url in rssUrls) {
                 try {
+                    var fetchedItems = listOf<NewsItem>()
+                    var successDirect = false
+
+                    // 1. Прямий запит
                     val response = client.get(url) {
-                        header(HttpHeaders.UserAgent, "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36")
-                        header(HttpHeaders.Accept, "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                        header(HttpHeaders.UserAgent, "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                        header(HttpHeaders.Accept, "application/rss+xml, application/xml, text/xml")
                     }
+
                     if (response.status.value in 200..299) {
                         val parser = NewsParserFactory.getParser(url)
-                        val parsedItems = parser.parse(response.bodyAsText())
-                        rawNews.addAll(parsedItems)
+                        fetchedItems = parser.parse(response.bodyAsText())
+                        if (fetchedItems.isNotEmpty()) successDirect = true
                     }
+
+                    // 2. Фолбек через RSS2JSON (якщо Cloudflare заблокував)
+                    if (!successDirect) {
+                        LogManager.log("FETCH_WARN", "Блокування $url. Спроба через RSS2JSON...")
+                        val apiUrl = "https://api.rss2json.com/v1/api.json?rss_url=${URLEncoder.encode(url, "UTF-8")}"
+                        
+                        val jsonResponse = client.get(apiUrl)
+                        if (jsonResponse.status.value in 200..299) {
+                            val json = JSONObject(jsonResponse.bodyAsText())
+                            if (json.optString("status") == "ok") {
+                                val itemsArray = json.optJSONArray("items")
+                                val fallbackItems = mutableListOf<NewsItem>()
+                                
+                                val sourceName = when {
+                                    url.contains("nasa.gov") -> "NASA"
+                                    url.contains("space.com") -> "Space.com"
+                                    url.contains("spacedaily") -> "Space Daily"
+                                    url.contains("universetoday") -> "Universe Today"
+                                    url.contains("phys.org") -> "Phys.org"
+                                    else -> "Новина"
+                                }
+
+                                for (i in 0 until (itemsArray?.length() ?: 0)) {
+                                    val obj = itemsArray!!.getJSONObject(i)
+                                    var rawDesc = obj.optString("description", "")
+                                    rawDesc = rawDesc.replace(Regex("<[^>]*>"), "").trim()
+                                    if (rawDesc.length > 300) rawDesc = rawDesc.take(300) + "..."
+                                    
+                                    var img = obj.optString("thumbnail", "")
+                                    if (img.isEmpty()) {
+                                        val enc = obj.optJSONObject("enclosure")
+                                        if (enc != null) img = enc.optString("link", "")
+                                    }
+
+                                    fallbackItems.add(
+                                        NewsItem(
+                                            title = obj.optString("title"),
+                                            originalTitle = obj.optString("title"),
+                                            link = obj.optString("link").split(" ")[0],
+                                            description = rawDesc,
+                                            source = sourceName,
+                                            image = img,
+                                            timestamp = System.currentTimeMillis()
+                                        )
+                                    )
+                                }
+                                fetchedItems = fallbackItems
+                                LogManager.log("FETCH_OK", "RSS2JSON: Успішно (${fetchedItems.size} шт) для $sourceName")
+                            }
+                        }
+                    }
+                    rawNews.addAll(fetchedItems)
                 } catch (e: Exception) {
                     LogManager.log("FETCH_ERR", "Помилка завантаження $url: ${e.message}")
                 }
@@ -183,8 +245,7 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
         try {
             if (url.isEmpty()) return Pair("", null)
             val response: HttpResponse = client.get(url) {
-                header(HttpHeaders.UserAgent, "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36")
-                header(HttpHeaders.Accept, "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                header(HttpHeaders.UserAgent, "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
             }
             val html = response.bodyAsText()
 

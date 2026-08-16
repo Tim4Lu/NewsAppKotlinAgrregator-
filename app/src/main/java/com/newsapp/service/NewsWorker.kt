@@ -20,18 +20,22 @@ import io.ktor.http.HttpHeaders
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.net.URLEncoder
 
 class NewsWorker(
     private val appContext: Context,
     workerParams: WorkerParameters
 ) : CoroutineWorker(appContext, workerParams) {
 
-    private val client = HttpClient(CIO) { followRedirects = true }
+    private val client = HttpClient(CIO) { 
+        expectSuccess = false 
+        followRedirects = true 
+    }
+    
     private val aiRewriter = AiRewriter()
     private val cacheFile = File(appContext.filesDir, "saved_news.json")
 
     override suspend fun doWork(): Result {
-        com.newsapp.data.LogManager.log("TRACE", "Викликано функцію: doWork")
         LogManager.log("WORKER", "Запуск фонової перевірки новин...")
 
         val rssUrls = listOf(
@@ -47,13 +51,66 @@ class NewsWorker(
 
         for (url in rssUrls) {
             try {
+                var fetchedItems = listOf<NewsItem>()
+                var successDirect = false
+
                 val response = client.get(url) {
-                    header(HttpHeaders.UserAgent, "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36")
+                    header(HttpHeaders.UserAgent, "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
                 }
+
                 if (response.status.value in 200..299) {
                     val parser = NewsParserFactory.getParser(url)
-                    rawNews.addAll(parser.parse(response.bodyAsText()))
+                    fetchedItems = parser.parse(response.bodyAsText())
+                    if (fetchedItems.isNotEmpty()) successDirect = true
                 }
+
+                if (!successDirect) {
+                    val apiUrl = "https://api.rss2json.com/v1/api.json?rss_url=${URLEncoder.encode(url, "UTF-8")}"
+                    val jsonResponse = client.get(apiUrl)
+                    if (jsonResponse.status.value in 200..299) {
+                        val json = JSONObject(jsonResponse.bodyAsText())
+                        if (json.optString("status") == "ok") {
+                            val itemsArray = json.optJSONArray("items")
+                            val fallbackItems = mutableListOf<NewsItem>()
+                            
+                            val sourceName = when {
+                                url.contains("nasa.gov") -> "NASA"
+                                url.contains("space.com") -> "Space.com"
+                                url.contains("spacedaily") -> "Space Daily"
+                                url.contains("universetoday") -> "Universe Today"
+                                url.contains("phys.org") -> "Phys.org"
+                                else -> "Новина"
+                            }
+
+                            for (i in 0 until (itemsArray?.length() ?: 0)) {
+                                val obj = itemsArray!!.getJSONObject(i)
+                                var rawDesc = obj.optString("description", "")
+                                rawDesc = rawDesc.replace(Regex("<[^>]*>"), "").trim()
+                                if (rawDesc.length > 300) rawDesc = rawDesc.take(300) + "..."
+                                
+                                var img = obj.optString("thumbnail", "")
+                                if (img.isEmpty()) {
+                                    val enc = obj.optJSONObject("enclosure")
+                                    if (enc != null) img = enc.optString("link", "")
+                                }
+
+                                fallbackItems.add(
+                                    NewsItem(
+                                        title = obj.optString("title"),
+                                        originalTitle = obj.optString("title"),
+                                        link = obj.optString("link").split(" ")[0],
+                                        description = rawDesc,
+                                        source = sourceName,
+                                        image = img,
+                                        timestamp = System.currentTimeMillis()
+                                    )
+                                )
+                            }
+                            fetchedItems = fallbackItems
+                        }
+                    }
+                }
+                rawNews.addAll(fetchedItems)
             } catch (e: Exception) {
                 LogManager.log("WORKER_ERR", "Помилка RSS $url: ${e.message}")
             }
@@ -74,15 +131,12 @@ class NewsWorker(
             }
 
             saveToCache(processedNews)
-        } else {
-            LogManager.log("WORKER", "Нових новин під час фонової перевірки немає")
         }
 
         return Result.success()
     }
 
     private fun getCachedTitlesAndLinks(): Set<String> {
-        com.newsapp.data.LogManager.log("TRACE", "Викликано функцію: getCachedTitlesAndLinks")
         val set = mutableSetOf<String>()
         try {
             if (cacheFile.exists()) {
@@ -100,7 +154,6 @@ class NewsWorker(
     }
 
     private fun saveToCache(newItems: List<NewsItem>) {
-        com.newsapp.data.LogManager.log("TRACE", "Викликано функцію: saveToCache")
         try {
             val jsonArray = if (cacheFile.exists()) JSONArray(cacheFile.readText()) else JSONArray()
             newItems.forEach { item ->
@@ -147,7 +200,7 @@ class NewsWorker(
 
             notificationManager.notify(item.id.hashCode(), notification)
         } catch (e: Exception) {
-            com.newsapp.data.LogManager.log("WORKER_ERR", "Сповіщення не показано: ${e.message}")
+            LogManager.log("WORKER_ERR", "Сповіщення не показано: ${e.message}")
         }
     }
 }
