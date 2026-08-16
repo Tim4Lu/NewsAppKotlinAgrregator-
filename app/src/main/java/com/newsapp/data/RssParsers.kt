@@ -1,7 +1,6 @@
 package com.newsapp.data
 
 import com.newsapp.model.NewsItem
-import kotlin.text.RegexOption
 
 interface BaseRssParser {
     fun parse(xml: String): List<NewsItem>
@@ -16,40 +15,40 @@ class PhysOrgParser : BaseRssParser { override fun parse(xml: String) = parseRob
 private fun parseRobust(xml: String, sourceName: String): List<NewsItem> {
     val items = mutableListOf<NewsItem>()
     try {
-        val itemRegex = Regex("<(?:item|entry)[^>]*>(.*?)</(?:item|entry)>", setOf(RegexOption.DOTALL, RegexOption.IGNORE_CASE))
+        val itemRegex = Regex("(?s)(?i)<(?:item|entry)[^>]*>(.*?)</(?:item|entry)>")
         val matches = itemRegex.findAll(xml)
 
         for (match in matches) {
             val block = match.groupValues[1]
 
             // Title
-            val titleMatch = Regex("<title[^>]*>(.*?)</title>", setOf(RegexOption.DOTALL, RegexOption.IGNORE_CASE)).find(block)
+            val titleMatch = Regex("(?s)(?i)<title[^>]*>(.*?)</title>").find(block)
             var rawTitle = titleMatch?.groupValues?.getOrNull(1) ?: ""
-            rawTitle = rawTitle.replace(Regex("<!\\[CDATA\\[(.*?)\\]\\]>", setOf(RegexOption.DOTALL, RegexOption.IGNORE_CASE)), "$1").trim()
+            rawTitle = rawTitle.replace(Regex("(?s)(?i)<!\\[CDATA\\[(.*?)\\]\\]>"), "$1").trim()
 
             // Link
-            val linkHref = Regex("<link[^>]*href=[\"']([^\"']+)[\"']", RegexOption.IGNORE_CASE).find(block)?.groupValues?.getOrNull(1)
-            val linkTag = Regex("<link[^>]*>(.*?)</link>", setOf(RegexOption.DOTALL, RegexOption.IGNORE_CASE)).find(block)?.groupValues?.getOrNull(1)
-            val rawLink = (linkHref ?: linkTag ?: "").replace(Regex("<!\\[CDATA\\[(.*?)\\]\\]>", setOf(RegexOption.DOTALL, RegexOption.IGNORE_CASE)), "$1").trim()
+            val linkHref = Regex("(?i)<link[^>]*href=[\"']([^\"']+)[\"']").find(block)?.groupValues?.getOrNull(1)
+            val linkTag = Regex("(?s)(?i)<link[^>]*>(.*?)</link>").find(block)?.groupValues?.getOrNull(1)
+            val rawLink = (linkHref ?: linkTag ?: "").replace(Regex("(?s)(?i)<!\\[CDATA\\[(.*?)\\]\\]>"), "$1").trim()
 
             // Description
-            val descMatch = Regex("<(?:description|summary|content|content:encoded)[^>]*>(.*?)</(?:description|summary|content|content:encoded)>", setOf(RegexOption.DOTALL, RegexOption.IGNORE_CASE)).find(block)
+            val descMatch = Regex("(?s)(?i)<(?:description|summary|content|content:encoded)[^>]*>(.*?)</(?:description|summary|content|content:encoded)>").find(block)
             var rawDesc = descMatch?.groupValues?.getOrNull(1) ?: ""
-            rawDesc = rawDesc.replace(Regex("<!\\[CDATA\\[(.*?)\\]\\]>", setOf(RegexOption.DOTALL, RegexOption.IGNORE_CASE)), "$1").trim()
+            rawDesc = rawDesc.replace(Regex("(?s)(?i)<!\\[CDATA\\[(.*?)\\]\\]>"), "$1").trim()
 
             // Image
             var img: String? = null
-            val encMatch = Regex("<(?:enclosure|media:content)[^>]*url=[\"']([^\"']+)[\"']", RegexOption.IGNORE_CASE).find(block)
+            val encMatch = Regex("(?i)<(?:enclosure|media:content)[^>]*url=[\"']([^\"']+)[\"']").find(block)
             if (encMatch != null) {
                 img = encMatch.groupValues.getOrNull(1)
             } else if (rawDesc.isNotEmpty()) {
-                val imgMatch = Regex("<img[^>]+src=[\"']([^\"']+)[\"']", RegexOption.IGNORE_CASE).find(rawDesc)
+                val imgMatch = Regex("(?i)<img[^>]+src=[\"']([^\"']+)[\"']").find(rawDesc)
                 if (imgMatch != null) img = imgMatch.groupValues.getOrNull(1)
             }
 
             // Date
             var timestamp = System.currentTimeMillis()
-            val dateMatch = Regex("<(?:pubDate|published|dc:date)[^>]*>(.*?)</(?:pubDate|published|dc:date)>", RegexOption.IGNORE_CASE).find(block)
+            val dateMatch = Regex("(?i)<(?:pubDate|published|dc:date)[^>]*>(.*?)</(?:pubDate|published|dc:date)>").find(block)
             if (dateMatch != null) {
                 try {
                     val dateStr = dateMatch.groupValues[1].trim()
