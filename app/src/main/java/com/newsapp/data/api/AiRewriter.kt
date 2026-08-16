@@ -20,7 +20,7 @@ import org.json.JSONObject
 class AiRewriter {
 
     private val client = HttpClient(CIO) {
-        expectSuccess = false // <--- ОСЬ ЦЕЙ РЯДОК ВРЯТУЄ ВІД NULL-ПАДІНЬ
+        expectSuccess = false
         engine {
             requestTimeout = 60_000
             endpoint {
@@ -105,7 +105,11 @@ class AiRewriter {
 
                     while (translatedText == null && attempts < keys.size) {
                         val (apiKey, keyNum) = getActiveKey()
-                        translatedText = callGeminiApi(prompt, apiKey, keyNum)
+
+                        translatedText = callGeminiApi(prompt, apiKey, keyNum, "gemini-3.6-flash")
+                        if (translatedText == null) {
+                            translatedText = callGeminiApi(prompt, apiKey, keyNum, "gemini-1.5-flash")
+                        }
 
                         if (translatedText == null) {
                             switchToNextKey()
@@ -141,7 +145,7 @@ class AiRewriter {
         }
     }
 
-    private suspend fun callGeminiApi(prompt: String, apiKey: String, keyNum: Int): String? {
+    private suspend fun callGeminiApi(prompt: String, apiKey: String, keyNum: Int, modelName: String): String? {
         val now = System.currentTimeMillis()
         val timeSinceLastRequest = now - lastRequestTimestamp
         if (timeSinceLastRequest < 12_000) {
@@ -152,7 +156,7 @@ class AiRewriter {
         lastRequestTimestamp = System.currentTimeMillis()
 
         return try {
-            val url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.7-flash:generateContent?key=$apiKey"
+            val url = "https://generativelanguage.googleapis.com/v1beta/models/$modelName:generateContent?key=$apiKey"
 
             val jsonBody = JSONObject().apply {
                 put("contents", JSONArray().apply {
@@ -180,19 +184,23 @@ class AiRewriter {
                 val resultText = parts?.optJSONObject(0)?.optString("text")
 
                 if (!resultText.isNullOrEmpty()) {
-                    LogManager.log("Gemini_OK", "Успіх Gemini (ключ #$keyNum)")
+                    LogManager.log("Gemini_OK", "Успіх ($modelName, ключ #$keyNum)")
                     resultText
                 } else {
                     val finishReason = firstCandidate?.optString("finishReason") ?: "UNKNOWN"
-                    LogManager.log("AI_ERR", "Порожня відповідь Gemini (ключ #$keyNum, причина: $finishReason)")
+                    LogManager.log("AI_ERR", "Порожня відповідь $modelName (ключ #$keyNum, причина: $finishReason)")
                     null
                 }
+            } else if (response.status.value == 503) {
+                LogManager.log("AI_ERR", "Сервер $modelName перевантажений (503). Спробуємо резерв...")
+                delay(2000)
+                null
             } else {
-                LogManager.log("AI_ERR", "Помилка Gemini (ключ #$keyNum, код ${response.status.value}): ${responseText.take(120)}")
+                LogManager.log("AI_ERR", "Помилка $modelName (ключ #$keyNum, код ${response.status.value}): ${responseText.take(120)}")
                 null
             }
         } catch (e: Exception) {
-            LogManager.log("AI_ERR", "Помилка з'єднання з ключем #$keyNum: ${e.message ?: "null"}")
+            LogManager.log("AI_ERR", "Помилка з'єднання ($modelName, ключ #$keyNum): ${e.message ?: "null"}")
             null
         }
     }

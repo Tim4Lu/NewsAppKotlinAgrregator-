@@ -29,7 +29,11 @@ private fun parseRobust(xml: String, sourceName: String): List<NewsItem> {
     val items = mutableListOf<NewsItem>()
     try {
         val itemRegex = Regex("(?s)(?i)<(?:item|entry)[^>]*>(.*?)</(?:item|entry)>")
-        val matches = itemRegex.findAll(xml)
+        val matches = itemRegex.findAll(xml).toList()
+
+        if (matches.isEmpty()) {
+            LogManager.log("PARSER_WARN", "Джерело $sourceName: 0 елементів у XML (довжина відповіді: ${xml.length})")
+        }
 
         for (match in matches) {
             val block = match.groupValues[1]
@@ -38,7 +42,7 @@ private fun parseRobust(xml: String, sourceName: String): List<NewsItem> {
             val titleMatch = Regex("(?s)(?i)<title[^>]*>(.*?)</title>").find(block)
             val rawTitle = titleMatch?.groupValues?.getOrNull(1)?.cleanHtmlAndEntities() ?: ""
 
-            // Link (підтримка href, link tag та guid)
+            // Link (Space.com підтримує guid та link)
             val linkHref = Regex("(?i)<link[^>]*href=[\"']([^\"']+)[\"']").find(block)?.groupValues?.getOrNull(1)
             val linkTag = Regex("(?s)(?i)<link[^>]*>(.*?)</link>").find(block)?.groupValues?.getOrNull(1)
             val guidTag = Regex("(?s)(?i)<guid[^>]*>(.*?)</guid>").find(block)?.groupValues?.getOrNull(1)
@@ -83,6 +87,9 @@ private fun parseRobust(xml: String, sourceName: String): List<NewsItem> {
                     timestamp = timestamp
                 ))
             }
+        }
+        if (items.isNotEmpty()) {
+            LogManager.log("PARSER_OK", "Джерело $sourceName: розпарсено ${items.size} новин")
         }
     } catch (e: Exception) {
         LogManager.log("PARSER_ERR", "Помилка Regex-парсингу $sourceName: ${e.message}")
