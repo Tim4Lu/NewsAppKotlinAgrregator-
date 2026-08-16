@@ -1,112 +1,72 @@
 package com.newsapp.data
 
 import com.newsapp.model.NewsItem
-import org.xmlpull.v1.XmlPullParser
-import org.xmlpull.v1.XmlPullParserFactory
-import java.io.StringReader
 
 interface BaseRssParser {
     fun parse(xml: String): List<NewsItem>
 }
 
-class NasaParser : BaseRssParser {
-    override fun parse(xml: String): List<NewsItem> = parseGeneric(xml, "NASA")
-}
+class NasaParser : BaseRssParser { override fun parse(xml: String) = parseRobust(xml, "NASA") }
+class SpaceComParser : BaseRssParser { override fun parse(xml: String) = parseRobust(xml, "Space.com") }
+class SpaceDailyParser : BaseRssParser { override fun parse(xml: String) = parseRobust(xml, "Space Daily") }
+class UniverseTodayParser : BaseRssParser { override fun parse(xml: String) = parseRobust(xml, "Universe Today") }
+class PhysOrgParser : BaseRssParser { override fun parse(xml: String) = parseRobust(xml, "Phys.org") }
 
-class SpaceComParser : BaseRssParser {
-    override fun parse(xml: String): List<NewsItem> = parseGeneric(xml, "Space.com")
-}
-
-class SpaceDailyParser : BaseRssParser {
-    override fun parse(xml: String): List<NewsItem> = parseGeneric(xml, "Space Daily")
-}
-
-class UniverseTodayParser : BaseRssParser {
-    override fun parse(xml: String): List<NewsItem> = parseGeneric(xml, "Universe Today")
-}
-
-class PhysOrgParser : BaseRssParser {
-    override fun parse(xml: String): List<NewsItem> = parseGeneric(xml, "Phys.org")
-}
-
-private fun parseGeneric(xml: String, sourceName: String): List<NewsItem> {
+private fun parseRobust(xml: String, sourceName: String): List<NewsItem> {
     val items = mutableListOf<NewsItem>()
     try {
-        val factory = XmlPullParserFactory.newInstance()
-        factory.isNamespaceAware = false
-        val parser = factory.newPullParser()
-        parser.setInput(StringReader(xml))
+        val itemRegex = Regex("<(?:item|entry)[^>]*>(.*?)</(?:item|entry)>", RegexOption.DOTALL or RegexOption.IGNORE_CASE)
+        val matches = itemRegex.findAll(xml)
 
-        var eventType = parser.eventType
-        var insideItem = false
-        var currentTag = ""
+        for (match in matches) {
+            val block = match.groupValues[1]
 
-        var title: String? = null
-        var link: String? = null
-        var desc: String? = null
-        var img: String? = null
+            val titleMatch = Regex("<title[^>]*>(.*?)</title>", RegexOption.DOTALL or RegexOption.IGNORE_CASE).find(block)
+            var title = titleMatch?.groupValues?.get(1)?.replace(Regex("<!\\[CDATA\\[(.*?)\\]\\]>", RegexOption.DOTALL), "$1")?.trim()
 
-        while (eventType != XmlPullParser.END_DOCUMENT) {
-            when (eventType) {
-                XmlPullParser.START_TAG -> {
-                    currentTag = parser.name?.lowercase() ?: ""
-                    if (currentTag == "item" || currentTag == "entry") {
-                        insideItem = true
-                        title = null
-                        link = null
-                        desc = null
-                        img = null
-                    } else if (insideItem) {
-                        if (currentTag == "link") {
-                            val href = parser.getAttributeValue(null, "href")
-                            if (!href.isNullOrEmpty()) link = href
-                        } else if (currentTag == "enclosure" || currentTag == "media:content") {
-                            val mediaUrl = parser.getAttributeValue(null, "url")
-                            if (!mediaUrl.isNullOrEmpty()) img = mediaUrl
-                        }
-                    }
-                }
-                XmlPullParser.TEXT -> {
-                    if (insideItem && parser.text?.isNotBlank() == true) {
-                        val text = parser.text.trim()
-                        when (currentTag) {
-                            "title" -> title = (title ?: "") + text
-                            "link" -> if (link.isNullOrEmpty()) link = text
-                            "description", "summary", "content", "content:encoded" -> desc = (desc ?: "") + text
-                        }
-                    }
-                }
-                XmlPullParser.END_TAG -> {
-                    val name = parser.name?.lowercase() ?: ""
-                    if (name == "item" || name == "entry") {
-                        if (!title.isNullOrEmpty()) {
-                            var cleanDesc = (desc ?: "").replace(Regex("<[^>]*>"), "").trim()
-                            if (cleanDesc.length > 300) cleanDesc = cleanDesc.take(300) + "..."
+            val linkMatch = Regex("<link[^>]*href=[\"']([^\"']+)[\"'][^>]*>|<link[^>]*>(.*?)</link>", RegexOption.DOTALL or RegexOption.IGNORE_CASE).find(block)
+            var link = linkMatch?.let { it.groupValues[1].ifEmpty { it.groupValues[2] } }?.trim()
 
-                            if (img.isNullOrEmpty() && desc != null) {
-                                val imgMatch = Regex("<img[^>]+src=[\"']([^\"']+)[\"']", RegexOption.IGNORE_CASE).find(desc!!)
-                                if (imgMatch != null) img = imgMatch.groupValues[1]
-                            }
+            val descMatch = Regex("<(?:description|summary|content|content:encoded)[^>]*>(.*?)</(?:description|summary|content|content:encoded)>", RegexOption.DOTALL or RegexOption.IGNORE_CASE).find(block)
+            var desc = descMatch?.groupValues?.get(1)?.replace(Regex("<!\\[CDATA\\[(.*?)\\]\\]>", RegexOption.DOTALL), "$1")?.trim()
 
-                            items.add(
-                                NewsItem(
-                                    title = title!!.trim(),
-                                    link = link?.trim() ?: "",
-                                    description = cleanDesc,
-                                    source = sourceName,
-                                    image = img ?: ""
-                                )
-                            )
-                        }
-                        insideItem = false
-                    }
-                    currentTag = ""
-                }
+            var img: String? = null
+            val encMatch = Regex("<(?:enclosure|media:content)[^>]*url=[\"']([^\"']+)[\"']", RegexOption.IGNORE_CASE).find(block)
+            if (encMatch != null) {
+                img = encMatch.groupValues[1]
+            } else if (desc != null) {
+                val imgMatch = Regex("<img[^>]+src=[\"']([^\"']+)[\"']", RegexOption.IGNORE_CASE).find(desc)
+                if (imgMatch != null) img = imgMatch.groupValues[1]
             }
-            eventType = parser.next()
+
+            var timestamp = System.currentTimeMillis()
+            val dateMatch = Regex("<(?:pubDate|published|dc:date)[^>]*>(.*?)</(?:pubDate|published|dc:date)>", RegexOption.IGNORE_CASE).find(block)
+            if (dateMatch != null) {
+                try {
+                    val dateStr = dateMatch.groupValues[1].trim()
+                    timestamp = java.util.Date(dateStr).time
+                } catch (e: Exception) {}
+            }
+
+            if (!title.isNullOrEmpty()) {
+                var cleanDesc = (desc ?: "").replace(Regex("<[^>]*>"), "").trim()
+                if (cleanDesc.length > 300) cleanDesc = cleanDesc.take(300) + "..."
+                
+                // Очищення заголовка від зайвих тегів
+                title = title.replace(Regex("<[^>]*>"), "").trim()
+
+                items.add(NewsItem(
+                    title = title,
+                    link = link ?: "",
+                    description = cleanDesc,
+                    source = sourceName,
+                    image = img ?: "",
+                    timestamp = timestamp
+                ))
+            }
         }
     } catch (e: Exception) {
-        LogManager.log("PARSER_ERR", "Помилка парсингу $sourceName: ${e.message}")
+        LogManager.log("PARSER_ERR", "Помилка Regex-парсингу $sourceName: ${e.message}")
     }
     return items
 }

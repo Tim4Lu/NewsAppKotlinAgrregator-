@@ -68,7 +68,7 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
                             source = obj.optString("source"),
                             image = obj.optString("image"),
                             status = obj.optString("status", "Готово"),
-                            telegramCaption = obj.optString("telegramCaption")
+                            telegramCaption = obj.optString("telegramCaption"), timestamp = obj.optLong("timestamp", System.currentTimeMillis())
                         )
                     )
                 }
@@ -93,6 +93,7 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
                     put("image", item.image)
                     put("status", item.status)
                     put("telegramCaption", item.telegramCaption)
+                    put("timestamp", item.timestamp)
                 }
                 jsonArray.put(obj)
             }
@@ -142,8 +143,9 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
                     LogManager.log("NEWS", "Знайдено ${freshNews.size} нових новин")
                     val freshInitial = freshNews.map { it.copy(status = "В черзі", telegramCaption = "Обробка...") }
                     
-                    // Нові новини ставимо на початок списку
-                    _newsList.value = freshInitial + _newsList.value
+                    // Обєднуємо і сортуємо за часом від найновішого
+                    val combinedList = freshInitial + _newsList.value
+                    _newsList.value = combinedList.sortedByDescending { it.timestamp }
                     _isLoading.value = false
 
                     processNewsWithScraperAndAi(freshNews)

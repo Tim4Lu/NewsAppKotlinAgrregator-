@@ -11,6 +11,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.animation.AnimatedVisibility
+import kotlinx.coroutines.launch
 import com.newsapp.ui.components.LogViewerDialog
 import com.newsapp.ui.components.NewsCard
 import com.newsapp.ui.viewmodel.NewsViewModel
@@ -18,10 +21,14 @@ import com.newsapp.ui.viewmodel.NewsViewModel
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun NewsScreen(viewModel: NewsViewModel) {
-        com.newsapp.data.LogManager.log("TRACE", "Викликано функцію: NewsScreen")
+    com.newsapp.data.LogManager.log("TRACE", "Викликано функцію: NewsScreen")
     val newsList by viewModel.newsList.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
     var showLogsDialog by remember { mutableStateOf(false) }
+    
+    val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+    val showScrollToTop by remember { derivedStateOf { listState.firstVisibleItemIndex > 0 } }
     
     var selectedSource by remember { mutableStateOf("Усі") }
     val sources = listOf("Усі", "NASA", "Space.com", "Space Daily", "Universe Today", "Phys.org")
@@ -49,11 +56,22 @@ fun NewsScreen(viewModel: NewsViewModel) {
             )
         },
         floatingActionButton = {
-            FloatingActionButton(
-                onClick = { showLogsDialog = true },
-                containerColor = Color(0xFF818CF8)
-            ) {
-                Text("📜", modifier = Modifier.padding(16.dp))
+            Column(horizontalAlignment = Alignment.End) {
+                if (showScrollToTop) {
+                    FloatingActionButton(
+                        onClick = { scope.launch { listState.animateScrollToItem(0) } },
+                        containerColor = Color(0xFF38BDF8),
+                        modifier = Modifier.padding(bottom = 12.dp)
+                    ) {
+                        Text("⬆️", fontSize = 20.sp)
+                    }
+                }
+                FloatingActionButton(
+                    onClick = { showLogsDialog = true },
+                    containerColor = Color(0xFF818CF8)
+                ) {
+                    Text("📜", fontSize = 20.sp)
+                }
             }
         }
     ) { paddingValues ->
@@ -91,6 +109,7 @@ fun NewsScreen(viewModel: NewsViewModel) {
                     )
                 } else {
                     LazyColumn(
+                        state = listState,
                         modifier = Modifier
                             .fillMaxSize()
                             .padding(horizontal = 16.dp)
