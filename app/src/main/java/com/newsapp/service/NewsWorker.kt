@@ -40,7 +40,9 @@ class NewsWorker(
         val rssUrls = listOf(
             "https://www.nasa.gov/rss/dyn/breaking_news.rss",
             "https://www.space.com/feeds/all",
-            "https://www.universetoday.com/feed"
+            "https://www.universetoday.com/feed",
+            "https://www.spacedaily.com/spacedaily.xml",
+            "https://phys.org/rss-feed/space-news/"
         )
 
         val cachedTitles = getCachedTitles()
