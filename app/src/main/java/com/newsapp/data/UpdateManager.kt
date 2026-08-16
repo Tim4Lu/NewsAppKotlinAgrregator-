@@ -113,6 +113,9 @@ class UpdateManager(private val context: Context) {
         val intent = Intent(Intent.ACTION_VIEW).apply {
             setDataAndType(uri, "application/vnd.android.package-archive")
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                putExtra(Intent.EXTRA_NOT_UNKNOWN_SOURCE, true)
+            }
         }
         context.startActivity(intent)
     }

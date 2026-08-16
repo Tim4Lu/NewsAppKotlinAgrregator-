@@ -21,10 +21,10 @@ class AiRewriter {
 
     private val client = HttpClient(CIO) {
         engine {
-            requestTimeout = 12_000
+            requestTimeout = 60_000
             endpoint {
-                connectTimeout = 12_000
-                socketTimeout = 12_000
+                connectTimeout = 60_000
+                socketTimeout = 60_000
             }
         }
     }
@@ -37,6 +37,7 @@ class AiRewriter {
             .filter { it.isNotEmpty() }
 
     private var currentKeyIndex = 0
+    private var lastRequestTimestamp = 0L
 
     private fun getActiveKey(): Pair<String, Int> {
         val keys = apiKeys
@@ -62,10 +63,10 @@ class AiRewriter {
         try {
             val total = newsList.size
             val keysCount = apiKeys.size
-            LogManager.log("AI_START", "Обробка $total новин (доступно ключів у масиві: $keysCount)")
+            LogManager.log("AI_START", "Обробка $total новин (доступно ключів: $keysCount)")
 
             if (keysCount == 0) {
-                LogManager.log("AI_ERR", "УВАГА: Масиви ключів GEMINI_KEYS порожні!")
+                LogManager.log("AI_ERR", "УВАГА: Масив ключів GEMINI_KEYS порожній!")
             }
 
             newsList.forEachIndexed { index, item ->
@@ -107,7 +108,6 @@ class AiRewriter {
                     if (translatedText == null) {
                         switchToNextKey()
                         attempts++
-                        delay(2000)
                     }
                 }
 
@@ -130,7 +130,6 @@ class AiRewriter {
                 }
 
                 onItemProcessed(finalItem)
-                if (index < total - 1) delay(5000)
             }
         } finally {
             context?.let { NewsProcessingService.stop(it) }
@@ -138,6 +137,15 @@ class AiRewriter {
     }
 
     private suspend fun callGeminiApi(prompt: String, apiKey: String, keyNum: Int): String? {
+        val now = System.currentTimeMillis()
+        val timeSinceLastRequest = now - lastRequestTimestamp
+        if (timeSinceLastRequest < 12_000) {
+            val waitTime = 12_000 - timeSinceLastRequest
+            LogManager.log("AI_RATE", "Пауза ${waitTime / 1000} сек для дотримання ліміту (1 запит / 12 сек)...")
+            delay(waitTime)
+        }
+        lastRequestTimestamp = System.currentTimeMillis()
+
         return try {
             val url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=$apiKey"
 
@@ -165,7 +173,7 @@ class AiRewriter {
                     .getJSONArray("parts")
                     .getJSONObject(0)
                     .getString("text")
-                LogManager.log("Gemini_OK", "Успіх Gemini (ключ з масиву #$keyNum)")
+                LogManager.log("Gemini_OK", "Успіх Gemini (ключ #$keyNum)")
                 resultText
             } else {
                 LogManager.log("AI_ERR", "Помилка Gemini API для ключа #$keyNum (код ${response.status.value})")
