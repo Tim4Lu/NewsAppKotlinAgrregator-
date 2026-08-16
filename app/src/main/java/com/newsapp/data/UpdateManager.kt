@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
+import android.provider.Settings
 import androidx.core.content.FileProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -34,7 +35,6 @@ class UpdateManager(private val context: Context) {
                 val json = JSONObject(jsonStr)
                 val tagName = json.getString("tag_name")
                 
-                // Виправляємо парсинг: коректно зчитуємо номер збірки після 'v'
                 val remoteBuild = tagName.removePrefix("v").removePrefix("V").trim().toIntOrNull() ?: 0
 
                 LogManager.log("UPDATE_CHECK", "GitHub: $tagName (build: $remoteBuild), Поточна: $currentBuildNumber")
@@ -106,22 +106,34 @@ class UpdateManager(private val context: Context) {
     private fun installApk(file: File) {
         try {
             com.newsapp.data.LogManager.log("TRACE", "Викликано функцію: installApk (безпечна)")
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !context.packageManager.canRequestPackageInstalls()) {
+                LogManager.log("UPDATE_ERR", "Немає дозволу на встановлення додатка. Відкриваємо налаштування.")
+                val settingsIntent = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES).apply {
+                    data = Uri.parse("package:${context.packageName}")
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                context.startActivity(settingsIntent)
+                return
+            }
+
             val uri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
                 FileProvider.getUriForFile(context, "${context.packageName}.provider", file)
             } else {
                 Uri.fromFile(file)
             }
+
             val intent = Intent(Intent.ACTION_VIEW).apply {
                 setDataAndType(uri, "application/vnd.android.package-archive")
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                    putExtra(Intent.EXTRA_NOT_UNKNOWN_SOURCE, true)
-                }
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+                addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
             }
+
             context.startActivity(intent)
         } catch (e: Exception) {
             com.newsapp.data.LogManager.log("UPDATE_ERR", "Помилка інсталятора: ${e.message}")
         }
     }
 }
-
