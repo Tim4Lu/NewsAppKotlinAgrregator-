@@ -105,11 +105,7 @@ class AiRewriter {
 
                     while (translatedText == null && attempts < keys.size) {
                         val (apiKey, keyNum) = getActiveKey()
-
                         translatedText = callGeminiApi(prompt, apiKey, keyNum, "gemini-3.6-flash")
-                        if (translatedText == null) {
-                            translatedText = callGeminiApi(prompt, apiKey, keyNum, "gemini-1.5-flash")
-                        }
 
                         if (translatedText == null) {
                             switchToNextKey()
@@ -191,8 +187,11 @@ class AiRewriter {
                     LogManager.log("AI_ERR", "Порожня відповідь $modelName (ключ #$keyNum, причина: $finishReason)")
                     null
                 }
+            } else if (response.status.value == 401) {
+                LogManager.log("AI_ERR", "Ключ #$keyNum недійсний (401 Unauthorized). Пропускаємо...")
+                null
             } else if (response.status.value == 503) {
-                LogManager.log("AI_ERR", "Сервер $modelName перевантажений (503). Спробуємо резерв...")
+                LogManager.log("AI_ERR", "Сервер $modelName перевантажений (503). Повторна спроба...")
                 delay(2000)
                 null
             } else {
