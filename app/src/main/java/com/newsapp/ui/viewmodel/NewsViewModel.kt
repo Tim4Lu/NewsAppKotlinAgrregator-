@@ -110,7 +110,11 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
 
             for (url in rssUrls) {
                 try {
-                    val response = client.get(url) { header(HttpHeaders.UserAgent, "Mozilla/5.0") }
+                    val response = client.get(url) {
+                        header(HttpHeaders.UserAgent, "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
+                        header(HttpHeaders.Accept, "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8")
+                        header(HttpHeaders.AcceptLanguage, "en-US,en;q=0.5")
+                    }
                     if (response.status.value in 200..299) {
                         val xml = response.bodyAsText()
                         val parser = NewsParserFactory.getParser(url)
@@ -138,6 +142,7 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
                     LogManager.log("NEWS", "Знайдено ${freshNews.size} нових новин")
                     val freshInitial = freshNews.map { it.copy(status = "В черзі", telegramCaption = "Обробка...") }
                     
+                    // Нові новини ставимо на початок списку
                     _newsList.value = freshInitial + _newsList.value
                     _isLoading.value = false
 
