@@ -20,6 +20,7 @@ import org.json.JSONObject
 class AiRewriter {
 
     private val client = HttpClient(CIO) {
+        expectSuccess = false // <--- ОСЬ ЦЕЙ РЯДОК ВРЯТУЄ ВІД NULL-ПАДІНЬ
         engine {
             requestTimeout = 60_000
             endpoint {
@@ -71,66 +72,66 @@ class AiRewriter {
 
             newsList.forEachIndexed { index, item ->
                 try {
-                    LogManager.log("AI_QUEUE", "[${index + 1}/$total] Обробка...")
+                    LogManager.log("AI_QUEUE", "[${index + 1}/$total] Обробка: ${item.title.take(30)}...")
 
-                val cleanTitle = item.title.replace("\"", "'").replace("\n", " ")
-                val cleanDesc = item.description.replace("\"", "'").replace("\n", " ")
-                
-                val prompt = """
-                    Ти — науковий редактор каналу "Наука кожного дня".
-                    Переклади та адаптуй новину українською мовою для Telegram.
+                    val cleanTitle = item.title.replace("\"", "'").replace("\n", " ")
+                    val cleanDesc = item.description.replace("\"", "'").replace("\n", " ")
 
-                    СУВОРІ ПРАВИЛА:
-                    1. КАТЕГОРИЧНО ЗАБОРОНЕНО використовувати подвійні зірочки ** (жодного жирного тексту).
-                    2. НЕ ДУБЛЮЙ вступні фрази ("Ось адаптована новина" тощо). Починай ОДРАЗУ з заголовочного емодзі.
-                    3. Для назв, термінів та цитат використовуй тільки кутові лапки « ».
+                    val prompt = """
+                        Ти — науковий редактор каналу "Наука кожного дня".
+                        Переклади та адаптуй новину українською мовою для Telegram.
 
-                    ШАБЛОН:
-                    🚀 $cleanTitle 🚀
+                        СУВОРІ ПРАВИЛА:
+                        1. КАТЕГОРИЧНО ЗАБОРОНЕНО використовувати подвійні зірочки ** (жодного жирного тексту).
+                        2. НЕ ДУБЛЮЙ вступні фрази ("Ось адаптована новина" тощо). Починай ОДРАЗУ з заголовочного емодзі.
+                        3. Для назв, термінів та цитат використовуй тільки кутові лапки « ».
 
-                    [Короткий тизер на 1-2 речення про суть]
-                    • [Перший важливий факт]
-                    • [Другий факт]
-                    • [Третій факт]
-                    • Джерело: ${item.source}
+                        ШАБЛОН:
+                        🚀 $cleanTitle 🚀
 
-                    Текст новини:
-                    $cleanDesc
-                """.trimIndent()
+                        [Короткий тизер на 1-2 речення про суть]
+                        • [Перший важливий факт]
+                        • [Другий факт]
+                        • [Третій факт]
+                        • Джерело: ${item.source}
 
-                var translatedText: String? = null
-                var attempts = 0
-                val keys = apiKeys
+                        Текст новини:
+                        $cleanDesc
+                    """.trimIndent()
 
-                while (translatedText == null && attempts < keys.size) {
-                    val (apiKey, keyNum) = getActiveKey()
-                    translatedText = callGeminiApi(prompt, apiKey, keyNum)
-                    
-                    if (translatedText == null) {
-                        switchToNextKey()
-                        attempts++
+                    var translatedText: String? = null
+                    var attempts = 0
+                    val keys = apiKeys
+
+                    while (translatedText == null && attempts < keys.size) {
+                        val (apiKey, keyNum) = getActiveKey()
+                        translatedText = callGeminiApi(prompt, apiKey, keyNum)
+
+                        if (translatedText == null) {
+                            switchToNextKey()
+                            attempts++
+                        }
                     }
-                }
 
-                val finalItem = if (!translatedText.isNullOrEmpty()) {
-                    val cleanResult = translatedText.replace("**", "")
-                    val parts = cleanResult.split("\n", limit = 2)
-                    val newTitle = parts.getOrNull(0)?.replace(Regex("^[#*\\s]+"), "")?.trim() ?: item.title
-                    val newDesc = parts.getOrNull(1)?.trim() ?: cleanResult
-                    
-                    item.copy(
-                        title = newTitle,
-                        description = newDesc,
-                        telegramCaption = cleanResult,
-                        status = "Готово"
-                    )
-                } else {
-                    LogManager.log("AI_FALLBACK", "ШІ недоступний (усі ключі вичерпано). Використовуємо оригінал.")
-                    val caption = "🚀 ${item.title}\n\n${item.description}\n\n• Джерело: ${item.source}"
-                    item.copy(telegramCaption = caption, status = "Готово")
-                }
+                    val finalItem = if (!translatedText.isNullOrEmpty()) {
+                        val cleanResult = translatedText.replace("**", "")
+                        val parts = cleanResult.split("\n", limit = 2)
+                        val newTitle = parts.getOrNull(0)?.replace(Regex("^[#*\\s]+"), "")?.trim() ?: item.title
+                        val newDesc = parts.getOrNull(1)?.trim() ?: cleanResult
 
-                onItemProcessed(finalItem)
+                        item.copy(
+                            title = newTitle,
+                            description = newDesc,
+                            telegramCaption = cleanResult,
+                            status = "Готово"
+                        )
+                    } else {
+                        LogManager.log("AI_FALLBACK", "ШІ недоступний (усі ключі вичерпано). Використовуємо оригінал.")
+                        val caption = "🚀 ${item.title}\n\n${item.description}\n\n• Джерело: ${item.source}"
+                        item.copy(telegramCaption = caption, status = "Готово")
+                    }
+
+                    onItemProcessed(finalItem)
                 } catch (e: Exception) {
                     LogManager.log("AI_CRITICAL", "Збій обробки новини: ${e.message}")
                 }
@@ -151,7 +152,7 @@ class AiRewriter {
         lastRequestTimestamp = System.currentTimeMillis()
 
         return try {
-            val url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=$apiKey"
+            val url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.7-flash:generateContent?key=$apiKey"
 
             val jsonBody = JSONObject().apply {
                 put("contents", JSONArray().apply {
@@ -168,19 +169,26 @@ class AiRewriter {
                 setBody(jsonBody.toString())
             }
 
+            val responseText = response.bodyAsText()
+
             if (response.status.value == 200) {
-                val responseText = response.bodyAsText()
-                val resultText = JSONObject(responseText)
-                    .getJSONArray("candidates")
-                    .getJSONObject(0)
-                    .getJSONObject("content")
-                    .getJSONArray("parts")
-                    .getJSONObject(0)
-                    .getString("text")
-                LogManager.log("Gemini_OK", "Успіх Gemini (ключ #$keyNum)")
-                resultText
+                val json = JSONObject(responseText)
+                val candidates = json.optJSONArray("candidates")
+                val firstCandidate = candidates?.optJSONObject(0)
+                val content = firstCandidate?.optJSONObject("content")
+                val parts = content?.optJSONArray("parts")
+                val resultText = parts?.optJSONObject(0)?.optString("text")
+
+                if (!resultText.isNullOrEmpty()) {
+                    LogManager.log("Gemini_OK", "Успіх Gemini (ключ #$keyNum)")
+                    resultText
+                } else {
+                    val finishReason = firstCandidate?.optString("finishReason") ?: "UNKNOWN"
+                    LogManager.log("AI_ERR", "Порожня відповідь Gemini (ключ #$keyNum, причина: $finishReason)")
+                    null
+                }
             } else {
-                LogManager.log("AI_ERR", "Помилка Gemini API для ключа #$keyNum (код ${response.status.value})")
+                LogManager.log("AI_ERR", "Помилка Gemini (ключ #$keyNum, код ${response.status.value}): ${responseText.take(120)}")
                 null
             }
         } catch (e: Exception) {
