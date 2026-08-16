@@ -14,7 +14,6 @@ object LogManager {
     private val timeFormat = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
 
     fun log(tag: String, message: String) {
-        com.newsapp.data.LogManager.log("TRACE", "Викликано функцію: log")
         val time = timeFormat.format(Date())
         val newLog = "[$time] [$tag]: $message"
         _logs.value = listOf(newLog) + _logs.value.take(100) // Зберігаємо останні 100 логів
