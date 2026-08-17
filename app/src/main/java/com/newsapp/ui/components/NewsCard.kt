@@ -12,6 +12,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.vector.path
+import androidx.compose.ui.res.painterResource
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -146,32 +149,42 @@ fun NewsCard(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(bottom = 16.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween
+                        horizontalArrangement = Arrangement.SpaceEvenly,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            text = "✏️",
-                            fontSize = 40.sp,
-                            modifier = Modifier.clickable { onToggleEdit(item.id) }
-                        )
-                        Text(
-                            text = "📋",
-                            fontSize = 40.sp,
-                            modifier = Modifier.clickable {
-                                if (item.link.isNotEmpty()) {
-                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                    val clip = ClipData.newPlainText("Source Link", item.link)
-                                    clipboard.setPrimaryClip(clip)
-                                    Toast.makeText(context, "Посилання скопійовано!", Toast.LENGTH_SHORT).show()
-                                } else {
-                                    Toast.makeText(context, "Посилання відсутнє", Toast.LENGTH_SHORT).show()
-                                }
+                        IconButton(onClick = { onToggleEdit(item.id) }) {
+                            Icon(
+                                imageVector = IconEdit,
+                                contentDescription = "Редагувати",
+                                tint = Color(0xFF818CF8),
+                                modifier = Modifier.size(26.dp)
+                            )
+                        }
+                        IconButton(onClick = {
+                            if (item.link.isNotEmpty()) {
+                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                val clip = ClipData.newPlainText("Source Link", item.link)
+                                clipboard.setPrimaryClip(clip)
+                                Toast.makeText(context, "Посилання скопійовано!", Toast.LENGTH_SHORT).show()
+                            } else {
+                                Toast.makeText(context, "Посилання відсутнє", Toast.LENGTH_SHORT).show()
                             }
-                        )
-                        Text(
-                            text = "⟳",
-                            fontSize = 40.sp,
-                            modifier = Modifier.clickable { onRewrite(item) }
-                        )
+                        }) {
+                            Icon(
+                                imageVector = IconCopy,
+                                contentDescription = "Копіювати",
+                                tint = Color(0xFF818CF8),
+                                modifier = Modifier.size(26.dp)
+                            )
+                        }
+                        IconButton(onClick = { onRewrite(item) }) {
+                            Icon(
+                                imageVector = IconRotate,
+                                contentDescription = "AI Переклад",
+                                tint = Color(0xFF818CF8),
+                                modifier = Modifier.size(26.dp)
+                            )
+                        }
                     }
                 }
 
