@@ -1,7 +1,6 @@
 package com.newsapp.ui.components
 
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.PathFillType
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
@@ -53,7 +52,15 @@ val IconCopy: ImageVector
         strokeLineCap = StrokeCap.Round,
         strokeLineJoin = StrokeJoin.Round
     ) {
-        rect(x = 9f, y = 9f, width = 13f, height = 13f, rx = 2f, ry = 2f)
+        moveTo(9f, 11f)
+        arcTo(2f, 2f, 0f, false, true, 11f, 9f)
+        lineTo(20f, 9f)
+        arcTo(2f, 2f, 0f, false, true, 22f, 11f)
+        lineTo(22f, 20f)
+        arcTo(2f, 2f, 0f, false, true, 20f, 22f)
+        lineTo(11f, 22f)
+        arcTo(2f, 2f, 0f, false, true, 9f, 20f)
+        close()
         moveTo(5f, 15f)
         lineTo(4f, 15f)
         arcTo(2f, 2f, 0f, false, true, 2f, 13f)
