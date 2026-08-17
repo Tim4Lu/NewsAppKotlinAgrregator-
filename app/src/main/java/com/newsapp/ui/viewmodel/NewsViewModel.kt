@@ -192,7 +192,7 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
                                             link = obj.optString("link").split(" ")[0],
                                             description = rawDesc,
                                             source = sourceName,
-                                            image = img.replace("/tmb/", "/hires/"),
+                                            image = img,
                                             timestamp = ts
                                         )
                                     )
