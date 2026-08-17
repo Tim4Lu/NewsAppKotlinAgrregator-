@@ -94,7 +94,7 @@ private fun parseRobust(xml: String, sourceName: String): List<NewsItem> {
                     link = rawLink,
                     description = cleanDesc,
                     source = sourceName,
-                    image = img ?: "",
+                    image = (img ?: "").replace("/tmb/", "/hires/"),
                     timestamp = timestamp
                 ))
             }
