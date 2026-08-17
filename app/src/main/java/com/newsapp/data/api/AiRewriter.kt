@@ -83,20 +83,21 @@ class AiRewriter {
 
                         СУВОРІ ПРАВИЛА:
                         1. КАТЕГОРИЧНО ЗАБОРОНЕНО використовувати подвійні зірочки **.
-                        2. НЕ ДУБЛЮЙ вступні фрази. Починай ОДРАЗУ з заголовка.
+                        2. КАТЕГОРИЧНО ЗАБОРОНЕНО писати будь-які вступні слова на кшталт "Текст новини:", "Заголовок:", "Ось переклад:".
                         3. Для назв та термінів використовуй кутові лапки « ».
                         4. НЕ ПИШИ ДЖЕРЕЛО В КІНЦІ! ПРОГРАМА ДОДАСТЬ ЙОГО САМА.
 
-                        ШАБЛОН:
-                        $cleanTitle
+                        СТРУКТУРА ВІДПОВІДІ (Першим рядком має йти ЛИШЕ заголовок):
+                        [Яскравий заголовок-клікбейт на 1-2 речення]
+                        [Один параграф-тизер на 2-3 речення про суть новини]
 
-                        [Короткий тизер на 1-2 речення про суть]
                         • [Перший важливий факт]
                         • [Другий факт]
                         • [Третій факт]
 
-                        Текст новини:
-                        $cleanDesc
+                        Оригінал для перекладу:
+                        Заголовок: $cleanTitle
+                        Текст: $cleanDesc
                     """.trimIndent()
 
                     var translatedText: String? = null
@@ -114,22 +115,29 @@ class AiRewriter {
                     }
 
                     val finalItem = if (!translatedText.isNullOrEmpty()) {
-                        val cleanResult = translatedText.replace("**", "").trim()
+                        var cleanResult = translatedText.replace("**", "").trim()
+                        cleanResult = cleanResult.replace("(?i)^текст новини:\\s*".toRegex(), "")
+
                         val parts = cleanResult.split("\n", limit = 2)
-                        
                         val rawTitle = parts.getOrNull(0)?.replace(Regex("^[#*\\s🚀]+"), "")?.trim() ?: item.title
                         var newDesc = parts.getOrNull(1)?.trim() ?: cleanResult
-                        
+
                         val sourceIndex = newDesc.indexOf("Джерело:", ignoreCase = true)
                         if (sourceIndex != -1) {
                             newDesc = newDesc.substring(0, sourceIndex).trimEnd(' ', '\n', '•', '\r')
                         }
-                        
-                        val finalCaption = "🚀 <b>$rawTitle</b> 🚀\n\n$newDesc\n\n• <b>Джерело:</b> ${item.source}"
+
+                        val sourceLinkHtml = if (item.link.isNotEmpty()) {
+                            "• <b>Джерело:</b> <a href=\"${item.link}\">${item.source}</a>"
+                        } else {
+                            "• <b>Джерело:</b> ${item.source}"
+                        }
+
+                        val finalCaption = "🚀 <b>$rawTitle</b> 🚀\n\n$newDesc\n\n$sourceLinkHtml"
 
                         item.copy(
                             title = rawTitle,
-                            description = newDesc,
+                            description = "$newDesc\n\n• Джерело: ${item.source}",
                             telegramCaption = finalCaption,
                             status = "Готово"
                         )
@@ -141,10 +149,16 @@ class AiRewriter {
                         val sourceIdx = cleanOrigDesc.indexOf("Джерело:", ignoreCase = true)
                         if (sourceIdx != -1) cleanOrigDesc = cleanOrigDesc.substring(0, sourceIdx).trimEnd(' ', '\n', '•', '\r')
                         
-                        val caption = "🚀 <b>$cleanOrigTitle</b> 🚀\n\n$cleanOrigDesc\n\n• <b>Джерело:</b> ${item.source}"
+                        val sourceLinkHtml = if (item.link.isNotEmpty()) {
+                            "• <b>Джерело:</b> <a href=\"${item.link}\">${item.source}</a>"
+                        } else {
+                            "• <b>Джерело:</b> ${item.source}"
+                        }
+
+                        val caption = "🚀 <b>$cleanOrigTitle</b> 🚀\n\n$cleanOrigDesc\n\n$sourceLinkHtml"
                         item.copy(
                             title = cleanOrigTitle,
-                            description = cleanOrigDesc,
+                            description = "$cleanOrigDesc\n\n• Джерело: ${item.source}",
                             telegramCaption = caption, 
                             status = "Готово"
                         )
