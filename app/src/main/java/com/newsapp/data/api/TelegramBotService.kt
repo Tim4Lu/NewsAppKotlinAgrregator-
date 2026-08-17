@@ -35,23 +35,12 @@ class TelegramBotService {
 
     private fun sanitizeHtml(text: String): String {
         LogManager.log("TRACE", "Викликано функцію: sanitizeHtml")
-        return text
-            .replace("&", "&amp;")
-            .replace("<", "&lt;")
-            .replace(">", "&gt;")
-            .replace("&lt;b&gt;", "<b>")
-            .replace("&lt;/b&gt;", "</b>")
-            .replace("&lt;i&gt;", "<i>")
-            .replace("&lt;/i&gt;", "</i>")
-            .replace(Regex("&lt;a href=\\\"(.*?)\\\"&gt;"), "<a href=\"$1\">")
-            .replace(Regex("&lt;a href=&quot;(.*?)&quot;&gt;"), "<a href=\"$1\">")
-            .replace("&lt;/a&gt;", "</a>")
+        // Ескейпимо лише амперсанди, щоб не пошкодити валідні теги <b>, <i>, <a>
+        return text.replace(Regex("&(?!(amp|lt|gt|quot|apos);)"), "&amp;")
     }
 
     private suspend fun getJpegBytesFromUrl(url: String): ByteArray? {
-        LogManager.log("TRACE", "Викликано функцію: getJpegBytesFromUrl")
         return try {
-            LogManager.log("Telegram", "Завантаження картинки для конвертації...")
             val response = client.get(url)
             val imageBytes = response.readBytes()
 
@@ -65,7 +54,7 @@ class TelegramBotService {
             LogManager.log("Telegram", "Картинку успішно конвертовано в JPEG (${jpegBytes.size / 1024} KB)")
             jpegBytes
         } catch (e: Exception) {
-            LogManager.log("Telegram_ERR", "Помилка завантаження/конвертації картинки: ${e.message}")
+            LogManager.log("Telegram_ERR", "Помилка завантаження картинки: ${e.message}")
             null
         }
     }
@@ -78,14 +67,9 @@ class TelegramBotService {
 
             if (hasImage) {
                 val jpegBytes = getJpegBytesFromUrl(imageUrl!!)
-                if (jpegBytes == null) {
-                    LogManager.log("Telegram_ERR", "Відправку скасовано: не вдалося обробити картинку.")
-                    return false 
-                }
+                if (jpegBytes == null) return false 
 
                 val url = "https://api.telegram.org/bot$token/sendPhoto"
-                LogManager.log("Telegram", "Відправка файлу (multipart/form-data)...")
-
                 val response = client.post(url) {
                     setBody(
                         MultiPartFormDataContent(
@@ -102,11 +86,9 @@ class TelegramBotService {
                     )
                 }
 
-                val responseText = response.bodyAsText()
-                val jsonResponse = JSONObject(responseText)
-
+                val jsonResponse = JSONObject(response.bodyAsText())
                 if (jsonResponse.optBoolean("ok", false)) {
-                    LogManager.log("Telegram_OK", "Успішно опубліковано конвертоване фото!")
+                    LogManager.log("Telegram_OK", "Успішно опубліковано з фото!")
                     true
                 } else {
                     LogManager.log("Telegram_ERR", "Помилка Telegram: ${jsonResponse.optString("description")}")
@@ -114,8 +96,6 @@ class TelegramBotService {
                 }
             } else {
                 val url = "https://api.telegram.org/bot$token/sendMessage"
-                LogManager.log("Telegram", "Публікація лише тексту...")
-                
                 val jsonBody = JSONObject().apply {
                     put("chat_id", channelId)
                     put("text", safeCaption)
@@ -127,9 +107,7 @@ class TelegramBotService {
                     setBody(jsonBody.toString())
                 }
 
-                val responseText = response.bodyAsText()
-                val jsonResponse = JSONObject(responseText)
-                
+                val jsonResponse = JSONObject(response.bodyAsText())
                 if (jsonResponse.optBoolean("ok", false)) {
                     LogManager.log("Telegram_OK", "Успішно опубліковано текст!")
                     true
@@ -139,7 +117,7 @@ class TelegramBotService {
                 }
             }
         } catch (e: Exception) {
-            LogManager.log("Telegram_ERR", "Мережа: ${e.message ?: e.toString()}")
+            LogManager.log("Telegram_ERR", "Мережа: ${e.message}")
             false
         }
     }

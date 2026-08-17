@@ -33,10 +33,6 @@ private fun parseRobust(xml: String, sourceName: String): List<NewsItem> {
         val itemRegex = Regex("(?s)(?i)<(?:item|entry)[^>]*>(.*?)</(?:item|entry)>")
         val matches = itemRegex.findAll(xml).toList()
 
-        if (matches.isEmpty()) {
-            LogManager.log("PARSER_WARN", "Джерело $sourceName: 0 елементів у XML")
-        }
-
         for (match in matches) {
             val block = match.groupValues[1]
 
@@ -50,8 +46,11 @@ private fun parseRobust(xml: String, sourceName: String): List<NewsItem> {
             var rawLink = (linkHref ?: linkTag ?: guidTag ?: "").cleanHtmlAndEntities()
             if (rawLink.contains(" ")) rawLink = rawLink.split(" ")[0]
 
-            val descMatch = Regex("(?s)(?i)<(?:description|summary|content|content:encoded)[^>]*>(.*?)</(?:description|summary|content|content:encoded)>").find(block)
-            val rawDesc = descMatch?.groupValues?.getOrNull(1)?.cleanHtmlAndEntities() ?: ""
+            // Отримуємо опис, віддаючи пріоритет <content:encoded>, якщо він є
+            var rawDesc = Regex("(?s)(?i)<content:encoded[^>]*>(.*?)</content:encoded>").find(block)?.groupValues?.getOrNull(1)?.cleanHtmlAndEntities() ?: ""
+            if (rawDesc.isEmpty()) {
+                rawDesc = Regex("(?s)(?i)<(?:description|summary|content)[^>]*>(.*?)</(?:description|summary|content)>").find(block)?.groupValues?.getOrNull(1)?.cleanHtmlAndEntities() ?: ""
+            }
 
             var img: String? = null
             val encMatch = Regex("(?i)<(?:enclosure|media:content|media:thumbnail)[^>]*url=[\"']([^\"']+)[\"']").find(block)
@@ -101,7 +100,7 @@ private fun parseRobust(xml: String, sourceName: String): List<NewsItem> {
             }
         }
     } catch (e: Exception) {
-        LogManager.log("PARSER_ERR", "Помилка Regex-парсингу $sourceName: ${e.message}")
+        LogManager.log("PARSER_ERR", "Помилка парсингу $sourceName: ${e.message}")
     }
     return items
 }

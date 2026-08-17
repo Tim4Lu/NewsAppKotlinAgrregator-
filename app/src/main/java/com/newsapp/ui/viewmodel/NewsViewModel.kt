@@ -146,7 +146,7 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
                         if (fetchedItems.isNotEmpty()) successDirect = true
                     }
 
-                    if (!successDirect) {
+                    if (!successDirect && !url.contains("nasa.gov")) {
                         val apiUrl = "https://api.rss2json.com/v1/api.json?rss_url=${URLEncoder.encode(url, "UTF-8")}"
                         val jsonResponse = client.get(apiUrl)
                         if (jsonResponse.status.value in 200..299) {
