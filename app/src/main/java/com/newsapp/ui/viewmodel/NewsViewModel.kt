@@ -26,6 +26,8 @@ import org.json.JSONObject
 import java.io.File
 import java.net.URL
 import java.net.URLEncoder
+import java.text.SimpleDateFormat
+import java.util.Locale
 
 class NewsViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -45,7 +47,7 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
     private val cacheFile = File(application.filesDir, "saved_news.json")
 
     private val rssUrls = listOf(
-        "https://www.nasa.gov/rss/dyn/breaking_news.rss",
+        "https://www.nasa.gov/news-release/feed/",
         "https://www.space.com/feeds/all",
         "https://www.universetoday.com/feed",
         "https://www.spacedaily.com/spacedaily.xml",
@@ -164,6 +166,7 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
 
                                 for (i in 0 until (itemsArray?.length() ?: 0)) {
                                     val obj = itemsArray!!.getJSONObject(i)
+                                    var rawTitle = obj.optString("title").replace("(?i)APOD:\\s*(-\\s*)?".toRegex(), "").trim()
                                     var rawDesc = obj.optString("description", "").replace(Regex("<[^>]*>"), "").trim()
                                     if (rawDesc.length > 300) rawDesc = rawDesc.take(300) + "..."
                                     
@@ -173,15 +176,24 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
                                         if (enc != null) img = enc.optString("link", "")
                                     }
 
+                                    var ts = System.currentTimeMillis()
+                                    val pubDate = obj.optString("pubDate", "")
+                                    if (pubDate.isNotEmpty()) {
+                                        try {
+                                            val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.ENGLISH)
+                                            ts = sdf.parse(pubDate)?.time ?: ts
+                                        } catch(e: Exception) {}
+                                    }
+
                                     fallbackItems.add(
                                         NewsItem(
-                                            title = obj.optString("title"),
+                                            title = rawTitle,
                                             originalTitle = obj.optString("title"),
                                             link = obj.optString("link").split(" ")[0],
                                             description = rawDesc,
                                             source = sourceName,
                                             image = img,
-                                            timestamp = System.currentTimeMillis()
+                                            timestamp = ts
                                         )
                                     )
                                 }

@@ -21,6 +21,8 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.net.URLEncoder
+import java.text.SimpleDateFormat
+import java.util.Locale
 
 class NewsWorker(
     private val appContext: Context,
@@ -35,18 +37,26 @@ class NewsWorker(
     private val aiRewriter = AiRewriter()
     private val cacheFile = File(appContext.filesDir, "saved_news.json")
 
+    private fun String.normalizeUrl(): String {
+        return this.lowercase()
+            .replace(Regex("^https?://"), "")
+            .replace(Regex("^www\\."), "")
+            .split("?")[0]
+            .trimEnd('/')
+    }
+
     override suspend fun doWork(): Result {
         LogManager.log("WORKER", "Запуск фонової перевірки новин...")
 
         val rssUrls = listOf(
-            "https://www.nasa.gov/rss/dyn/breaking_news.rss",
+            "https://www.nasa.gov/news-release/feed/",
             "https://www.space.com/feeds/all",
             "https://www.universetoday.com/feed",
             "https://www.spacedaily.com/spacedaily.xml",
             "https://phys.org/rss-feed/space-news/"
         )
 
-        val existingTitlesAndLinks = getCachedTitlesAndLinks()
+        val (existingTitles, existingLinks) = getCachedTitlesAndLinks()
         val rawNews = mutableListOf<NewsItem>()
 
         for (url in rssUrls) {
@@ -84,6 +94,7 @@ class NewsWorker(
 
                             for (i in 0 until (itemsArray?.length() ?: 0)) {
                                 val obj = itemsArray!!.getJSONObject(i)
+                                var rawTitle = obj.optString("title").replace("(?i)APOD:\\s*(-\\s*)?".toRegex(), "").trim()
                                 var rawDesc = obj.optString("description", "")
                                 rawDesc = rawDesc.replace(Regex("<[^>]*>"), "").trim()
                                 if (rawDesc.length > 300) rawDesc = rawDesc.take(300) + "..."
@@ -94,15 +105,24 @@ class NewsWorker(
                                     if (enc != null) img = enc.optString("link", "")
                                 }
 
+                                var ts = System.currentTimeMillis()
+                                val pubDate = obj.optString("pubDate", "")
+                                if (pubDate.isNotEmpty()) {
+                                    try {
+                                        val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.ENGLISH)
+                                        ts = sdf.parse(pubDate)?.time ?: ts
+                                    } catch(e: Exception) {}
+                                }
+
                                 fallbackItems.add(
                                     NewsItem(
-                                        title = obj.optString("title"),
+                                        title = rawTitle,
                                         originalTitle = obj.optString("title"),
                                         link = obj.optString("link").split(" ")[0],
                                         description = rawDesc,
                                         source = sourceName,
                                         image = img,
-                                        timestamp = System.currentTimeMillis()
+                                        timestamp = ts
                                     )
                                 )
                             }
@@ -112,13 +132,25 @@ class NewsWorker(
                 }
                 rawNews.addAll(fetchedItems)
             } catch (e: Exception) {
-                LogManager.log("WORKER_ERR", "Помилка RSS $url: ${e.message}")
+                val errorMsg = e.message ?: e.javaClass.simpleName
+                LogManager.log("WORKER_ERR", "Помилка RSS $url: $errorMsg")
             }
         }
 
-        val freshNews = rawNews.filter { item ->
+        val uniqueRawNews = rawNews.distinctBy { 
+            val norm = it.link.normalizeUrl()
+            if (norm.isNotEmpty()) norm else it.originalTitle.trim().lowercase()
+        }
+
+        val freshNews = uniqueRawNews.filter { item ->
             val normTitle = item.title.trim().lowercase()
-            normTitle.isNotEmpty() && !existingTitlesAndLinks.contains(normTitle)
+            val origTitle = item.originalTitle.trim().lowercase()
+            val normLink = item.link.normalizeUrl()
+            
+            val isTitleDuplicate = existingTitles.contains(normTitle) || (origTitle.isNotEmpty() && existingTitles.contains(origTitle))
+            val isLinkDuplicate = normLink.isNotEmpty() && existingLinks.contains(normLink)
+            
+            !isTitleDuplicate && !isLinkDuplicate
         }
 
         if (freshNews.isNotEmpty()) {
@@ -136,8 +168,9 @@ class NewsWorker(
         return Result.success()
     }
 
-    private fun getCachedTitlesAndLinks(): Set<String> {
-        val set = mutableSetOf<String>()
+    private fun getCachedTitlesAndLinks(): Pair<Set<String>, Set<String>> {
+        val titles = mutableSetOf<String>()
+        val links = mutableSetOf<String>()
         try {
             if (cacheFile.exists()) {
                 val jsonArray = JSONArray(cacheFile.readText())
@@ -145,12 +178,15 @@ class NewsWorker(
                     val obj = jsonArray.getJSONObject(i)
                     val t = obj.optString("title").trim().lowercase()
                     val orig = obj.optString("originalTitle").trim().lowercase()
-                    if (t.isNotEmpty()) set.add(t)
-                    if (orig.isNotEmpty()) set.add(orig)
+                    val link = obj.optString("link")
+                    
+                    if (t.isNotEmpty()) titles.add(t)
+                    if (orig.isNotEmpty()) titles.add(orig)
+                    if (link.isNotEmpty()) links.add(link.normalizeUrl())
                 }
             }
         } catch (e: Exception) { }
-        return set
+        return Pair(titles, links)
     }
 
     private fun saveToCache(newItems: List<NewsItem>) {
@@ -200,7 +236,8 @@ class NewsWorker(
 
             notificationManager.notify(item.id.hashCode(), notification)
         } catch (e: Exception) {
-            LogManager.log("WORKER_ERR", "Сповіщення не показано: ${e.message}")
+            val errorMsg = e.message ?: e.javaClass.simpleName
+            LogManager.log("WORKER_ERR", "Сповіщення не показано: $errorMsg")
         }
     }
 }
