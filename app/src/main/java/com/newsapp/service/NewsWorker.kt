@@ -49,7 +49,7 @@ class NewsWorker(
         LogManager.log("WORKER", "Запуск фонової перевірки новин...")
 
         val rssUrls = listOf(
-            "https://www.nasa.gov/news-release/feed/",
+            "https://www.nasa.gov/feed/",
             "https://www.space.com/feeds/all",
             "https://www.universetoday.com/feed",
             "https://www.spacedaily.com/spacedaily.xml",

@@ -47,7 +47,7 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
     private val cacheFile = File(application.filesDir, "saved_news.json")
 
     private val rssUrls = listOf(
-        "https://www.nasa.gov/news-release/feed/",
+        "https://www.nasa.gov/feed/",
         "https://www.space.com/feeds/all",
         "https://www.universetoday.com/feed",
         "https://www.spacedaily.com/spacedaily.xml",

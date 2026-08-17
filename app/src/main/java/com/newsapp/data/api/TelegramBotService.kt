@@ -34,7 +34,7 @@ class TelegramBotService {
     private val channelId = "@pronaukyonline"
 
     private fun sanitizeHtml(text: String): String {
-        com.newsapp.data.LogManager.log("TRACE", "Викликано функцію: sanitizeHtml")
+        LogManager.log("TRACE", "Викликано функцію: sanitizeHtml")
         return text
             .replace("&", "&amp;")
             .replace("<", "&lt;")
@@ -43,12 +43,13 @@ class TelegramBotService {
             .replace("&lt;/b&gt;", "</b>")
             .replace("&lt;i&gt;", "<i>")
             .replace("&lt;/i&gt;", "</i>")
-            .replace("&lt;a href=", "<a href=")
+            .replace(Regex("&lt;a href=\\\"(.*?)\\\"&gt;"), "<a href=\"$1\">")
+            .replace(Regex("&lt;a href=&quot;(.*?)&quot;&gt;"), "<a href=\"$1\">")
             .replace("&lt;/a&gt;", "</a>")
     }
 
     private suspend fun getJpegBytesFromUrl(url: String): ByteArray? {
-        com.newsapp.data.LogManager.log("TRACE", "Викликано функцію: getJpegBytesFromUrl")
+        LogManager.log("TRACE", "Викликано функцію: getJpegBytesFromUrl")
         return try {
             LogManager.log("Telegram", "Завантаження картинки для конвертації...")
             val response = client.get(url)
