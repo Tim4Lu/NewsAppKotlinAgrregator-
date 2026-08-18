@@ -54,6 +54,19 @@ class AiRewriter {
         }
     }
 
+    suspend fun translateFullArticle(newsItem: NewsItem): String? {
+        val prompt = """
+            Переклади українською КОРОТКО.
+            Без води, лише головна суть і факти. Максимум 3 абзаци.
+            
+            Заголовок: ${newsItem.originalTitle.ifEmpty { newsItem.title }}
+            Текст: ${newsItem.description}
+        """.trimIndent()
+
+        val (apiKey, keyNum) = getActiveKey()
+        return callGeminiApi(prompt, apiKey, keyNum, "gemini-3.6-flash")
+    }
+
     suspend fun processAllNewsWithAi(
         newsList: List<NewsItem>,
         context: Context? = null,
@@ -64,38 +77,20 @@ class AiRewriter {
         try {
             val total = newsList.size
             val keysCount = apiKeys.size
-            LogManager.log("AI_START", "Обробка $total новин (доступно ключів: $keysCount)")
-
-            if (keysCount == 0) {
-                LogManager.log("AI_ERR", "УВАГА: Масив ключів GEMINI_KEYS порожній!")
-            }
+            LogManager.log("AI_START", "Обробка ${total} новин (ключів: ${keysCount})")
 
             newsList.forEachIndexed { index, item ->
                 try {
-                    LogManager.log("AI_QUEUE", "[${index + 1}/$total] Обробка: ${item.title.take(30)}...")
-
                     val cleanTitle = item.title.replace("\"", "'").replace("\n", " ").replace("🚀", "")
                     val cleanDesc = item.description.replace("\"", "'").replace("\n", " ")
 
                     val prompt = """
-                        Ти — науковий редактор каналу "Наука кожного дня".
-                        Переклади та адаптуй новину українською мовою для Telegram.
+                        Зроби пост для Telegram українською. СТИСЛО!
+                        1. Яскравий заголовок.
+                        2. 2 речення суті.
+                        3. 3 головні факти булітами (•).
+                        Без вступів, без "Ось переклад", без **. Джерело не пиши.
 
-                        СУВОРІ ПРАВИЛА:
-                        1. КАТЕГОРИЧНО ЗАБОРОНЕНО використовувати подвійні зірочки **.
-                        2. КАТЕГОРИЧНО ЗАБОРОНЕНО писати будь-які вступні слова на кшталт "Текст новини:", "Заголовок:", "Ось переклад:".
-                        3. Для назв та термінів використовуй кутові лапки « ».
-                        4. НЕ ПИШИ ДЖЕРЕЛО В КІНЦІ! ПРОГРАМА ДОДАСТЬ ЙОГО САМА.
-
-                        СТРУКТУРА ВІДПОВІДІ (Першим рядком має йти ЛИШЕ заголовок):
-                        [Яскравий заголовок-клікбейт на 1-2 речення]
-                        [Один параграф-тизер на 2-3 речення про суть новини]
-
-                        • [Перший важливий факт]
-                        • [Другий факт]
-                        • [Третій факт]
-
-                        Оригінал для перекладу:
                         Заголовок: $cleanTitle
                         Текст: $cleanDesc
                     """.trimIndent()
@@ -142,9 +137,7 @@ class AiRewriter {
                             status = "Готово"
                         )
                     } else {
-                        LogManager.log("AI_FALLBACK", "ШІ недоступний. Використовуємо оригінал.")
                         val cleanOrigTitle = item.title.replace("🚀", "").trim()
-                        
                         var cleanOrigDesc = item.description
                         val sourceIdx = cleanOrigDesc.indexOf("Джерело:", ignoreCase = true)
                         if (sourceIdx != -1) cleanOrigDesc = cleanOrigDesc.substring(0, sourceIdx).trimEnd(' ', '\n', '•', '\r')
@@ -166,7 +159,7 @@ class AiRewriter {
 
                     onItemProcessed(finalItem)
                 } catch (e: Exception) {
-                    LogManager.log("AI_CRITICAL", "Збій обробки новини: ${e.message}")
+                    LogManager.log("AI_CRITICAL", "Збій: ${e.message}")
                 }
             }
         } finally {
@@ -174,18 +167,12 @@ class AiRewriter {
         }
     }
 
-    suspend fun translateFullArticle(newsItem: NewsItem): String? {
-        val prompt = "Ти — науковий перекладач. Зроби повний, якісний переклад статті українською мовою.\n\nОригінал:\nЗаголовок: ${newsItem.originalTitle.ifEmpty { newsItem.title }}\nТекст: ${newsItem.description}"
-        val (apiKey, keyNum) = getActiveKey()
-        return callGeminiApi(prompt, apiKey, keyNum, "gemini-3.6-flash")
-    }
-
     private suspend fun callGeminiApi(prompt: String, apiKey: String, keyNum: Int, modelName: String): String? {
         val now = System.currentTimeMillis()
         val timeSinceLastRequest = now - lastRequestTimestamp
-        if (timeSinceLastRequest < 12_000) {
-            val waitTime = 12_000 - timeSinceLastRequest
-            LogManager.log("AI_RATE", "Пауза ${waitTime / 1000} сек для дотримання ліміту...")
+        if (timeSinceLastRequest < 16_000) {
+            val waitTime = 16_000 - timeSinceLastRequest
+            LogManager.log("AI_RATE", "Пауза ${waitTime / 1000} сек...")
             delay(waitTime)
         }
         lastRequestTimestamp = System.currentTimeMillis()
@@ -208,17 +195,15 @@ class AiRewriter {
                 setBody(jsonBody.toString())
             }
 
-            val responseText = response.bodyAsText()
-
             if (response.status.value == 200) {
-                val json = JSONObject(responseText)
-                val candidates = json.optJSONArray("candidates")
-                val firstCandidate = candidates?.optJSONObject(0)
-                val content = firstCandidate?.optJSONObject("content")
-                val parts = content?.optJSONArray("parts")
-                val resultText = parts?.optJSONObject(0)?.optString("text")
-
-                if (!resultText.isNullOrEmpty()) resultText else null
+                val json = JSONObject(response.bodyAsText())
+                json.optJSONArray("candidates")
+                    ?.optJSONObject(0)
+                    ?.optJSONObject("content")
+                    ?.optJSONArray("parts")
+                    ?.optJSONObject(0)
+                    ?.optString("text")
+                    ?.takeIf { it.isNotEmpty() }
             } else {
                 null
             }
