@@ -19,11 +19,39 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import com.newsapp.data.LogManager
 import com.newsapp.data.api.AiRewriter
 import com.newsapp.data.api.ScriptGenerator
 import com.newsapp.data.api.VoiceMode
 import com.newsapp.model.NewsItem
 import kotlinx.coroutines.launch
+
+private fun extractCleanVoiceText(fullScript: String): String {
+    LogManager.log("TRACE", "Викликано функцію: extractCleanVoiceText")
+    var text = fullScript
+    val block1Index = text.indexOf("Блок 1")
+    val block2Index = text.indexOf("Блок 2")
+    
+    if (block1Index != -1 && block2Index != -1 && block2Index > block1Index) {
+        text = text.substring(block1Index, block2Index)
+    }
+
+    // Видаляємо часові маркери (наприклад: 0:00-0:08)
+    text = text.replace(Regex("[\\(\\[]?\\d{1,2}:\\d{2}\\s*[-–—]\\s*\\d{1,2}:\\d{2}[\\)\\]]?"), "")
+    
+    // Видаляємо markdown
+    text = text.replace("**", "").replace("*", "")
+
+    // Видаляємо технічні рядки
+    val lines = text.split("\n").filter { 
+        !it.contains("Кількість слів", ignoreCase = true) && 
+        !it.contains("Кількість символів", ignoreCase = true) &&
+        !it.contains("Блок 1", ignoreCase = true) &&
+        !it.contains("Текст сценарію", ignoreCase = true)
+    }
+
+    return lines.joinToString("\n").replace(Regex("\\n{3,}"), "\n\n").trim()
+}
 
 @Composable
 fun NewsActionDialog(
@@ -33,6 +61,7 @@ fun NewsActionDialog(
     onRewrite: (NewsItem) -> Unit,
     onDismiss: () -> Unit
 ) {
+    LogManager.log("TRACE", "Викликано функцію: NewsActionDialog")
     var activeTab by remember { mutableStateOf("MENU") }
     var selectedVoiceMode by remember { mutableStateOf(VoiceMode.OWN_VOICE) }
     
@@ -87,7 +116,6 @@ fun NewsActionDialog(
                         modifier = Modifier.fillMaxWidth(),
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        // 1. Публікація в Telegram
                         Button(
                             onClick = {
                                 scope.launch {
@@ -102,7 +130,6 @@ fun NewsActionDialog(
                             Text("🚀 Опублікувати в Telegram", fontWeight = FontWeight.Bold)
                         }
 
-                        // 2. Генерація сценарію для відео
                         Card(
                             modifier = Modifier.fillMaxWidth(),
                             colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B))
@@ -143,7 +170,6 @@ fun NewsActionDialog(
                             }
                         }
 
-                        // 3. Повний переклад статті
                         Button(
                             onClick = {
                                 activeTab = "FULL_TRANSLATION"
@@ -160,7 +186,6 @@ fun NewsActionDialog(
                             Text("📖 Повний переклад статті", color = Color.White, fontWeight = FontWeight.Bold)
                         }
 
-                        // 4. ПЕРЕКЛАСТИ ЗАРАЗ (Оновлення новини)
                         Button(
                             onClick = {
                                 onRewrite(item)
@@ -173,7 +198,6 @@ fun NewsActionDialog(
                             Text("⟳ Перекласти зараз", color = Color.White, fontWeight = FontWeight.Bold)
                         }
 
-                        // 5. Редагувати текст
                         OutlinedButton(
                             onClick = {
                                 onToggleEdit(item.id)
@@ -209,18 +233,38 @@ fun NewsActionDialog(
 
                     if (resultText != null) {
                         Spacer(modifier = Modifier.height(8.dp))
-                        Button(
-                            onClick = {
-                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                val clip = ClipData.newPlainText("Copied Text", resultText)
-                                clipboard.setPrimaryClip(clip)
-                                Toast.makeText(context, "Скопійовано в буфер!", Toast.LENGTH_SHORT).show()
-                            },
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF059669)),
-                            shape = RoundedCornerShape(8.dp)
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text("📋 Скопіювати в 1 клік", color = Color.White, fontWeight = FontWeight.Bold)
+                            Button(
+                                onClick = {
+                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                    val clip = ClipData.newPlainText("Copied Text", resultText)
+                                    clipboard.setPrimaryClip(clip)
+                                    Toast.makeText(context, "Скопійовано все!", Toast.LENGTH_SHORT).show()
+                                },
+                                modifier = Modifier.weight(1f).height(48.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF059669)),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Text("📋 Все", color = Color.White, fontWeight = FontWeight.Bold)
+                            }
+
+                            Button(
+                                onClick = {
+                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                    val cleanText = extractCleanVoiceText(resultText!!)
+                                    val clip = ClipData.newPlainText("ElevenLabs Text", cleanText)
+                                    clipboard.setPrimaryClip(clip)
+                                    Toast.makeText(context, "Чистий текст скопійовано!", Toast.LENGTH_SHORT).show()
+                                },
+                                modifier = Modifier.weight(1f).height(48.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD97706)),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Text("🤖 ElevenLabs", color = Color.White, fontWeight = FontWeight.Bold)
+                            }
                         }
                     }
                 }

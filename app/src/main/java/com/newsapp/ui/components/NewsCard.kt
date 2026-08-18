@@ -16,6 +16,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.newsapp.data.LogManager
 import com.newsapp.model.NewsItem
 
 @Composable
@@ -26,6 +27,7 @@ fun NewsCard(
     onToggleEdit: (String) -> Unit,
     onRewrite: (NewsItem) -> Unit
 ) {
+    LogManager.log("TRACE", "Викликано функцію: NewsCard")
     var showActionDialog by remember { mutableStateOf(false) }
     var localText by remember(item.id, item.description) { mutableStateOf(item.description) }
     val isPublished = item.status == "Опубліковано"
@@ -123,6 +125,7 @@ fun NewsCard(
             item = item,
             onPublish = onPublish,
             onToggleEdit = onToggleEdit,
+            onRewrite = onRewrite,
             onDismiss = { showActionDialog = false }
         )
     }
