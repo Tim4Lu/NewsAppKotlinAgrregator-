@@ -174,6 +174,12 @@ class AiRewriter {
         }
     }
 
+    suspend fun translateFullArticle(newsItem: NewsItem): String? {
+        val prompt = "Ти — науковий перекладач. Зроби повний, якісний переклад статті українською мовою.\n\nОригінал:\nЗаголовок: ${newsItem.originalTitle.ifEmpty { newsItem.title }}\nТекст: ${newsItem.description}"
+        val (apiKey, keyNum) = getActiveKey()
+        return callGeminiApi(prompt, apiKey, keyNum, "gemini-3.6-flash")
+    }
+
     private suspend fun callGeminiApi(prompt: String, apiKey: String, keyNum: Int, modelName: String): String? {
         val now = System.currentTimeMillis()
         val timeSinceLastRequest = now - lastRequestTimestamp
