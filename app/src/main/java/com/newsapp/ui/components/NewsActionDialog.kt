@@ -30,6 +30,7 @@ fun NewsActionDialog(
     item: NewsItem,
     onPublish: suspend (NewsItem) -> Unit,
     onToggleEdit: (String) -> Unit,
+    onRewrite: (NewsItem) -> Unit,
     onDismiss: () -> Unit
 ) {
     var activeTab by remember { mutableStateOf("MENU") }
@@ -86,6 +87,7 @@ fun NewsActionDialog(
                         modifier = Modifier.fillMaxWidth(),
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
+                        // 1. Публікація в Telegram
                         Button(
                             onClick = {
                                 scope.launch {
@@ -100,6 +102,7 @@ fun NewsActionDialog(
                             Text("🚀 Опублікувати в Telegram", fontWeight = FontWeight.Bold)
                         }
 
+                        // 2. Генерація сценарію для відео
                         Card(
                             modifier = Modifier.fillMaxWidth(),
                             colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B))
@@ -140,6 +143,7 @@ fun NewsActionDialog(
                             }
                         }
 
+                        // 3. Повний переклад статті
                         Button(
                             onClick = {
                                 activeTab = "FULL_TRANSLATION"
@@ -156,6 +160,20 @@ fun NewsActionDialog(
                             Text("📖 Повний переклад статті", color = Color.White, fontWeight = FontWeight.Bold)
                         }
 
+                        // 4. ПЕРЕКЛАСТИ ЗАРАЗ (Оновлення новини)
+                        Button(
+                            onClick = {
+                                onRewrite(item)
+                                onDismiss()
+                            },
+                            modifier = Modifier.fillMaxWidth().height(48.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD97706)),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text("⟳ Перекласти зараз", color = Color.White, fontWeight = FontWeight.Bold)
+                        }
+
+                        // 5. Редагувати текст
                         OutlinedButton(
                             onClick = {
                                 onToggleEdit(item.id)
