@@ -56,8 +56,8 @@ class AiRewriter {
 
     suspend fun translateFullArticle(newsItem: NewsItem): String? {
         val prompt = """
-            Переклади українською КОРОТКО.
-            Без води, лише головна суть і факти. Максимум 3 абзаци.
+            Ти — науковий перекладач. Зроби повний, детальний та якісний переклад усієї статті українською мовою. 
+            Збережи всі абзаци, наукові факти, терміни та деталі оригінального тексту. Нічого не скорочуй.
             
             Заголовок: ${newsItem.originalTitle.ifEmpty { newsItem.title }}
             Текст: ${newsItem.description}
