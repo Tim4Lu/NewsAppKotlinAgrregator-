@@ -328,12 +328,34 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     suspend fun sendNews(newsItem: NewsItem) {
+        // 1. Блокуємо, якщо новина вже в процесі або відправлена
+        if (newsItem.status == "Опубліковано" || newsItem.status == "Відправляється...") {
+            LogManager.log("TELEGRAM", "Блокування подвійного кліку: новина вже ${newsItem.status}")
+            return
+        }
+
+        // 2. Миттєво оновлюємо статус, щоб заблокувати повторні кліки
+        _newsList.value = _newsList.value.map { 
+            if (it.id == newsItem.id) it.copy(status = "Відправляється...") else it 
+        }
+
         withContext(Dispatchers.IO) {
+            LogManager.log("TELEGRAM", "Надсилання новини: ${newsItem.title}")
             val success = telegramBotService.sendToTelegram(newsItem.telegramCaption, newsItem.image)
+            
+            // 3. Обробляємо результат від Telegram
             if (success) {
-                _newsList.value = _newsList.value.map { if (it.id == newsItem.id) it.copy(status = "Опубліковано") else it }
-                saveNewsToDisk(_newsList.value)
+                _newsList.value = _newsList.value.map { 
+                    if (it.id == newsItem.id) it.copy(status = "Опубліковано") else it 
+                }
+                LogManager.log("TELEGRAM", "Успішно опубліковано!")
+            } else {
+                _newsList.value = _newsList.value.map { 
+                    if (it.id == newsItem.id) it.copy(status = "Помилка") else it 
+                }
+                LogManager.log("TELEGRAM_ERR", "Помилка відправки новини")
             }
+            saveNewsToDisk(_newsList.value)
         }
     }
 }
