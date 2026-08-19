@@ -83,8 +83,9 @@ fun NewsCard(
                     }
                 }
 
+                // Заголовок тепер виглядає так само, як у Telegram
                 Text(
-                    text = item.title,
+                    text = "🚀 ${item.title} 🚀",
                     color = Color.White,
                     fontWeight = FontWeight.Bold,
                     fontSize = 17.sp,
@@ -109,11 +110,11 @@ fun NewsCard(
                         Text("Зберегти змінений текст")
                     }
                 } else {
+                    // Текст новини тепер показується повністю (без maxLines) та світлішим кольором
                     Text(
                         text = item.description,
-                        color = Color(0xFFCBD5E1),
-                        fontSize = 13.sp,
-                        maxLines = 4
+                        color = Color(0xFFE2E8F0),
+                        fontSize = 14.sp
                     )
                 }
             }
