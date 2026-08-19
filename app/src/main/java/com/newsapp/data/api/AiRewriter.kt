@@ -9,6 +9,8 @@ import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
 import io.ktor.client.engine.cio.endpoint
 import io.ktor.client.request.post
+import io.ktor.client.request.get
+import io.ktor.client.request.header
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
@@ -55,18 +57,39 @@ class AiRewriter {
     }
 
     suspend fun translateFullArticle(newsItem: NewsItem): String? {
+        var fullOriginalText = ""
+        try {
+            if (newsItem.link.isNotEmpty()) {
+                val response = client.get(newsItem.link) {
+                    header(io.ktor.http.HttpHeaders.UserAgent, "Mozilla/5.0")
+                }
+                val html = response.bodyAsText()
+                val cleanHtml = html.replace(Regex("<(nav|header|footer|script|style|button|aside|noscript)[^>]*>[\\s\\S]*?<\\/\\1>", RegexOption.IGNORE_CASE), "")
+                val pMatches = Regex("<p[^>]*>(.*?)</p>", RegexOption.IGNORE_CASE).findAll(cleanHtml)
+                val validParagraphs = pMatches
+                    .map { it.groupValues[1].replace(Regex("<[^>]*>"), "").trim() }
+                    .filter { it.length > 80 && it.contains(".") }
+                    .toList()
+                
+                fullOriginalText = validParagraphs.joinToString("\n\n")
+            }
+        } catch (e: Exception) {
+            LogManager.log("AI_SCRAPE_ERR", "Не вдалося витягнути оригінал: ${e.message}")
+        }
+
+        val textToTranslate = if (fullOriginalText.length > 150) fullOriginalText else newsItem.description
+
         val prompt = """
             Ти — науковий перекладач. Зроби повний, детальний та якісний переклад усієї статті українською мовою. 
             Збережи всі абзаци, наукові факти, терміни та деталі оригінального тексту. Нічого не скорочуй.
             
             Заголовок: ${newsItem.originalTitle.ifEmpty { newsItem.title }}
-            Текст: ${newsItem.description}
+            Текст: $textToTranslate
         """.trimIndent()
 
         val (apiKey, keyNum) = getActiveKey()
         return callGeminiApi(prompt, apiKey, keyNum, "gemini-3.6-flash")
     }
-
     suspend fun processAllNewsWithAi(
         newsList: List<NewsItem>,
         context: Context? = null,
@@ -125,6 +148,7 @@ class AiRewriter {
                         val sourceLinkHtml = if (item.link.isNotEmpty()) {
                             "• <b>Джерело:</b> <a href=\"${item.link}\">${item.source}</a>"
                         } else {
+                LogManager.log("AI_ERR", "Gemini HTTP ${response.status.value}: ${response.bodyAsText()}")
                             "• <b>Джерело:</b> ${item.source}"
                         }
 
@@ -137,6 +161,7 @@ class AiRewriter {
                             status = "Готово"
                         )
                     } else {
+                LogManager.log("AI_ERR", "Gemini HTTP ${response.status.value}: ${response.bodyAsText()}")
                         val cleanOrigTitle = item.title.replace("🚀", "").trim()
                         var cleanOrigDesc = item.description
                         val sourceIdx = cleanOrigDesc.indexOf("Джерело:", ignoreCase = true)
@@ -145,6 +170,7 @@ class AiRewriter {
                         val sourceLinkHtml = if (item.link.isNotEmpty()) {
                             "• <b>Джерело:</b> <a href=\"${item.link}\">${item.source}</a>"
                         } else {
+                LogManager.log("AI_ERR", "Gemini HTTP ${response.status.value}: ${response.bodyAsText()}")
                             "• <b>Джерело:</b> ${item.source}"
                         }
 
@@ -205,6 +231,7 @@ class AiRewriter {
                     ?.optString("text")
                     ?.takeIf { it.isNotEmpty() }
             } else {
+                LogManager.log("AI_ERR", "Gemini HTTP ${response.status.value}: ${response.bodyAsText()}")
                 null
             }
         } catch (e: Exception) {

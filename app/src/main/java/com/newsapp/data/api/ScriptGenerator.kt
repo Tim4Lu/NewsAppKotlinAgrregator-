@@ -142,7 +142,10 @@ class ScriptGenerator {
                     ?.optJSONArray("parts")
                     ?.optJSONObject(0)
                     ?.optString("text")
-            } else null
+            } else {
+                com.newsapp.data.LogManager.log("AI_ERR", "Gemini HTTP ${response.status.value}: ${response.bodyAsText()}")
+                null
+            }
         } catch (e: Exception) {
             null
         }
