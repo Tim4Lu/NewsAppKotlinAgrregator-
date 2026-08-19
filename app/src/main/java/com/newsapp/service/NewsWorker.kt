@@ -47,6 +47,37 @@ class NewsWorker(
             .trimEnd('/')
     }
 
+    private suspend fun scrapeArticle(url: String): Pair<String, String?> {
+        try {
+            if (url.isEmpty()) return Pair("", null)
+            val response = client.get(url) {
+                header(io.ktor.http.HttpHeaders.UserAgent, "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+            }
+            val html = response.bodyAsText()
+            var imageUrl: String? = null
+
+            val ogMatch = Regex("<meta[^>]+(?:property|name)=[\"'](?:og:image|twitter:image)[\"'][^>]+content=[\"']([^\"']+)[\"']", RegexOption.IGNORE_CASE).find(html)
+            if (ogMatch != null) imageUrl = ogMatch.groupValues[1]
+
+            if (!imageUrl.isNullOrEmpty() && !imageUrl.startsWith("http")) {
+                val baseUrl = java.net.URL(url)
+                imageUrl = "${baseUrl.protocol}://${baseUrl.host}$imageUrl"
+            }
+
+            val cleanHtml = html.replace(Regex("<(nav|header|footer|script|style|button|aside|noscript)[^>]*>[\\s\\S]*?<\\/\\1>", RegexOption.IGNORE_CASE), "")
+            val pMatches = Regex("<p[^>]*>(.*?)</p>", RegexOption.IGNORE_CASE).findAll(cleanHtml)
+            val validParagraphs = pMatches
+                .map { it.groupValues[1].replace(Regex("<[^>]*>"), "").trim() }
+                .filter { t -> t.length > 80 && t.contains(".") }
+                .toList()
+
+            val scrapedText = validParagraphs.joinToString("\n\n")
+            return Pair(if (scrapedText.length >= 150) scrapedText else "", imageUrl)
+        } catch (e: Exception) {
+            return Pair("", null)
+        }
+    }
+
     override suspend fun doWork(): Result {
         LogManager.log("WORKER", "Запуск фонової перевірки новин...")
 
@@ -185,7 +216,15 @@ class NewsWorker(
             LogManager.log("WORKER", "Знайдено ${freshNews.size} нових новин. Обробка ШІ...")
             val processedNews = mutableListOf<NewsItem>()
 
-            aiRewriter.processAllNewsWithAi(freshNews, appContext) { item ->
+            val enrichedNews = freshNews.map { item ->
+                val (fullText, scrapedImage) = scrapeArticle(item.link)
+                item.copy(
+                    description = if (fullText.isNotEmpty()) fullText else item.description,
+                    image = if (!scrapedImage.isNullOrEmpty()) scrapedImage else item.image
+                )
+            }
+
+            aiRewriter.processAllNewsWithAi(enrichedNews, appContext) { item ->
                 processedNews.add(item)
                 showNewsNotification(item)
             }

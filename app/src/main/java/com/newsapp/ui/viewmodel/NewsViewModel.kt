@@ -268,7 +268,7 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
                 .filter { t -> t.length > 80 && t.contains(".") }
                 .toList()
 
-            val scrapedText = validParagraphs.take(4).joinToString("\n\n")
+            val scrapedText = validParagraphs.joinToString("\n\n")
             return Pair(if (scrapedText.length >= 150) scrapedText else "", imageUrl)
         } catch (e: Exception) {
             return Pair("", null)
