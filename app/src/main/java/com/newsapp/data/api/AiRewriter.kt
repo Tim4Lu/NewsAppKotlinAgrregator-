@@ -68,7 +68,7 @@ class AiRewriter {
                 val pMatches = Regex("<p[^>]*>(.*?)</p>", RegexOption.IGNORE_CASE).findAll(cleanHtml)
                 val validParagraphs = pMatches
                     .map { it.groupValues[1].replace(Regex("<[^>]*>"), "").trim() }
-                    .filter { it.length > 80 && it.contains(".") }
+                    .filter { t -> t.length > 80 && t.contains(".") }
                     .toList()
                 
                 fullOriginalText = validParagraphs.joinToString("\n\n")
@@ -87,8 +87,20 @@ class AiRewriter {
             Текст: $textToTranslate
         """.trimIndent()
 
-        val (apiKey, keyNum) = getActiveKey()
-        return callGeminiApi(prompt, apiKey, keyNum, "gemini-3.6-flash")
+        var translatedText: String? = null
+        var attempts = 0
+        val keys = apiKeys
+
+        while (translatedText == null && attempts < keys.size) {
+            val (apiKey, keyNum) = getActiveKey()
+            translatedText = callGeminiApi(prompt, apiKey, keyNum, "gemini-3.6-flash")
+
+            if (translatedText == null) {
+                switchToNextKey()
+                attempts++
+            }
+        }
+        return translatedText
     }
 
     suspend fun processAllNewsWithAi(
@@ -229,13 +241,12 @@ class AiRewriter {
                     ?.optString("text")
                     ?.takeIf { it.isNotEmpty() }
             } else {
-                LogManager.log("AI_ERR", "Ключ №$keyNum вичерпано (HTTP ${response.status.value}). Перемикаємо ключ...")
-                switchToNextKey()
+                LogManager.log("AI_ERR", "Ключ №$keyNum вичерпано (HTTP ${response.status.value}): ${response.bodyAsText()}")
                 null
             }
         } catch (e: Exception) {
             LogManager.log("AI_ERR", "Мережевий збій Gemini: ${e.message}")
-            switchToNextKey()
             null
         }
     }
+}
