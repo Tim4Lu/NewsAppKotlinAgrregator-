@@ -8,9 +8,9 @@ import com.newsapp.service.NewsProcessingService
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
 import io.ktor.client.engine.cio.endpoint
-import io.ktor.client.request.post
 import io.ktor.client.request.get
 import io.ktor.client.request.header
+import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
@@ -90,6 +90,7 @@ class AiRewriter {
         val (apiKey, keyNum) = getActiveKey()
         return callGeminiApi(prompt, apiKey, keyNum, "gemini-3.6-flash")
     }
+
     suspend fun processAllNewsWithAi(
         newsList: List<NewsItem>,
         context: Context? = null,
@@ -148,7 +149,6 @@ class AiRewriter {
                         val sourceLinkHtml = if (item.link.isNotEmpty()) {
                             "• <b>Джерело:</b> <a href=\"${item.link}\">${item.source}</a>"
                         } else {
-                LogManager.log("AI_ERR", "Gemini HTTP ${response.status.value}: ${response.bodyAsText()}")
                             "• <b>Джерело:</b> ${item.source}"
                         }
 
@@ -161,7 +161,6 @@ class AiRewriter {
                             status = "Готово"
                         )
                     } else {
-                LogManager.log("AI_ERR", "Gemini HTTP ${response.status.value}: ${response.bodyAsText()}")
                         val cleanOrigTitle = item.title.replace("🚀", "").trim()
                         var cleanOrigDesc = item.description
                         val sourceIdx = cleanOrigDesc.indexOf("Джерело:", ignoreCase = true)
@@ -170,7 +169,6 @@ class AiRewriter {
                         val sourceLinkHtml = if (item.link.isNotEmpty()) {
                             "• <b>Джерело:</b> <a href=\"${item.link}\">${item.source}</a>"
                         } else {
-                LogManager.log("AI_ERR", "Gemini HTTP ${response.status.value}: ${response.bodyAsText()}")
                             "• <b>Джерело:</b> ${item.source}"
                         }
 
@@ -235,6 +233,7 @@ class AiRewriter {
                 null
             }
         } catch (e: Exception) {
+            LogManager.log("AI_ERR", "Мережевий збій Gemini: ${e.message}")
             null
         }
     }
