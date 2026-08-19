@@ -284,7 +284,7 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
             )
         }
 
-        aiRewriter.processAllNewsWithAi(updatedList) { finishedItem ->
+        aiRewriter.processAllNewsWithAi(updatedList, getApplication()) { finishedItem ->
             _newsList.value = _newsList.value.map { current ->
                 if (current.id == finishedItem.id || current.title == finishedItem.title) finishedItem else current
             }
@@ -297,7 +297,7 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
             _newsList.value = _newsList.value.map {
                 if (it.id == newsItem.id) it.copy(status = "Переклад...", telegramCaption = "Обробка AI...") else it
             }
-            aiRewriter.processAllNewsWithAi(listOf(newsItem)) { finishedItem ->
+            aiRewriter.processAllNewsWithAi(listOf(newsItem), getApplication()) { finishedItem ->
                 _newsList.value = _newsList.value.map { if (it.id == newsItem.id) finishedItem else it }
                 saveNewsToDisk(_newsList.value)
             }

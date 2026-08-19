@@ -6,6 +6,7 @@ import android.content.Context
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.work.CoroutineWorker
+import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
 import com.newsapp.data.LogManager
 import com.newsapp.data.NewsParserFactory
@@ -47,6 +48,29 @@ class NewsWorker(
 
     override suspend fun doWork(): Result {
         LogManager.log("WORKER", "Запуск фонової перевірки новин...")
+
+        try {
+            val channelId = "news_worker_channel"
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                val channel = NotificationChannel(
+                    channelId,
+                    "Фоновий пошук новин",
+                    NotificationManager.IMPORTANCE_LOW
+                )
+                val manager = appContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                manager.createNotificationChannel(channel)
+            }
+            val notification = NotificationCompat.Builder(appContext, channelId)
+                .setSmallIcon(appContext.applicationInfo.icon)
+                .setContentTitle("ШІ працює у фоні 🚀")
+                .setContentText("NewsApp шукає та перекладає нові статті...")
+                .setOngoing(true)
+                .build()
+            
+            setForeground(ForegroundInfo(1005, notification))
+        } catch (e: Exception) {
+            LogManager.log("WORKER_ERR", "Не вдалося закріпити Foreground: ${e.message}")
+        }
 
         val rssUrls = listOf(
             "https://www.nasa.gov/feed/",
@@ -132,8 +156,7 @@ class NewsWorker(
                 }
                 rawNews.addAll(fetchedItems)
             } catch (e: Exception) {
-                val errorMsg = e.message ?: e.javaClass.simpleName
-                LogManager.log("WORKER_ERR", "Помилка RSS $url: $errorMsg")
+                LogManager.log("WORKER_ERR", "Помилка RSS $url: ${e.message}")
             }
         }
 
@@ -157,7 +180,7 @@ class NewsWorker(
             LogManager.log("WORKER", "Знайдено ${freshNews.size} нових новин. Обробка ШІ...")
             val processedNews = mutableListOf<NewsItem>()
 
-            aiRewriter.processAllNewsWithAi(freshNews) { item ->
+            aiRewriter.processAllNewsWithAi(freshNews, appContext) { item ->
                 processedNews.add(item)
                 showNewsNotification(item)
             }
@@ -236,8 +259,7 @@ class NewsWorker(
 
             notificationManager.notify(item.id.hashCode(), notification)
         } catch (e: Exception) {
-            val errorMsg = e.message ?: e.javaClass.simpleName
-            LogManager.log("WORKER_ERR", "Сповіщення не показано: $errorMsg")
+            LogManager.log("WORKER_ERR", "Сповіщення не показано: ${e.message}")
         }
     }
 }
