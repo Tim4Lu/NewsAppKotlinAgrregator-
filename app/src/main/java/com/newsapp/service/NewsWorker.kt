@@ -3,6 +3,7 @@ package com.newsapp.service
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
+import android.content.pm.ServiceInfo
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.work.CoroutineWorker
@@ -67,7 +68,11 @@ class NewsWorker(
                 .setOngoing(true)
                 .build()
             
-            setForeground(ForegroundInfo(1005, notification))
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                setForeground(ForegroundInfo(1005, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC))
+            } else {
+                setForeground(ForegroundInfo(1005, notification))
+            }
         } catch (e: Exception) {
             LogManager.log("WORKER_ERR", "Не вдалося закріпити Foreground: ${e.message}")
         }
