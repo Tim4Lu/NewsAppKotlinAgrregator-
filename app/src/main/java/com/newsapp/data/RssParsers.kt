@@ -15,7 +15,7 @@ class UniverseTodayParser : BaseRssParser { override fun parse(xml: String) = pa
 class PhysOrgParser : BaseRssParser { override fun parse(xml: String) = parseRobust(xml, "Phys.org") }
 
 private fun String.cleanHtmlAndEntities(): String {
-    return this.replace(Regex("(?s)(?i)<!\\[CDATA\\[(.*?)\\]\\]>"), "$1")
+    val text = this.replace(Regex("(?s)(?i)<!\\[CDATA\\[(.*?)\\]\\]>"), "$1")
         .replace("&amp;", "&")
         .replace("&lt;", "<")
         .replace("&gt;", ">")
@@ -23,7 +23,23 @@ private fun String.cleanHtmlAndEntities(): String {
         .replace("&#39;", "'")
         .replace("&apos;", "'")
         .replace("&nbsp;", " ")
-        .replace(Regex("<[^>]*>"), "")
+        .replace(Regex("<[^>]*>"), "\n")
+
+    val artifacts = setOf(
+        "science", "apod", "today's apod", "archive", "submissions", 
+        "index", "search", "calendar", "rss", "education", "about", "discuss"
+    )
+
+    val cleanLines = text.split("\n")
+        .map { it.trim() }
+        .filter { it.isNotEmpty() }
+        .filter { line -> 
+            val lowerLine = line.lowercase()
+            !artifacts.contains(lowerLine) && !lowerLine.startsWith("apod: 20")
+        }
+
+    return cleanLines.joinToString(" ")
+        .replace(Regex("\\s{2,}"), " ")
         .trim()
 }
 
@@ -46,7 +62,6 @@ private fun parseRobust(xml: String, sourceName: String): List<NewsItem> {
             var rawLink = (linkHref ?: linkTag ?: guidTag ?: "").cleanHtmlAndEntities()
             if (rawLink.contains(" ")) rawLink = rawLink.split(" ")[0]
 
-            // Отримуємо опис, віддаючи пріоритет <content:encoded>, якщо він є
             var rawDesc = Regex("(?s)(?i)<content:encoded[^>]*>(.*?)</content:encoded>").find(block)?.groupValues?.getOrNull(1)?.cleanHtmlAndEntities() ?: ""
             if (rawDesc.isEmpty()) {
                 rawDesc = Regex("(?s)(?i)<(?:description|summary|content)[^>]*>(.*?)</(?:description|summary|content)>").find(block)?.groupValues?.getOrNull(1)?.cleanHtmlAndEntities() ?: ""
