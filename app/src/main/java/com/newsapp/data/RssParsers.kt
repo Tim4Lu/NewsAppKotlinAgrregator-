@@ -21,7 +21,7 @@ private fun String.cleanHtmlAndEntities(): String {
         .replace("&gt;", ">")
         .replace("&quot;", "\"")
         .replace("&#39;", "'")
-        .replace(".replace("&apos;", "'")apos;", "'")
+        .replace("&apos;", "'")
         .replace("&#8217;", "'")
         .replace("&rsquo;", "'")
         .replace("&lsquo;", "'")
