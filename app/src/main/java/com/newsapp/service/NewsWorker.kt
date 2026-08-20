@@ -36,7 +36,6 @@ class NewsWorker(
         followRedirects = true 
     }
     
-    private val aiRewriter = AiRewriter()
     private val cacheFile = File(appContext.filesDir, "saved_news.json")
 
     private fun String.normalizeUrl(): String {
@@ -224,7 +223,7 @@ class NewsWorker(
                 )
             }
 
-            aiRewriter.processAllNewsWithAi(enrichedNews, appContext) { item ->
+            AiRewriter.processAllNewsWithAi(enrichedNews, appContext) { item ->
                 processedNews.add(item)
                 showNewsNotification(item)
             }

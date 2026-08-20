@@ -19,7 +19,7 @@ import kotlinx.coroutines.delay
 import org.json.JSONArray
 import org.json.JSONObject
 
-class AiRewriter {
+object AiRewriter {
 
     private val client = HttpClient(CIO) {
         expectSuccess = false
@@ -40,7 +40,6 @@ class AiRewriter {
             .filter { it.isNotEmpty() }
 
     private var currentKeyIndex = 0
-    private var lastRequestTimestamp = 0L
 
     private fun getActiveKey(): Pair<String, Int> {
         val keys = apiKeys
@@ -243,12 +242,10 @@ class AiRewriter {
                     ?.takeIf { it.isNotEmpty() }
             } else {
                 LogManager.log("AI_ERR", "Ключ №$keyNum вичерпано (HTTP ${response.status.value}): ${response.bodyAsText()}")
-                lastRequestTimestamp = 0L
                 null
             }
         } catch (e: Exception) {
             LogManager.log("AI_ERR", "Мережевий збій Gemini: ${e.message}")
-            lastRequestTimestamp = 0L
             null
         }
     }

@@ -42,7 +42,6 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
         followRedirects = true 
     }
     
-    private val aiRewriter = AiRewriter()
     private val telegramBotService = TelegramBotService()
     private val cacheFile = File(application.filesDir, "saved_news.json")
 
@@ -128,7 +127,7 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
     fun checkAndRetryUntranslatedNews() {
         val untranslated = _newsList.value.filter { 
             it.status == "Не перекладено" || it.status == "В черзі" 
-        }
+        }.take(3)
         if (untranslated.isNotEmpty()) {
             LogManager.log("AI_AUTO_RETRY", "Автоперевірка: знайдено ${untranslated.size} неперекладених новин. Запуск ШІ...")
             viewModelScope.launch(Dispatchers.IO) {
@@ -301,7 +300,7 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
             )
         }
 
-        aiRewriter.processAllNewsWithAi(updatedList, getApplication()) { finishedItem ->
+        AiRewriter.processAllNewsWithAi(updatedList, getApplication()) { finishedItem ->
             _newsList.value = _newsList.value.map { current ->
                 if (current.id == finishedItem.id || current.title == finishedItem.title) finishedItem else current
             }
@@ -314,7 +313,7 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
             _newsList.value = _newsList.value.map {
                 if (it.id == newsItem.id) it.copy(status = "Переклад...", telegramCaption = "Обробка AI...") else it
             }
-            aiRewriter.processAllNewsWithAi(listOf(newsItem), getApplication()) { finishedItem ->
+            AiRewriter.processAllNewsWithAi(listOf(newsItem), getApplication()) { finishedItem ->
                 _newsList.value = _newsList.value.map { if (it.id == newsItem.id) finishedItem else it }
                 saveNewsToDisk(_newsList.value)
             }

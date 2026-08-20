@@ -18,7 +18,7 @@ enum class VoiceMode(val label: String, val maxCharsNoSpaces: Int) {
     ELEVEN_LABS("ElevenLabs (до 600 симв.)", 600)
 }
 
-class ScriptGenerator {
+object ScriptGenerator {
     private val client = HttpClient(CIO) {
         expectSuccess = false
         engine {

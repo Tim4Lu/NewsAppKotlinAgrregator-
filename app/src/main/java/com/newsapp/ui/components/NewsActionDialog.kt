@@ -70,8 +70,6 @@ fun NewsActionDialog(
 
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
-    val scriptGenerator = remember { ScriptGenerator() }
-    val aiRewriter = remember { AiRewriter() }
 
     Dialog(onDismissRequest = onDismiss) {
         Surface(
@@ -158,7 +156,7 @@ fun NewsActionDialog(
                                         activeTab = "SCRIPT"
                                         isLoading = true
                                         scope.launch {
-                                            resultText = scriptGenerator.generateScript(item, selectedVoiceMode)
+                                            resultText = ScriptGenerator.generateScript(item, selectedVoiceMode)
                                             isLoading = false
                                         }
                                     },
@@ -175,7 +173,7 @@ fun NewsActionDialog(
                                 activeTab = "FULL_TRANSLATION"
                                 isLoading = true
                                 scope.launch {
-                                    resultText = aiRewriter.translateFullArticle(item)
+                                    resultText = AiRewriter.translateFullArticle(item)
                                     isLoading = false
                                 }
                             },
