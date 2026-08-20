@@ -173,6 +173,7 @@ class AiRewriter {
                             status = "Готово"
                         )
                     } else {
+                        LogManager.log("AI_WARN", "Не вдалося перекласти новину: '${item.title}'. Статус: Не перекладено")
                         val cleanOrigTitle = item.title.replace("🚀", "").trim()
                         var cleanOrigDesc = item.description
                         val sourceIdx = cleanOrigDesc.indexOf("Джерело:", ignoreCase = true)
@@ -189,7 +190,7 @@ class AiRewriter {
                             title = cleanOrigTitle,
                             description = "$cleanOrigDesc\n\n• Джерело: ${item.source}",
                             telegramCaption = caption, 
-                            status = "Готово"
+                            status = "Не перекладено"
                         )
                     }
 

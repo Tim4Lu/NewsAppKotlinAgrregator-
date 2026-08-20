@@ -98,6 +98,7 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
 
                 _newsList.value = uniqueCached.sortedByDescending { it.timestamp }
                 saveNewsToDisk(_newsList.value)
+                checkAndRetryUntranslatedNews()
             }
         } catch (e: Exception) {}
     }
@@ -122,6 +123,20 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
             }
             cacheFile.writeText(jsonArray.toString())
         } catch (e: Exception) {}
+    }
+
+    fun checkAndRetryUntranslatedNews() {
+        val untranslated = _newsList.value.filter { 
+            it.status == "Не перекладено" || it.status == "В черзі" 
+        }
+        if (untranslated.isNotEmpty()) {
+            LogManager.log("AI_AUTO_RETRY", "Автоперевірка: знайдено ${untranslated.size} неперекладених новин. Запуск ШІ...")
+            viewModelScope.launch(Dispatchers.IO) {
+                processNewsWithScraperAndAi(untranslated)
+            }
+        } else {
+            LogManager.log("AI_AUTO_RETRY", "Автоперевірка: усі новини вже перекладені.")
+        }
     }
 
     fun loadNews() {
@@ -237,9 +252,11 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
                     processNewsWithScraperAndAi(freshNews)
                 } else {
                     _isLoading.value = false
+                    checkAndRetryUntranslatedNews()
                 }
             } else {
                 _isLoading.value = false
+                checkAndRetryUntranslatedNews()
             }
         }
     }
@@ -328,13 +345,11 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     suspend fun sendNews(newsItem: NewsItem) {
-        // 1. Блокуємо, якщо новина вже в процесі або відправлена
         if (newsItem.status == "Опубліковано" || newsItem.status == "Відправляється...") {
             LogManager.log("TELEGRAM", "Блокування подвійного кліку: новина вже ${newsItem.status}")
             return
         }
 
-        // 2. Миттєво оновлюємо статус, щоб заблокувати повторні кліки
         _newsList.value = _newsList.value.map { 
             if (it.id == newsItem.id) it.copy(status = "Відправляється...") else it 
         }
@@ -343,7 +358,6 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
             LogManager.log("TELEGRAM", "Надсилання новини: ${newsItem.title}")
             val success = telegramBotService.sendToTelegram(newsItem.telegramCaption, newsItem.image)
             
-            // 3. Обробляємо результат від Telegram
             if (success) {
                 _newsList.value = _newsList.value.map { 
                     if (it.id == newsItem.id) it.copy(status = "Опубліковано") else it 
