@@ -19,6 +19,7 @@ enum class VoiceMode(val label: String, val maxCharsNoSpaces: Int) {
 }
 
 object ScriptGenerator {
+    private var lastRequestTimestamp = 0L
     private val client = HttpClient(CIO) {
         expectSuccess = false
         engine {
@@ -117,6 +118,13 @@ object ScriptGenerator {
     }
 
     private suspend fun callGeminiApi(prompt: String, apiKey: String, modelName: String): String? {
+        val now = System.currentTimeMillis()
+        val timeSinceLastRequest = now - lastRequestTimestamp
+        if (timeSinceLastRequest < 16_000) {
+            val waitTime = 16_000 - timeSinceLastRequest
+            com.newsapp.data.LogManager.log("AI_RATE", "ScriptGen: Пауза ${waitTime / 1000} сек...")
+            kotlinx.coroutines.delay(waitTime)
+        }
         return try {
             val url = "https://generativelanguage.googleapis.com/v1beta/models/$modelName:generateContent?key=$apiKey"
             val jsonBody = JSONObject().apply {
@@ -135,6 +143,7 @@ object ScriptGenerator {
             }
 
             if (response.status.value == 200) {
+                lastRequestTimestamp = System.currentTimeMillis()
                 val json = JSONObject(response.bodyAsText())
                 json.optJSONArray("candidates")
                     ?.optJSONObject(0)
@@ -147,6 +156,7 @@ object ScriptGenerator {
                 null
             }
         } catch (e: Exception) {
+            lastRequestTimestamp = System.currentTimeMillis()
             null
         }
     }

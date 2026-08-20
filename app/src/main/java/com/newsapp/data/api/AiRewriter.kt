@@ -20,6 +20,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 object AiRewriter {
+    private val processingNewsIds = mutableSetOf<String>()
 
     private val client = HttpClient(CIO) {
         expectSuccess = false
@@ -115,7 +116,9 @@ object AiRewriter {
             val keysCount = apiKeys.size
             LogManager.log("AI_START", "Обробка ${total} новин (ключів: ${keysCount})")
 
-            newsList.forEachIndexed { index, item ->
+            val newsToProcess = newsList.filter { !processingNewsIds.contains(it.id) }
+        newsToProcess.forEachIndexed { index, item ->
+            processingNewsIds.add(item.id)
                 try {
                     val cleanTitle = item.title.replace("\"", "'").replace("\n", " ").replace("🚀", "")
                     val cleanDesc = item.description.replace("\"", "'").replace("\n", " ")
@@ -195,6 +198,7 @@ object AiRewriter {
                     }
 
                     onItemProcessed(finalItem)
+                processingNewsIds.remove(item.id)
                 } catch (e: Exception) {
                     LogManager.log("AI_CRITICAL", "Збій: ${e.message}")
                 }
