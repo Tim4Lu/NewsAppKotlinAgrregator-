@@ -40,6 +40,7 @@ object AiRewriter {
             .filter { it.isNotEmpty() }
 
     private var currentKeyIndex = 0
+    private var lastRequestTimestamp = 0L
 
     private fun getActiveKey(): Pair<String, Int> {
         val keys = apiKeys
