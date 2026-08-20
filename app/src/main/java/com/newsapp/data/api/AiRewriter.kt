@@ -243,10 +243,12 @@ object AiRewriter {
                     ?.takeIf { it.isNotEmpty() }
             } else {
                 LogManager.log("AI_ERR", "Ключ №$keyNum вичерпано (HTTP ${response.status.value}): ${response.bodyAsText()}")
+                lastRequestTimestamp = System.currentTimeMillis()
                 null
             }
         } catch (e: Exception) {
             LogManager.log("AI_ERR", "Мережевий збій Gemini: ${e.message}")
+            lastRequestTimestamp = System.currentTimeMillis()
             null
         }
     }
