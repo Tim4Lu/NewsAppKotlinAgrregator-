@@ -211,7 +211,6 @@ class AiRewriter {
             LogManager.log("AI_RATE", "Пауза ${waitTime / 1000} сек...")
             delay(waitTime)
         }
-        lastRequestTimestamp = System.currentTimeMillis()
 
         return try {
             val url = "https://generativelanguage.googleapis.com/v1beta/models/$modelName:generateContent?key=$apiKey"
@@ -232,6 +231,7 @@ class AiRewriter {
             }
 
             if (response.status.value == 200) {
+                lastRequestTimestamp = System.currentTimeMillis()
                 val json = JSONObject(response.bodyAsText())
                 json.optJSONArray("candidates")
                     ?.optJSONObject(0)
@@ -242,10 +242,12 @@ class AiRewriter {
                     ?.takeIf { it.isNotEmpty() }
             } else {
                 LogManager.log("AI_ERR", "Ключ №$keyNum вичерпано (HTTP ${response.status.value}): ${response.bodyAsText()}")
+                lastRequestTimestamp = 0L
                 null
             }
         } catch (e: Exception) {
             LogManager.log("AI_ERR", "Мережевий збій Gemini: ${e.message}")
+            lastRequestTimestamp = 0L
             null
         }
     }
