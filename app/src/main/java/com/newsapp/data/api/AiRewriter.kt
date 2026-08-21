@@ -54,6 +54,7 @@ object AiRewriter {
                 LogManager.log("AI_RATE", "Замок Mutex: чекаємо ${waitTime / 1000} сек...")
                 delay(waitTime)
             }
+            lastRequestTimestamp = System.currentTimeMillis()
         }
     }
 
