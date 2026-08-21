@@ -198,9 +198,10 @@ object AiRewriter {
                     }
 
                     onItemProcessed(finalItem)
-                processingNewsIds.remove(item.id)
                 } catch (e: Exception) {
                     LogManager.log("AI_CRITICAL", "Збій: ${e.message}")
+                } finally {
+                    processingNewsIds.remove(item.id)
                 }
             }
         } finally {

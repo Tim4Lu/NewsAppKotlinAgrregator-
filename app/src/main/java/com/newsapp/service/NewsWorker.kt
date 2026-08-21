@@ -257,7 +257,9 @@ class NewsWorker(
 
     private fun saveToCache(newItems: List<NewsItem>) {
         try {
-            val jsonArray = if (cacheFile.exists()) JSONArray(cacheFile.readText()) else JSONArray()
+            val existingArray = if (cacheFile.exists()) JSONArray(cacheFile.readText()) else JSONArray()
+            val newArray = JSONArray()
+            
             newItems.forEach { item ->
                 val obj = JSONObject().apply {
                     put("id", item.id)
@@ -271,9 +273,17 @@ class NewsWorker(
                     put("telegramCaption", item.telegramCaption)
                     put("timestamp", item.timestamp)
                 }
-                jsonArray.put(obj)
+                newArray.put(obj)
             }
-            cacheFile.writeText(jsonArray.toString())
+            
+            val limit = 250 - newItems.size
+            var added = 0
+            for (i in 0 until existingArray.length()) {
+                if (added >= limit) break
+                newArray.put(existingArray.getJSONObject(i))
+                added++
+            }
+            cacheFile.writeText(newArray.toString())
         } catch (e: Exception) { }
     }
 
