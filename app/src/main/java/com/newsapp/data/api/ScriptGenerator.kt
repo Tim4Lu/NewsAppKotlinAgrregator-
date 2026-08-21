@@ -119,13 +119,7 @@ object ScriptGenerator {
     }
 
     private suspend fun callGeminiApi(prompt: String, apiKey: String, modelName: String): String? {
-        val now = System.currentTimeMillis()
-        val timeSinceLastRequest = now - AiRewriter.lastRequestTimestamp
-        if (timeSinceLastRequest < 16_000) {
-            val waitTime = 16_000 - timeSinceLastRequest
-            com.newsapp.data.LogManager.log("AI_RATE", "ScriptGen: Пауза ${waitTime / 1000} сек...")
-            kotlinx.coroutines.delay(waitTime)
-        }
+        AiRewriter.enforceRateLimit()
         return try {
             val url = "https://generativelanguage.googleapis.com/v1beta/models/$modelName:generateContent?key=$apiKey"
             val jsonBody = JSONObject().apply {
@@ -144,7 +138,6 @@ object ScriptGenerator {
             }
 
             if (response.status.value == 200) {
-                AiRewriter.lastRequestTimestamp = System.currentTimeMillis()
                 val json = JSONObject(response.bodyAsText())
                 json.optJSONArray("candidates")
                     ?.optJSONObject(0)
@@ -154,12 +147,10 @@ object ScriptGenerator {
                     ?.optString("text")
             } else {
                 com.newsapp.data.LogManager.log("AI_ERR", "Gemini HTTP ${response.status.value}: ${response.bodyAsText()}")
-                AiRewriter.lastRequestTimestamp = System.currentTimeMillis()
                 null
             }
         } catch (e: Exception) {
             com.newsapp.data.LogManager.log("AI_ERR", "Мережевий збій ScriptGen: ${e.message}")
-            AiRewriter.lastRequestTimestamp = System.currentTimeMillis()
             null
         }
     }

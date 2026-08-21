@@ -16,6 +16,7 @@ import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.contentType
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.sync.withLock
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -42,6 +43,19 @@ object AiRewriter {
 
     private var currentKeyIndex = 0
     var lastRequestTimestamp = 0L
+    val geminiMutex = kotlinx.coroutines.sync.Mutex()
+
+    suspend fun enforceRateLimit() {
+        geminiMutex.withLock {
+            val now = System.currentTimeMillis()
+            val timeSinceLastRequest = now - lastRequestTimestamp
+            if (timeSinceLastRequest < 16_000) {
+                val waitTime = 16_000 - timeSinceLastRequest
+                LogManager.log("AI_RATE", "Замок Mutex: чекаємо ${waitTime / 1000} сек...")
+                delay(waitTime)
+            }
+        }
+    }
 
     private fun getActiveKey(): Pair<String, Int> {
         val keys = apiKeys
@@ -210,13 +224,7 @@ object AiRewriter {
     }
 
     private suspend fun callGeminiApi(prompt: String, apiKey: String, keyNum: Int, modelName: String): String? {
-        val now = System.currentTimeMillis()
-        val timeSinceLastRequest = now - lastRequestTimestamp
-        if (timeSinceLastRequest < 16_000) {
-            val waitTime = 16_000 - timeSinceLastRequest
-            LogManager.log("AI_RATE", "Пауза ${waitTime / 1000} сек...")
-            delay(waitTime)
-        }
+        enforceRateLimit()
 
         return try {
             val url = "https://generativelanguage.googleapis.com/v1beta/models/$modelName:generateContent?key=$apiKey"
@@ -237,7 +245,6 @@ object AiRewriter {
             }
 
             if (response.status.value == 200) {
-                lastRequestTimestamp = System.currentTimeMillis()
                 val json = JSONObject(response.bodyAsText())
                 json.optJSONArray("candidates")
                     ?.optJSONObject(0)
@@ -248,12 +255,10 @@ object AiRewriter {
                     ?.takeIf { it.isNotEmpty() }
             } else {
                 LogManager.log("AI_ERR", "Ключ №$keyNum вичерпано (HTTP ${response.status.value}): ${response.bodyAsText()}")
-                lastRequestTimestamp = System.currentTimeMillis()
                 null
             }
         } catch (e: Exception) {
             LogManager.log("AI_ERR", "Мережевий збій Gemini: ${e.message}")
-            lastRequestTimestamp = System.currentTimeMillis()
             null
         }
     }
