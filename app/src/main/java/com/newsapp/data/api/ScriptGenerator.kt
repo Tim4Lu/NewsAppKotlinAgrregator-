@@ -19,7 +19,6 @@ enum class VoiceMode(val label: String, val maxCharsNoSpaces: Int) {
 }
 
 object ScriptGenerator {
-    private var lastRequestTimestamp = 0L
     private val client = HttpClient(CIO) {
         expectSuccess = false
         engine {
@@ -121,7 +120,7 @@ object ScriptGenerator {
 
     private suspend fun callGeminiApi(prompt: String, apiKey: String, modelName: String): String? {
         val now = System.currentTimeMillis()
-        val timeSinceLastRequest = now - lastRequestTimestamp
+        val timeSinceLastRequest = now - AiRewriter.lastRequestTimestamp
         if (timeSinceLastRequest < 16_000) {
             val waitTime = 16_000 - timeSinceLastRequest
             com.newsapp.data.LogManager.log("AI_RATE", "ScriptGen: Пауза ${waitTime / 1000} сек...")
@@ -145,7 +144,7 @@ object ScriptGenerator {
             }
 
             if (response.status.value == 200) {
-                lastRequestTimestamp = System.currentTimeMillis()
+                AiRewriter.lastRequestTimestamp = System.currentTimeMillis()
                 val json = JSONObject(response.bodyAsText())
                 json.optJSONArray("candidates")
                     ?.optJSONObject(0)
@@ -155,11 +154,12 @@ object ScriptGenerator {
                     ?.optString("text")
             } else {
                 com.newsapp.data.LogManager.log("AI_ERR", "Gemini HTTP ${response.status.value}: ${response.bodyAsText()}")
-                lastRequestTimestamp = System.currentTimeMillis()
+                AiRewriter.lastRequestTimestamp = System.currentTimeMillis()
                 null
             }
         } catch (e: Exception) {
-            lastRequestTimestamp = System.currentTimeMillis()
+            com.newsapp.data.LogManager.log("AI_ERR", "Мережевий збій ScriptGen: ${e.message}")
+            AiRewriter.lastRequestTimestamp = System.currentTimeMillis()
             null
         }
     }
