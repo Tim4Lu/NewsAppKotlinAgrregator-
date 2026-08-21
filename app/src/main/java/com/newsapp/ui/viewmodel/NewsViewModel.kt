@@ -349,6 +349,11 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
 
+        if (newsItem.status == "В черзі" || newsItem.status == "Переклад...") {
+            LogManager.log("TELEGRAM", "Блокування: новина ще обробляється ШІ, зачекайте.")
+            return
+        }
+
         _newsList.value = _newsList.value.map { 
             if (it.id == newsItem.id) it.copy(status = "Відправляється...") else it 
         }
