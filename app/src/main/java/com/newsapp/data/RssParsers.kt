@@ -8,6 +8,7 @@ interface BaseRssParser {
     fun parse(xml: String): List<NewsItem>
 }
 
+class EsaParser : BaseRssParser { override fun parse(xml: String) = parseRobust(xml, "ESA") }
 class NasaParser : BaseRssParser { override fun parse(xml: String) = parseRobust(xml, "NASA") }
 class SpaceComParser : BaseRssParser { override fun parse(xml: String) = parseRobust(xml, "Space.com") }
 class SpaceDailyParser : BaseRssParser { override fun parse(xml: String) = parseRobust(xml, "Space Daily") }
@@ -129,6 +130,7 @@ object NewsParserFactory {
     fun getParser(url: String): BaseRssParser {
         return when {
             url.contains("nasa.gov") -> NasaParser()
+            url.contains("esa.int") -> EsaParser()
             url.contains("space.com") -> SpaceComParser()
             url.contains("spacedaily.com") -> SpaceDailyParser()
             url.contains("universetoday.com") -> UniverseTodayParser()

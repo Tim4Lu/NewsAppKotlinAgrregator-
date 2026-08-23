@@ -46,7 +46,8 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
     private val cacheFile = File(application.filesDir, "saved_news.json")
 
     private val rssUrls = listOf(
-        "https://www.nasa.gov/feed/",
+        "https://www.nasa.gov/news-release/feed/",
+        "https://www.esa.int/rssfeed/TopNews",
         "https://www.space.com/feeds/all",
         "https://www.universetoday.com/feed",
         "https://www.spacedaily.com/spacedaily.xml",
@@ -171,6 +172,7 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
                                 
                                 val sourceName = when {
                                     url.contains("nasa.gov") -> "NASA"
+                                    url.contains("esa.int") -> "ESA"
                                     url.contains("space.com") -> "Space.com"
                                     url.contains("spacedaily") -> "Space Daily"
                                     url.contains("universetoday") -> "Universe Today"

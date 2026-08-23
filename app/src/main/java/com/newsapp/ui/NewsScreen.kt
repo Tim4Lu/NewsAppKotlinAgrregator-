@@ -31,7 +31,7 @@ fun NewsScreen(viewModel: NewsViewModel) {
     val showScrollToTop by remember { derivedStateOf { listState.firstVisibleItemIndex > 0 } }
     
     var selectedSource by remember { mutableStateOf("Усі") }
-    val sources = listOf("Усі", "NASA", "Space.com", "Space Daily", "Universe Today", "Phys.org")
+    val sources = listOf("Усі", "NASA", "ESA", "Space.com", "Space Daily", "Universe Today", "Phys.org")
 
     val filteredNews = if (selectedSource == "Усі") {
         newsList
