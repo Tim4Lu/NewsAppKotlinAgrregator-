@@ -206,6 +206,20 @@ fun NewsActionDialog(
                         ) {
                             Text("✏️ Редагувати / Скоротити текст", color = Color(0xFFCBD5E1))
                         }
+
+                        OutlinedButton(
+                            onClick = {
+                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                val clip = ClipData.newPlainText("Article Link", item.link)
+                                clipboard.setPrimaryClip(clip)
+                                Toast.makeText(context, "🔗 Посилання скопійовано!", Toast.LENGTH_SHORT).show()
+                                onDismiss()
+                            },
+                            modifier = Modifier.fillMaxWidth().height(48.dp),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text("🔗 Скопіювати посилання", color = Color(0xFF38BDF8))
+                        }
                     }
                 } else {
                     Box(
