@@ -109,7 +109,7 @@ object AiRewriter {
 
         while (translatedText == null && attempts < keys.size) {
             val (apiKey, keyNum) = getActiveKey()
-            translatedText = callGeminiApi(prompt, apiKey, keyNum, "gemini-1.5-flash")
+            translatedText = callGeminiApi(prompt, apiKey, keyNum, "gemini-3.6-flash")
 
             if (translatedText == null) {
                 switchToNextKey()
@@ -155,7 +155,7 @@ object AiRewriter {
 
                     while (translatedText == null && attempts < keys.size) {
                         val (apiKey, keyNum) = getActiveKey()
-                        translatedText = callGeminiApi(prompt, apiKey, keyNum, "gemini-1.5-flash")
+                        translatedText = callGeminiApi(prompt, apiKey, keyNum, "gemini-3.6-flash")
 
                         if (translatedText == null) {
                             switchToNextKey()
