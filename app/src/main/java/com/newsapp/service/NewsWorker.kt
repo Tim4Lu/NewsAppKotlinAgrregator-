@@ -121,73 +121,55 @@ class NewsWorker(
 
         for (url in rssUrls) {
                 try {
-                    com.newsapp.data.LogManager.log("FETCH", "Запит: ${url.take(45)}...")
+                    com.newsapp.data.LogManager.log("FETCH", "Запит: ${url.take(45)}")
                     var fetchedItems = listOf<com.newsapp.model.NewsItem>()
-                    var successDirect = false
+                    var success = false
 
-                    val response = client.get(url) {
-                        header(io.ktor.http.HttpHeaders.UserAgent, "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-                        header(io.ktor.http.HttpHeaders.Accept, "application/rss+xml, application/xml, text/xml")
-                    }
-
-                    com.newsapp.data.LogManager.log("FETCH", "HTTP ${response.status.value} для ${url.take(30)}")
-
-                    if (response.status.value in 200..299) {
-                        val bodyText = response.bodyAsText()
-                        com.newsapp.data.LogManager.log("FETCH", "Розмір тіла: ${bodyText.length} симв.")
-                        
-                        val parser = com.newsapp.data.NewsParserFactory.getParser(url)
-                        fetchedItems = parser.parse(bodyText)
-                        
-                        if (fetchedItems.isNotEmpty()) {
-                            successDirect = true
-                            com.newsapp.data.LogManager.log("FETCH_OK", "Знайдено ${fetchedItems.size} новин (прямо)")
-                        } else {
-                            com.newsapp.data.LogManager.log("FETCH_WARN", "Парсер не знайшов новин (можливо XML змінився)")
+                    try {
+                        val response = client.get(url) {
+                            header(io.ktor.http.HttpHeaders.UserAgent, "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                            header(io.ktor.http.HttpHeaders.Accept, "application/rss+xml, application/xml, text/xml, */*")
                         }
-                    } else {
-                        com.newsapp.data.LogManager.log("FETCH_ERR", "Помилка сервера: HTTP ${response.status.value}")
+                        if (response.status.value in 200..299) {
+                            val bodyText = response.bodyAsText()
+                            val parser = com.newsapp.data.NewsParserFactory.getParser(url)
+                            fetchedItems = parser.parse(bodyText)
+                            if (fetchedItems.isNotEmpty()) {
+                                success = true
+                                com.newsapp.data.LogManager.log("FETCH_OK", "Знайдено ${fetchedItems.size} (прямо)")
+                            }
+                        }
+                    } catch (e: Exception) {
+                        // Прямий запит заблоковано або таймаут, йдемо на резерв
                     }
 
-                    if (!successDirect) {
-                        com.newsapp.data.LogManager.log("FETCH", "Спроба через резервний rss2json...")
-                        val cleanUrl = if (url.contains("allorigins")) url.substringAfter("url=") else url
-                        val apiUrl = "https://api.rss2json.com/v1/api.json?rss_url=${java.net.URLEncoder.encode(cleanUrl, "UTF-8")}"
-                        
+                    if (!success) {
+                        val apiUrl = "https://api.rss2json.com/v1/api.json?rss_url=" + java.net.URLEncoder.encode(url, "UTF-8")
                         val jsonResponse = client.get(apiUrl)
-                        com.newsapp.data.LogManager.log("FETCH", "rss2json HTTP: ${jsonResponse.status.value}")
-                        
                         if (jsonResponse.status.value in 200..299) {
-                            val jsonBody = jsonResponse.bodyAsText()
-                            com.newsapp.data.LogManager.log("FETCH", "rss2json тіло: ${jsonBody.length} симв.")
-                            
-                            val json = org.json.JSONObject(jsonBody)
+                            val json = org.json.JSONObject(jsonResponse.bodyAsText())
                             if (json.optString("status") == "ok") {
                                 val itemsArray = json.optJSONArray("items")
                                 val fallbackItems = mutableListOf<com.newsapp.model.NewsItem>()
-                                
                                 val sourceName = when {
-                                    cleanUrl.contains("nasa.gov") -> "NASA"
-                                    cleanUrl.contains("esa.int") -> "ESA"
-                                    cleanUrl.contains("space.com") -> "Space.com"
-                                    cleanUrl.contains("spacedaily") -> "Space Daily"
-                                    cleanUrl.contains("universetoday") -> "Universe Today"
-                                    cleanUrl.contains("phys.org") -> "Phys.org"
+                                    url.contains("nasa.gov") -> "NASA"
+                                    url.contains("esa.int") -> "ESA"
+                                    url.contains("space.com") -> "Space.com"
+                                    url.contains("spacedaily") -> "Space Daily"
+                                    url.contains("universetoday") -> "Universe Today"
+                                    url.contains("phys.org") -> "Phys.org"
                                     else -> "Новина"
                                 }
-
                                 for (i in 0 until (itemsArray?.length() ?: 0)) {
                                     val obj = itemsArray!!.getJSONObject(i)
-                                    var rawTitle = obj.optString("title").replace("(?i)APOD:\\s*(-\\s*)?".toRegex(), "").trim()
+                                    var rawTitle = obj.optString("title").replace("(?i)APOD:\s*(-\s*)?".toRegex(), "").trim()
                                     var rawDesc = obj.optString("description", "").replace(Regex("<[^>]*>"), "").trim()
                                     if (rawDesc.length > 300) rawDesc = rawDesc.take(300) + "..."
-                                    
                                     var img = obj.optString("thumbnail", "")
                                     if (img.isEmpty()) {
                                         val enc = obj.optJSONObject("enclosure")
                                         if (enc != null) img = enc.optString("link", "")
                                     }
-
                                     var ts = System.currentTimeMillis()
                                     val pubDate = obj.optString("pubDate", "")
                                     if (pubDate.isNotEmpty()) {
@@ -196,7 +178,6 @@ class NewsWorker(
                                             ts = sdf.parse(pubDate)?.time ?: ts
                                         } catch(e: Exception) {}
                                     }
-
                                     fallbackItems.add(
                                         com.newsapp.model.NewsItem(
                                             title = rawTitle,
@@ -210,14 +191,17 @@ class NewsWorker(
                                     )
                                 }
                                 fetchedItems = fallbackItems
-                                com.newsapp.data.LogManager.log("FETCH_OK", "Знайдено ${fetchedItems.size} новин (через rss2json)")
-                            } else {
-                                com.newsapp.data.LogManager.log("FETCH_ERR", "Помилка rss2json: ${json.optString("message")}")
+                                if (fetchedItems.isNotEmpty()) {
+                                    com.newsapp.data.LogManager.log("FETCH_OK", "Знайдено ${fetchedItems.size} (через rss2json)")
+                                }
                             }
                         }
                     }
                     rawNews.addAll(fetchedItems)
                 } catch (e: Exception) {
+                    com.newsapp.data.LogManager.log("FETCH_ERR", "Помилка джерела: ${e.message}")
+                }
+            } catch (e: Exception) {
                     com.newsapp.data.LogManager.log("FETCH_ERR", "Критичний збій завантаження ${url.take(30)}: ${e.message}")
                 }
             }
