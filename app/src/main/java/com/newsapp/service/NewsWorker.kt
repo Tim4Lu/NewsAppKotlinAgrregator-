@@ -108,15 +108,15 @@ class NewsWorker(
         }
 
         val rssUrls = listOf(
-        "https://www.nasa.gov/feed/",
-        "https://www.nasa.gov/news-release/feed/",
-        "https://blogs.nasa.gov/feed/",
-        "https://www.esa.int/rssfeed/Our_Activities/Space_Science",
-        "https://www.space.com/feeds/all",
-        "https://www.universetoday.com/feed",
-        "https://www.spacedaily.com/spacedaily.xml",
-        "https://phys.org/rss-feed/space-news/"
-    )
+            "https://www.nasa.gov/feed/",
+            "https://www.nasa.gov/news-release/feed/",
+            "https://blogs.nasa.gov/feed/",
+            "https://www.esa.int/rssfeed/Our_Activities/Space_Science",
+            "https://www.space.com/feeds/all",
+            "https://www.universetoday.com/feed",
+            "https://www.spacedaily.com/spacedaily.xml",
+            "https://phys.org/rss-feed/space-news/"
+        )
 
         val (existingTitles, existingLinks) = getCachedTitlesAndLinks()
         val rawNews = mutableListOf<NewsItem>()

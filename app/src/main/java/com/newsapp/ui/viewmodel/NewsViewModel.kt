@@ -98,7 +98,6 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
                     val normLink = it.link.normalizeUrl()
                     if (normLink.isNotEmpty()) normLink else it.originalTitle.ifEmpty { it.title }
                 }.filter { it.timestamp > thirtyDaysAgo }
-                }
 
                 _newsList.value = uniqueCached.sortedByDescending { it.timestamp }
                 saveNewsToDisk(_newsList.value)
