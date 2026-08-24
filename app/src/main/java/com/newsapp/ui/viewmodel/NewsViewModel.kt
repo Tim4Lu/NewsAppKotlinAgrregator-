@@ -373,7 +373,7 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
         saveNewsToDisk(_newsList.value)
     }
 
-    suspend fun sendNews(newsItem: NewsItem) {
+    fun sendNews(newsItem: NewsItem) {
         if (newsItem.status == "Опубліковано" || newsItem.status == "Відправляється...") {
             LogManager.log("TELEGRAM", "Блокування подвійного кліку: новина вже ${newsItem.status}")
             return
@@ -388,7 +388,7 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
             if (it.id == newsItem.id) it.copy(status = "Відправляється...") else it 
         }
 
-        withContext(Dispatchers.IO) {
+        viewModelScope.launch(Dispatchers.IO) {
             LogManager.log("TELEGRAM", "Надсилання новини: ${newsItem.title}")
             val success = telegramBotService.sendToTelegram(newsItem.telegramCaption, newsItem.image)
             

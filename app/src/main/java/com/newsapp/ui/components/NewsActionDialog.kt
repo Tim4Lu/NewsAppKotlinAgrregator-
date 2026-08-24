@@ -56,7 +56,7 @@ private fun extractCleanVoiceText(fullScript: String): String {
 @Composable
 fun NewsActionDialog(
     item: NewsItem,
-    onPublish: suspend (NewsItem) -> Unit,
+    onPublish: (NewsItem) -> Unit,
     onToggleEdit: (String) -> Unit,
     onRewrite: (NewsItem) -> Unit,
     onDismiss: () -> Unit
@@ -116,10 +116,8 @@ fun NewsActionDialog(
                     ) {
                         Button(
                             onClick = {
-                                scope.launch {
-                                    onPublish(item)
-                                    onDismiss()
-                                }
+                                onPublish(item)
+                                onDismiss()
                             },
                             modifier = Modifier.fillMaxWidth().height(48.dp),
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF059669)),
