@@ -150,6 +150,7 @@ object AiRewriter {
                     onItemProcessed(finalItem)
                 } catch (e: Exception) {
                     LogManager.log("AI_CRITICAL", "Збій: ${e.message}")
+                    onItemProcessed(item.copy(status = "Не перекладено"))
                 } finally {
                     processingNewsIds.remove(item.id)
                 }

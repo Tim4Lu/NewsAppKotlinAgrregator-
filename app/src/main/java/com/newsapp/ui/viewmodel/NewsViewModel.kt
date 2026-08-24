@@ -96,7 +96,7 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
                 val uniqueCached = cached.distinctBy {
                     val normLink = it.link.normalizeUrl()
                     if (normLink.isNotEmpty()) normLink else it.originalTitle.ifEmpty { it.title }
-                }.filter { it.timestamp > thirtyDaysAgo }.filter { it.timestamp > thirtyDaysAgo }
+                }.filter { it.timestamp > thirtyDaysAgo }
 
                 _newsList.value = uniqueCached.sortedByDescending { it.timestamp }
                 saveNewsToDisk(_newsList.value)
@@ -276,13 +276,10 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
                     val freshInitial = freshNews.map { it.copy(status = "В черзі", telegramCaption = "Обробка...") }
                     _newsList.value = (freshInitial + _newsList.value).sortedByDescending { it.timestamp }
                     saveNewsToDisk(_newsList.value)
-                    _isLoading.value = false
-
-                    processNewsWithScraperAndAi(freshNews)
-                } else {
-                    _isLoading.value = false
-                    checkAndRetryUntranslatedNews()
                 }
+                
+                _isLoading.value = false
+                checkAndRetryUntranslatedNews()
             } else {
                 _isLoading.value = false
                 checkAndRetryUntranslatedNews()
