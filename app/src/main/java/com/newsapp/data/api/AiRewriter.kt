@@ -109,7 +109,7 @@ object AiRewriter {
 
         while (translatedText == null && attempts < keys.size) {
             val (apiKey, keyNum) = getActiveKey()
-            translatedText = callGeminiApi(prompt, apiKey, keyNum, "gemini-3.6-flash")
+            translatedText = callGeminiApi(prompt, apiKey, keyNum, "gemini-1.5-flash")
 
             if (translatedText == null) {
                 switchToNextKey()
@@ -131,7 +131,7 @@ object AiRewriter {
             val keysCount = apiKeys.size
             LogManager.log("AI_START", "Обробка ${total} новин (ключів: ${keysCount})")
 
-            val newsToProcess = newsList.filter { !processingNewsIds.contains(it.id) }
+            val newsToProcess = newsList.filter { !processingNewsIds.contains(it.id) }.take(3)
         newsToProcess.forEachIndexed { index, item ->
             processingNewsIds.add(item.id)
                 try {
@@ -155,7 +155,7 @@ object AiRewriter {
 
                     while (translatedText == null && attempts < keys.size) {
                         val (apiKey, keyNum) = getActiveKey()
-                        translatedText = callGeminiApi(prompt, apiKey, keyNum, "gemini-3.6-flash")
+                        translatedText = callGeminiApi(prompt, apiKey, keyNum, "gemini-1.5-flash")
 
                         if (translatedText == null) {
                             switchToNextKey()
@@ -245,6 +245,9 @@ object AiRewriter {
                 setBody(jsonBody.toString())
             }
 
+            if (response.status.value == 429) {
+                LogManager.log("AI_RATE", "Ключ №$keyNum вичерпано (HTTP 429). Робимо кулдаун.")
+            }
             if (response.status.value == 200) {
                 val json = JSONObject(response.bodyAsText())
                 json.optJSONArray("candidates")
