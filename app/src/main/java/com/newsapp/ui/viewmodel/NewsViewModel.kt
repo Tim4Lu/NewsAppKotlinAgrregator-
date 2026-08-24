@@ -49,7 +49,7 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
         "https://www.nasa.gov/feed/",
         "https://www.nasa.gov/news-release/feed/",
         "https://blogs.nasa.gov/feed/",
-        "https://www.esa.int/rssfeed/TopNews",
+        "https://www.esa.int/rssfeed/Our_Activities/Space_Science",
         "https://www.space.com/feeds/all",
         "https://www.universetoday.com/feed",
         "https://www.spacedaily.com/spacedaily.xml",
@@ -93,9 +93,11 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
                     )
                 }
 
+                val thirtyDaysAgo = System.currentTimeMillis() - (30L * 24 * 60 * 60 * 1000)
                 val uniqueCached = cached.distinctBy {
                     val normLink = it.link.normalizeUrl()
                     if (normLink.isNotEmpty()) normLink else it.originalTitle.ifEmpty { it.title }
+                }.filter { it.timestamp > thirtyDaysAgo }
                 }
 
                 _newsList.value = uniqueCached.sortedByDescending { it.timestamp }
