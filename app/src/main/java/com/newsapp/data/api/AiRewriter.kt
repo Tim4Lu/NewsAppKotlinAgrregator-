@@ -16,22 +16,33 @@ import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.contentType
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.json.JSONArray
 import org.json.JSONObject
+import java.util.concurrent.ConcurrentHashMap
 
 object AiRewriter {
-    private val processingNewsIds = mutableSetOf<String>()
-    private val keyCooldowns = mutableMapOf<String, Long>()
+    private val processingNewsIds = ConcurrentHashMap.newKeySet<String>()
+    private val keyCooldowns = ConcurrentHashMap<String, Long>()
 
     private val client = HttpClient(CIO) {
-        expectSuccess = false; engine { requestTimeout = 60_000; endpoint { connectTimeout = 60_000; socketTimeout = 60_000 } }
+        expectSuccess = false
+        engine { 
+            requestTimeout = 60_000 
+            endpoint { 
+                connectTimeout = 60_000 
+                socketTimeout = 60_000 
+            } 
+        }
     }
 
-    private val apiKeys: List<String> get() = BuildConfig.GEMINI_KEYS.replace("\"", "").split(",").map { it.trim() }.filter { it.isNotEmpty() }
+    private val apiKeys: List<String> 
+        get() = BuildConfig.GEMINI_KEYS.replace("\"", "").split(",").map { it.trim() }.filter { it.isNotEmpty() }
+        
     private var currentKeyIndex = 0
     var lastRequestTimestamp = 0L
-    val geminiMutex = kotlinx.coroutines.sync.Mutex()
+    val geminiMutex = Mutex()
 
     suspend fun enforceRateLimit() {
         geminiMutex.withLock {
@@ -62,7 +73,7 @@ object AiRewriter {
     }
 
     private fun markKeyOnCooldown(key: String, keyNum: Int) {
-        LogManager.log("AI_ERR", "Ключ №$keyNum вичерпано. Блокуємо на 1 годину.")
+        LogManager.log("AI_ERR", "Ключ №$keyNum вичерпано (429). Блокуємо на 1 годину.")
         keyCooldowns[key] = System.currentTimeMillis() + (60 * 60 * 1000L)
     }
 
@@ -75,7 +86,9 @@ object AiRewriter {
                 val pMatches = Regex("<p[^>]*>(.*?)</p>", RegexOption.IGNORE_CASE).findAll(cleanHtml)
                 fullOriginalText = pMatches.map { it.groupValues[1].replace(Regex("<[^>]*>"), "").trim() }.filter { t -> t.length > 80 && t.contains(".") }.toList().joinToString("\n\n")
             }
-        } catch (e: Exception) {}
+        } catch (e: Exception) {
+            LogManager.log("AI_WARN", "Помилка парсингу оригіналу: ${e.message}")
+        }
 
         val textToTranslate = if (fullOriginalText.length > 150) fullOriginalText else newsItem.description
         val prompt = "Ти — науковий перекладач. Зроби повний, детальний та якісний переклад усієї статті українською мовою. Збережи всі абзаци, наукові факти, терміни та деталі оригінального тексту. Нічого не скорочуй.\n\nЗаголовок: ${newsItem.originalTitle.ifEmpty { newsItem.title }}\nТекст: $textToTranslate"
@@ -85,7 +98,7 @@ object AiRewriter {
         while (translatedText == null && attempts < apiKeys.size) {
             val active = getActiveKey()
             if (active == null) { LogManager.log("AI_ERR", "Усі ключі на кулдауні!"); break }
-            translatedText = callGeminiApi(prompt, active.first, active.second, "gemini-3.6-flash")
+            translatedText = callGeminiApi(prompt, active.first, active.second, "gemini-2.5-flash")
             if (translatedText == null) attempts++
         }
         return translatedText
@@ -95,12 +108,10 @@ object AiRewriter {
         context?.let { NewsProcessingService.start(it) }
         try {
             val newsToProcess = mutableListOf<NewsItem>()
-            geminiMutex.withLock {
-                for (item in newsList) {
-                    if (!processingNewsIds.contains(item.id) && newsToProcess.size < 3) {
-                        processingNewsIds.add(item.id)
-                        newsToProcess.add(item)
-                    }
+            for (item in newsList) {
+                if (!processingNewsIds.contains(item.id) && newsToProcess.size < 3) {
+                    processingNewsIds.add(item.id)
+                    newsToProcess.add(item)
                 }
             }
             if (newsToProcess.isEmpty()) return
@@ -115,7 +126,7 @@ object AiRewriter {
                     while (translatedText == null && attempts < apiKeys.size) {
                         val active = getActiveKey()
                         if (active == null) { LogManager.log("AI_ERR", "Усі ключі на кулдауні! Зупинка черги."); break }
-                        translatedText = callGeminiApi(prompt, active.first, active.second, "gemini-3.6-flash")
+                        translatedText = callGeminiApi(prompt, active.first, active.second, "gemini-2.5-flash")
                         if (translatedText == null) attempts++
                     }
 
@@ -142,7 +153,7 @@ object AiRewriter {
                 } catch (e: Exception) {
                     LogManager.log("AI_CRITICAL", "Збій: ${e.message}")
                 } finally {
-                    geminiMutex.withLock { processingNewsIds.remove(item.id) }
+                    processingNewsIds.remove(item.id)
                 }
             }
         } finally { context?.let { NewsProcessingService.stop(it) } }
