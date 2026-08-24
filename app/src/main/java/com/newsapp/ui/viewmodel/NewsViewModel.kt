@@ -149,36 +149,58 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
 
             for (url in rssUrls) {
                 try {
-                    var fetchedItems = listOf<NewsItem>()
+                    com.newsapp.data.LogManager.log("FETCH", "Запит: ${url.take(45)}...")
+                    var fetchedItems = listOf<com.newsapp.model.NewsItem>()
                     var successDirect = false
 
                     val response = client.get(url) {
-                        header(HttpHeaders.UserAgent, "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-                        header(HttpHeaders.Accept, "application/rss+xml, application/xml, text/xml")
+                        header(io.ktor.http.HttpHeaders.UserAgent, "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                        header(io.ktor.http.HttpHeaders.Accept, "application/rss+xml, application/xml, text/xml")
                     }
 
+                    com.newsapp.data.LogManager.log("FETCH", "HTTP ${response.status.value} для ${url.take(30)}")
+
                     if (response.status.value in 200..299) {
-                        val parser = NewsParserFactory.getParser(url)
-                        fetchedItems = parser.parse(response.bodyAsText())
-                        if (fetchedItems.isNotEmpty()) successDirect = true
+                        val bodyText = response.bodyAsText()
+                        com.newsapp.data.LogManager.log("FETCH", "Розмір тіла: ${bodyText.length} симв.")
+                        
+                        val parser = com.newsapp.data.NewsParserFactory.getParser(url)
+                        fetchedItems = parser.parse(bodyText)
+                        
+                        if (fetchedItems.isNotEmpty()) {
+                            successDirect = true
+                            com.newsapp.data.LogManager.log("FETCH_OK", "Знайдено ${fetchedItems.size} новин (прямо)")
+                        } else {
+                            com.newsapp.data.LogManager.log("FETCH_WARN", "Парсер не знайшов новин (можливо XML змінився)")
+                        }
+                    } else {
+                        com.newsapp.data.LogManager.log("FETCH_ERR", "Помилка сервера: HTTP ${response.status.value}")
                     }
 
                     if (!successDirect) {
-                        val apiUrl = "https://api.rss2json.com/v1/api.json?rss_url=${URLEncoder.encode(url, "UTF-8")}"
+                        com.newsapp.data.LogManager.log("FETCH", "Спроба через резервний rss2json...")
+                        val cleanUrl = if (url.contains("allorigins")) url.substringAfter("url=") else url
+                        val apiUrl = "https://api.rss2json.com/v1/api.json?rss_url=${java.net.URLEncoder.encode(cleanUrl, "UTF-8")}"
+                        
                         val jsonResponse = client.get(apiUrl)
+                        com.newsapp.data.LogManager.log("FETCH", "rss2json HTTP: ${jsonResponse.status.value}")
+                        
                         if (jsonResponse.status.value in 200..299) {
-                            val json = JSONObject(jsonResponse.bodyAsText())
+                            val jsonBody = jsonResponse.bodyAsText()
+                            com.newsapp.data.LogManager.log("FETCH", "rss2json тіло: ${jsonBody.length} симв.")
+                            
+                            val json = org.json.JSONObject(jsonBody)
                             if (json.optString("status") == "ok") {
                                 val itemsArray = json.optJSONArray("items")
-                                val fallbackItems = mutableListOf<NewsItem>()
+                                val fallbackItems = mutableListOf<com.newsapp.model.NewsItem>()
                                 
                                 val sourceName = when {
-                                    url.contains("nasa.gov") -> "NASA"
-                                    url.contains("esa.int") -> "ESA"
-                                    url.contains("space.com") -> "Space.com"
-                                    url.contains("spacedaily") -> "Space Daily"
-                                    url.contains("universetoday") -> "Universe Today"
-                                    url.contains("phys.org") -> "Phys.org"
+                                    cleanUrl.contains("nasa.gov") -> "NASA"
+                                    cleanUrl.contains("esa.int") -> "ESA"
+                                    cleanUrl.contains("space.com") -> "Space.com"
+                                    cleanUrl.contains("spacedaily") -> "Space Daily"
+                                    cleanUrl.contains("universetoday") -> "Universe Today"
+                                    cleanUrl.contains("phys.org") -> "Phys.org"
                                     else -> "Новина"
                                 }
 
@@ -198,13 +220,13 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
                                     val pubDate = obj.optString("pubDate", "")
                                     if (pubDate.isNotEmpty()) {
                                         try {
-                                            val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.ENGLISH)
+                                            val sdf = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.ENGLISH)
                                             ts = sdf.parse(pubDate)?.time ?: ts
                                         } catch(e: Exception) {}
                                     }
 
                                     fallbackItems.add(
-                                        NewsItem(
+                                        com.newsapp.model.NewsItem(
                                             title = rawTitle,
                                             originalTitle = obj.optString("title"),
                                             link = obj.optString("link").split(" ")[0],
@@ -216,11 +238,16 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
                                     )
                                 }
                                 fetchedItems = fallbackItems
+                                com.newsapp.data.LogManager.log("FETCH_OK", "Знайдено ${fetchedItems.size} новин (через rss2json)")
+                            } else {
+                                com.newsapp.data.LogManager.log("FETCH_ERR", "Помилка rss2json: ${json.optString("message")}")
                             }
                         }
                     }
                     rawNews.addAll(fetchedItems)
-                } catch (e: Exception) {}
+                } catch (e: Exception) {
+                    com.newsapp.data.LogManager.log("FETCH_ERR", "Критичний збій завантаження ${url.take(30)}: ${e.message}")
+                }
             }
 
             if (rawNews.isNotEmpty()) {
