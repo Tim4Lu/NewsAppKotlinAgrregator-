@@ -46,11 +46,11 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
     private val cacheFile = File(application.filesDir, "saved_news.json")
 
     private val rssUrls = listOf(
-        "https://api.allorigins.win/raw?url=https://www.nasa.gov/feed/",
-        "https://api.allorigins.win/raw?url=https://www.nasa.gov/news-release/feed/",
-        "https://api.allorigins.win/raw?url=https://blogs.nasa.gov/feed/",
+        "https://www.nasa.gov/feed/",
+        "https://www.nasa.gov/news-release/feed/",
+        "https://blogs.nasa.gov/feed/",
         "https://www.esa.int/rssfeed/TopNews",
-        "https://api.allorigins.win/raw?url=https://www.space.com/feeds/all",
+        "https://www.space.com/feeds/all",
         "https://www.universetoday.com/feed",
         "https://www.spacedaily.com/spacedaily.xml",
         "https://phys.org/rss-feed/space-news/"
