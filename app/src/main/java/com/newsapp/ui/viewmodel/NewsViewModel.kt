@@ -100,7 +100,6 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
 
                 _newsList.value = uniqueCached.sortedByDescending { it.timestamp }
                 saveNewsToDisk(_newsList.value)
-                checkAndRetryUntranslatedNews()
             }
         } catch (e: Exception) {}
     }
