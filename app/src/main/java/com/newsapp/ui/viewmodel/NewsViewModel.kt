@@ -92,8 +92,6 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
                         )
                     )
                 }
-
-                val thirtyDaysAgo = System.currentTimeMillis() - (30L * 24 * 60 * 60 * 1000)
                 val thirtyDaysAgo = System.currentTimeMillis() - (30L * 24 * 60 * 60 * 1000)
                 val uniqueCached = cached.distinctBy {
                     val normLink = it.link.normalizeUrl()
