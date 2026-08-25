@@ -94,9 +94,8 @@ object AiRewriter {
         var translatedText: String? = null
         var attempts = 0
         while (translatedText == null && attempts < apiKeys.size) {
-            val active = getActiveKey()
-            if (active == null) { LogManager.log("AI_ERR", "Усі ключі на кулдауні!"); break }
-            translatedText = callGeminiApi(prompt, active.first, active.second, "gemini-3.6-flash")
+            if (getActiveKey() == null) { LogManager.log("AI_ERR", "Усі ключі на кулдауні!"); break }
+            translatedText = callGeminiApi(prompt, "gemini-3.6-flash")
             if (translatedText == null) attempts++
         }
         return translatedText
@@ -122,9 +121,8 @@ object AiRewriter {
                     var attempts = 0
 
                     while (translatedText == null && attempts < apiKeys.size) {
-                        val active = getActiveKey()
-                        if (active == null) { LogManager.log("AI_ERR", "Усі ключі на кулдауні! Зупинка черги."); break }
-                        translatedText = callGeminiApi(prompt, active.first, active.second, "gemini-3.6-flash")
+                        if (getActiveKey() == null) { LogManager.log("AI_ERR", "Усі ключі на кулдауні! Зупинка черги."); break }
+                        translatedText = callGeminiApi(prompt, "gemini-3.6-flash")
                         if (translatedText == null) attempts++
                     }
 
@@ -158,8 +156,15 @@ object AiRewriter {
         } finally { context?.let { NewsProcessingService.stop(it) } }
     }
 
-    private suspend fun callGeminiApi(prompt: String, apiKey: String, keyNum: Int, modelName: String): String? {
+    private suspend fun callGeminiApi(prompt: String, modelName: String): String? {
         enforceRateLimit()
+        val active = getActiveKey()
+        if (active == null) {
+            LogManager.log("AI_ERR", "Усі ключі на кулдауні! Зупинка черги.")
+            return null
+        }
+        val apiKey = active.first
+        val keyNum = active.second
         return try {
             val response = client.post("https://generativelanguage.googleapis.com/v1beta/models/$modelName:generateContent?key=$apiKey") {
                 contentType(ContentType.Application.Json)
