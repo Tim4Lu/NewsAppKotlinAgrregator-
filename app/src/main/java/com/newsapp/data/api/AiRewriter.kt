@@ -106,7 +106,7 @@ object AiRewriter {
         try {
             val newsToProcess = mutableListOf<NewsItem>()
             for (item in newsList) {
-                if (!processingNewsIds.contains(item.id) && newsToProcess.size < 3) {
+                if (!processingNewsIds.contains(item.id) ) {
                     processingNewsIds.add(item.id)
                     newsToProcess.add(item)
                 }

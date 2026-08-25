@@ -129,7 +129,7 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
     fun checkAndRetryUntranslatedNews() {
         val untranslated = _newsList.value.filter { 
             it.status == "Не перекладено" || it.status == "В черзі" 
-        }.take(3)
+        }
         if (untranslated.isNotEmpty()) {
             LogManager.log("AI_AUTO_RETRY", "Автоперевірка: знайдено ${untranslated.size} неперекладених новин. Запуск ШІ...")
             viewModelScope.launch(Dispatchers.IO) {
