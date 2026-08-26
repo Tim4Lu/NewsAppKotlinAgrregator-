@@ -18,7 +18,7 @@ class NewsProcessingService : Service() {
         if (intent?.action == ACTION_STOP) {
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
-            return START_NOT_STICKY
+            return START_STICKY
         }
 
         try {
