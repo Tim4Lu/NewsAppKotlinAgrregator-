@@ -172,7 +172,7 @@ object AiRewriter {
             }
             if (response.status.value == 200) {
                 JSONObject(response.bodyAsText()).optJSONArray("candidates")?.optJSONObject(0)?.optJSONObject("content")?.optJSONArray("parts")?.optJSONObject(0)?.optString("text")?.takeIf { it.isNotEmpty() }
-            } else if (response.status.value == 429) {
+            } else if (response.status.value == 429 || response.status.value == 401) {
                 markKeyOnCooldown(apiKey, keyNum)
                 null
             } else {
