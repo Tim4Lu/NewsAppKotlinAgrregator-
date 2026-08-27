@@ -81,6 +81,12 @@ private fun parseRobust(xml: String, sourceName: String): List<NewsItem> {
                 val imgMatch = Regex("(?i)<img[^>]+src=[\"']([^\"']+)[\"']").find(block)
                 if (imgMatch != null) img = imgMatch.groupValues.getOrNull(1)
             }
+            
+            // Відновлення оригінальної якості картинок (Phys.org + WP)
+            if (img != null) {
+                img = img.replace("/tmb/", "/")
+                         .replace(Regex("-\\d{2,4}x\\d{2,4}(?=\\.[a-zA-Z]+)"), "")
+            }
 
             var timestamp = System.currentTimeMillis()
             val dateMatch = Regex("(?i)<(?:pubDate|published|dc:date)[^>]*>(.*?)</(?:pubDate|published|dc:date)>").find(block)

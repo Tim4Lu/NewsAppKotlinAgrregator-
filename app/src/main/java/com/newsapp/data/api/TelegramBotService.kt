@@ -48,7 +48,7 @@ class TelegramBotService {
                 ?: return null
 
             val outputStream = ByteArrayOutputStream()
-            bitmap.compress(Bitmap.CompressFormat.JPEG, 100, outputStream)
+            bitmap.compress(Bitmap.CompressFormat.JPEG, 75, outputStream)
             val jpegBytes = outputStream.toByteArray()
             
             LogManager.log("Telegram", "Картинку успішно конвертовано в JPEG (${jpegBytes.size / 1024} KB)")

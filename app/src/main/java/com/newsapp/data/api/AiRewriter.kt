@@ -147,6 +147,7 @@ object AiRewriter {
                     }
                     onItemProcessed(finalItem)
                 } catch (e: Exception) {
+                    if (e is kotlinx.coroutines.CancellationException) throw e
                     LogManager.log("AI_CRITICAL", "Збій: ${e.message}")
                     onItemProcessed(item.copy(status = "Не перекладено"))
                 } finally {
@@ -177,8 +178,8 @@ object AiRewriter {
                 keyCooldowns[apiKey] = System.currentTimeMillis() + (24 * 60 * 60 * 1000L)
                 null
             } else if (response.status.value == 429) {
-                LogManager.log("AI_WARN", "Ключ №$keyNum ліміт (429). Чекаємо 10 сек...")
-                delay(10_000)
+                LogManager.log("AI_WARN", "Ключ №$keyNum ліміт (429). Охолодження 60 сек, перемикаємось...")
+                keyCooldowns[apiKey] = System.currentTimeMillis() + 60_000L
                 null
             } else {
                 LogManager.log("AI_ERR", "Gemini HTTP ${response.status.value}: ${response.bodyAsText()}")
