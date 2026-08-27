@@ -172,8 +172,13 @@ object AiRewriter {
             }
             if (response.status.value == 200) {
                 JSONObject(response.bodyAsText()).optJSONArray("candidates")?.optJSONObject(0)?.optJSONObject("content")?.optJSONArray("parts")?.optJSONObject(0)?.optString("text")?.takeIf { it.isNotEmpty() }
-            } else if (response.status.value == 429 || response.status.value == 401) {
-                markKeyOnCooldown(apiKey, keyNum)
+            } else if (response.status.value == 401) {
+                LogManager.log("AI_ERR", "Ключ №$keyNum недійсний (401). Видаляємо з ротації.")
+                keyCooldowns[apiKey] = System.currentTimeMillis() + (24 * 60 * 60 * 1000L)
+                null
+            } else if (response.status.value == 429) {
+                LogManager.log("AI_WARN", "Ключ №$keyNum ліміт (429). Чекаємо 10 сек...")
+                delay(10_000)
                 null
             } else {
                 LogManager.log("AI_ERR", "Gemini HTTP ${response.status.value}: ${response.bodyAsText()}")
