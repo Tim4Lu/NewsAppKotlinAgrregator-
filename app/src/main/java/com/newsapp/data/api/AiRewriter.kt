@@ -178,13 +178,24 @@ object AiRewriter {
                 keyCooldowns[apiKey] = System.currentTimeMillis() + (24 * 60 * 60 * 1000L)
                 null
             } else if (response.status.value == 429) {
-                LogManager.log("AI_WARN", "Ключ №$keyNum ліміт (429). Охолодження 60 сек, перемикаємось...")
-                keyCooldowns[apiKey] = System.currentTimeMillis() + 60_000L
+                val errBody = try { response.bodyAsText().lowercase() } catch (e: Exception) { "" }
+                if (errBody.contains("per day") || errBody.contains("quota")) {
+                    LogManager.log("AI_ERR", "Ключ №$keyNum вичерпав ДЕННИЙ ліміт. Блок на 24 год.")
+                    keyCooldowns[apiKey] = System.currentTimeMillis() + (24 * 60 * 60 * 1000L)
+                } else {
+                    LogManager.log("AI_WARN", "Ключ №$keyNum перевантажений (RPM). Пауза 5 хв...")
+                    keyCooldowns[apiKey] = System.currentTimeMillis() + (5 * 60 * 1000L)
+                }
                 null
             } else {
                 LogManager.log("AI_ERR", "Gemini HTTP ${response.status.value}: ${response.bodyAsText()}")
                 null
             }
-        } catch (e: Exception) { LogManager.log("AI_ERR", "Мережевий збій Gemini: ${e.message}"); null }
+        } catch (e: Exception) {
+                val msg = e.message ?: ""
+                if (msg.contains("EOF")) LogManager.log("AI_WARN", "Мережа: обрив з'єднання (EOF). Повтор...")
+                else LogManager.log("AI_ERR", "Мережевий збій Gemini: $msg")
+                null 
+            }
     }
 }
