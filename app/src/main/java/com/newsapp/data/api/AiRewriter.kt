@@ -114,14 +114,19 @@ object AiRewriter {
             if (newsToProcess.isEmpty()) return
             LogManager.log("AI_START", "Безпечна обробка ${newsToProcess.size} новин")
 
-            newsToProcess.forEach { item ->
+            var isQueueStopped = false
+        for (item in newsToProcess) {
+            if (isQueueStopped) {
+                processingNewsIds.remove(item.id)
+                continue
+            }
                 try {
                     val prompt = "Зроби пост для Telegram українською. СТИСЛО!\n1. Яскравий заголовок.\n2. 2 речення суті.\n3. 3 головні факти булітами (•).\nБез вступів, без \"Ось переклад\", без **. Джерело не пиши.\n\nЗаголовок: ${item.title.replace("\"", "'").replace("\n", " ").replace("🚀", "")}\nТекст: ${item.description.replace("\"", "'").replace("\n", " ")}"
                     var translatedText: String? = null
                     var attempts = 0
 
                     while (translatedText == null && attempts < apiKeys.size) {
-                        if (getActiveKey() == null) { LogManager.log("AI_ERR", "Усі ключі на кулдауні! Зупинка черги."); break }
+                        if (getActiveKey() == null) { LogManager.log("AI_ERR", "Ключі вичерпано! Зупиняємо всю чергу."); isQueueStopped = true; break }
                         translatedText = callGeminiApi(prompt, "gemini-3.6-flash")
                         if (translatedText == null) attempts++
                     }
@@ -157,6 +162,19 @@ object AiRewriter {
         } finally { context?.let { NewsProcessingService.stop(it) } }
     }
 
+
+    private fun getNextQuotaResetTime(): Long {
+        val cal = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("Europe/Kiev"))
+        if (cal.get(java.util.Calendar.HOUR_OF_DAY) >= 10) {
+            cal.add(java.util.Calendar.DAY_OF_YEAR, 1)
+        }
+        cal.set(java.util.Calendar.HOUR_OF_DAY, 10)
+        cal.set(java.util.Calendar.MINUTE, 0)
+        cal.set(java.util.Calendar.SECOND, 0)
+        cal.set(java.util.Calendar.MILLISECOND, 0)
+        return cal.timeInMillis
+    }
+
     private suspend fun callGeminiApi(prompt: String, modelName: String): String? {
         enforceRateLimit()
         val active = getActiveKey()
@@ -180,9 +198,10 @@ object AiRewriter {
             } else if (response.status.value == 429) {
                 val errBody = try { response.bodyAsText().lowercase() } catch (e: Exception) { "" }
                 if (errBody.contains("per day") || errBody.contains("quota")) {
-                    LogManager.log("AI_ERR", "Ключ №$keyNum вичерпав ДЕННИЙ ліміт. Блок на 24 год.")
-                    keyCooldowns[apiKey] = System.currentTimeMillis() + (24 * 60 * 60 * 1000L)
-                } else {
+                val resetTime = getNextQuotaResetTime()
+                LogManager.log("AI_ERR", "Ключ №$keyNum вичерпав денний ліміт. Блок до 10:00 ранку.")
+                keyCooldowns[apiKey] = resetTime
+            } else {
                     LogManager.log("AI_WARN", "Ключ №$keyNum перевантажений (RPM). Пауза 5 хв...")
                     keyCooldowns[apiKey] = System.currentTimeMillis() + (5 * 60 * 1000L)
                 }
