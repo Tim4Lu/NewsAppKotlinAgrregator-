@@ -131,6 +131,10 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
             it.status == "Не перекладено" || it.status == "В черзі" 
         }
         if (untranslated.isNotEmpty()) {
+            if (AiRewriter.isGloballyBlocked()) {
+                LogManager.log("AI_AUTO", "ШІ чекає до ${AiRewriter.getBlockTimeFormatted()}.")
+                return
+            }
             LogManager.log("AI_AUTO_RETRY", "Автоперевірка: знайдено ${untranslated.size} неперекладених новин. Запуск ШІ...")
             viewModelScope.launch(Dispatchers.IO) {
                 processNewsWithScraperAndAi(untranslated)

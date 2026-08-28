@@ -105,53 +105,18 @@ object ScriptGenerator {
 
         var result: String? = null
         var attempts = 0
-        val keys = apiKeys
 
-        while (result == null && attempts < keys.size) {
-            val key = getActiveKey()
-            result = callGeminiApi(prompt, key, "gemini-3.6-flash")
+        while (result == null && attempts < 5) {
+            if (AiRewriter.isGloballyBlocked()) {
+                com.newsapp.data.LogManager.log("AI_ERR", "Ліміти вичерпано! Дочекайтесь ${AiRewriter.getBlockTimeFormatted()}")
+                break
+            }
+            result = AiRewriter.callGeminiApi(prompt, "gemini-3.6-flash")
             if (result == null) {
-                switchToNextKey()
                 attempts++
+                kotlinx.coroutines.delay(2000)
             }
         }
         return result
-    }
-
-    private suspend fun callGeminiApi(prompt: String, apiKey: String, modelName: String): String? {
-        AiRewriter.enforceRateLimit()
-        return try {
-            val url = "https://generativelanguage.googleapis.com/v1beta/models/$modelName:generateContent?key=$apiKey"
-            val jsonBody = JSONObject().apply {
-                put("contents", JSONArray().apply {
-                    put(JSONObject().apply {
-                        put("parts", JSONArray().apply {
-                            put(JSONObject().apply { put("text", prompt) })
-                        })
-                    })
-                })
-            }
-
-            val response = client.post(url) {
-                contentType(ContentType.Application.Json)
-                setBody(jsonBody.toString())
-            }
-
-            if (response.status.value == 200) {
-                val json = JSONObject(response.bodyAsText())
-                json.optJSONArray("candidates")
-                    ?.optJSONObject(0)
-                    ?.optJSONObject("content")
-                    ?.optJSONArray("parts")
-                    ?.optJSONObject(0)
-                    ?.optString("text")
-            } else {
-                com.newsapp.data.LogManager.log("AI_ERR", "Gemini HTTP ${response.status.value}: ${response.bodyAsText()}")
-                null
-            }
-        } catch (e: Exception) {
-            com.newsapp.data.LogManager.log("AI_ERR", "Мережевий збій ScriptGen: ${e.message}")
-            null
-        }
     }
 }

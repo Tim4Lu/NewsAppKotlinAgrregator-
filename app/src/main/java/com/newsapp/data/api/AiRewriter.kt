@@ -175,7 +175,23 @@ object AiRewriter {
         return cal.timeInMillis
     }
 
-    private suspend fun callGeminiApi(prompt: String, modelName: String): String? {
+
+    fun isGloballyBlocked(): Boolean {
+        val keys = apiKeys
+        if (keys.isEmpty()) return false
+        val nextTime = keys.map { keyCooldowns[it] ?: 0L }.minOrNull() ?: 0L
+        return System.currentTimeMillis() < nextTime
+    }
+
+    fun getBlockTimeFormatted(): String {
+        val keys = apiKeys
+        if (keys.isEmpty()) return ""
+        val nextTime = keys.map { keyCooldowns[it] ?: 0L }.minOrNull() ?: 0L
+        val sdf = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
+        return sdf.format(java.util.Date(nextTime))
+    }
+
+    suspend fun callGeminiApi(prompt: String, modelName: String): String? {
         enforceRateLimit()
         val active = getActiveKey()
         if (active == null) {
@@ -214,6 +230,7 @@ object AiRewriter {
                 val msg = e.message ?: ""
                 if (msg.contains("EOF")) LogManager.log("AI_WARN", "Мережа: обрив з'єднання (EOF). Повтор...")
                 else LogManager.log("AI_ERR", "Мережевий збій Gemini: $msg")
+                keyCooldowns[apiKey] = System.currentTimeMillis() + 30_000L // Пауза 30с від спаму
                 null 
             }
     }

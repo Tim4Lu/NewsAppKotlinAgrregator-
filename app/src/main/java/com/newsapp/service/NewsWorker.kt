@@ -253,9 +253,13 @@ class NewsWorker(
             }
             saveToCache(enrichedNews)
 
-            AiRewriter.processAllNewsWithAi(enrichedNews, appContext) { item ->
+            if (AiRewriter.isGloballyBlocked()) {
+                LogManager.log("WORKER", "ШІ заблоковано до ${AiRewriter.getBlockTimeFormatted()}. Новини додано в чергу.")
+            } else {
+                AiRewriter.processAllNewsWithAi(enrichedNews, appContext) { item ->
                 updateItemInCache(item)
                 showNewsNotification(item)
+                }
             }
         }
         return Result.success()
