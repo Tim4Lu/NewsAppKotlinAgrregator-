@@ -49,6 +49,7 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
         "https://www.nasa.gov/feed/",
         "https://www.nasa.gov/news-release/feed/",
         "https://blogs.nasa.gov/feed/",
+        "https://www.esa.int/rssfeed/TopNews",
         "https://www.esa.int/rssfeed/Our_Activities/Space_Science",
         "https://www.space.com/feeds/all/",
         "https://www.universetoday.com/feed",
@@ -128,7 +129,7 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
 
     fun checkAndRetryUntranslatedNews() {
         val untranslated = _newsList.value.filter { 
-            it.status == "Не перекладено" || it.status == "В черзі" 
+            it.status == "В черзі" 
         }
         if (untranslated.isNotEmpty()) {
             if (AiRewriter.isGloballyBlocked()) {
@@ -157,7 +158,7 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
                     var successDirect = false
 
                     val response = client.get(url) {
-                        header(io.ktor.http.HttpHeaders.UserAgent, "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                        header(io.ktor.http.HttpHeaders.UserAgent, "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
                         header(io.ktor.http.HttpHeaders.Accept, "application/rss+xml, application/xml, text/xml")
                     }
 

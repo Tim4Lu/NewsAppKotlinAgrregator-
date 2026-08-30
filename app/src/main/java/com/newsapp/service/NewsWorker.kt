@@ -50,7 +50,7 @@ class NewsWorker(
         try {
             if (url.isEmpty()) return Pair("", null)
             val response = client.get(url) {
-                header(io.ktor.http.HttpHeaders.UserAgent, "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                header(io.ktor.http.HttpHeaders.UserAgent, "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
             }
             val html = response.bodyAsText()
             var imageUrl: String? = null
@@ -128,7 +128,7 @@ class NewsWorker(
                     var successDirect = false
 
                     val response = client.get(url) {
-                        header(io.ktor.http.HttpHeaders.UserAgent, "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                        header(io.ktor.http.HttpHeaders.UserAgent, "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
                         header(io.ktor.http.HttpHeaders.Accept, "application/rss+xml, application/xml, text/xml")
                     }
 
