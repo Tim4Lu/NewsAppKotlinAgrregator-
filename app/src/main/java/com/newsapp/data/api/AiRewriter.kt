@@ -207,12 +207,32 @@ object AiRewriter {
             }
             if (response.status.value == 200) {
                 JSONObject(response.bodyAsText()).optJSONArray("candidates")?.optJSONObject(0)?.optJSONObject("content")?.optJSONArray("parts")?.optJSONObject(0)?.optString("text")?.takeIf { it.isNotEmpty() }
-            } else if (response.status.value == 401) {
-                LogManager.log("AI_ERR", "Ключ №$keyNum недійсний (401). Видаляємо з ротації.")
-                keyCooldowns[apiKey] = System.currentTimeMillis() + (24 * 60 * 60 * 1000L)
+            } else {
+                val respBody = try { response.bodyAsText() } catch (e: Exception) { "" }
+                val errBody = respBody.lowercase()
+                
+                if (response.status.value == 401) {
+                    LogManager.log("AI_ERR", "Ключ №$keyNum недійсний (401). Видаляємо з ротації.")
+                    keyCooldowns[apiKey] = System.currentTimeMillis() + (24 * 60 * 60 * 1000L)
+                } else if (response.status.value == 429) {
+                    if (errBody.contains("per day") || errBody.contains("quota")) {
+                        val resetTime = getNextQuotaResetTime()
+                        LogManager.log("AI_ERR", "Ключ №$keyNum вичерпав денний ліміт. Блок до 10:00 ранку.")
+                        keyCooldowns[apiKey] = resetTime
+                    } else {
+                        LogManager.log("AI_WARN", "Ключ №$keyNum перевантажений (RPM). Пауза 2 хв...")
+                        keyCooldowns[apiKey] = System.currentTimeMillis() + (2 * 60 * 1000L)
+                    }
+                } else if (response.status.value == 503 || errBody.contains("unavailable") || errBody.contains("high demand")) {
+                    LogManager.log("AI_WARN", "Ключ №$keyNum перевантажений (HTTP 503 High Demand). Пауза 2 хв...")
+                    keyCooldowns[apiKey] = System.currentTimeMillis() + (2 * 60 * 1000L)
+                } else {
+                    LogManager.log("AI_ERR", "Gemini HTTP ${response.status.value}: $respBody")
+                    keyCooldowns[apiKey] = System.currentTimeMillis() + 30_000L
+                }
                 null
-            } else if (response.status.value == 429) {
-                val errBody = try { response.bodyAsText().lowercase() } catch (e: Exception) { "" }
+            }
+        } catch (e: Exception) { "" }
                 if (errBody.contains("per day") || errBody.contains("quota")) {
                 val resetTime = getNextQuotaResetTime()
                 LogManager.log("AI_ERR", "Ключ №$keyNum вичерпав денний ліміт. Блок до 10:00 ранку.")
