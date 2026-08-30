@@ -88,15 +88,17 @@ private fun parseRobust(xml: String, sourceName: String): List<NewsItem> {
                          .replace(Regex("-\\d{2,4}x\\d{2,4}(?=\\.[a-zA-Z]+)"), "")
             }
 
-            var timestamp = System.currentTimeMillis()
+            var timestamp = 0L
             val dateMatch = Regex("(?i)<(?:pubDate|published|dc:date)[^>]*>(.*?)</(?:pubDate|published|dc:date)>").find(block)
             if (dateMatch != null) {
                 val dateStr = dateMatch.groupValues[1].cleanHtmlAndEntities()
                 val formats = listOf(
                     "EEE, dd MMM yyyy HH:mm:ss Z",
                     "EEE, dd MMM yyyy HH:mm:ss zzz",
+                    "EEE, dd MMM yyyy",
                     "yyyy-MM-dd'T'HH:mm:ss'Z'",
                     "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",
+                    "yyyy-MM-dd'T'HH:mm:ssXXX",
                     "yyyy-MM-dd HH:mm:ss"
                 )
                 for (format in formats) {

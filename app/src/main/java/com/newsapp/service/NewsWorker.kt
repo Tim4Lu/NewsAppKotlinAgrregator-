@@ -109,8 +109,8 @@ class NewsWorker(
 
         val rssUrls = listOf(
             "https://www.nasa.gov/feed/",
-            "https://www.nasa.gov/news-release/feed/",
-            "https://blogs.nasa.gov/feed/",
+            "https://science.nasa.gov/feed/",
+            "https://www.esa.int/rssfeed/TopNews",
             "https://www.esa.int/rssfeed/Our_Activities/Space_Science",
             "https://www.space.com/feeds/all/",
             "https://www.universetoday.com/feed",
@@ -190,7 +190,7 @@ class NewsWorker(
                                         if (enc != null) img = enc.optString("link", "")
                                     }
 
-                                    var ts = System.currentTimeMillis()
+                                    var ts = 0L
                                     val pubDate = obj.optString("pubDate", "")
                                     if (pubDate.isNotEmpty()) {
                                         try {

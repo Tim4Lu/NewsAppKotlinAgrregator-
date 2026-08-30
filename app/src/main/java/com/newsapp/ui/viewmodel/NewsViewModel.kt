@@ -92,11 +92,11 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
                         )
                     )
                 }
-                val thirtyDaysAgo = System.currentTimeMillis() - (30L * 24 * 60 * 60 * 1000)
+                val threeDaysAgo = System.currentTimeMillis() - (3L * 24 * 60 * 60 * 1000)
                 val uniqueCached = cached.distinctBy {
                     val normLink = it.link.normalizeUrl()
                     if (normLink.isNotEmpty()) normLink else it.originalTitle.ifEmpty { it.title }
-                }.filter { it.timestamp > thirtyDaysAgo }
+                }.filter { it.timestamp > threeDaysAgo }
 
                 _newsList.value = uniqueCached.sortedByDescending { it.timestamp }
                 saveNewsToDisk(_newsList.value)
@@ -219,7 +219,7 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
                                         if (enc != null) img = enc.optString("link", "")
                                     }
 
-                                    var ts = System.currentTimeMillis()
+                                    var ts = 0L
                                     val pubDate = obj.optString("pubDate", "")
                                     if (pubDate.isNotEmpty()) {
                                         try {
