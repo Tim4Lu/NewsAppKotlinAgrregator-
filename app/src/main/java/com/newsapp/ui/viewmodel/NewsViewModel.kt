@@ -219,7 +219,7 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
                                         if (enc != null) img = enc.optString("link", "")
                                     }
 
-                                    var ts = 0L
+                                    var ts = System.currentTimeMillis()
                                     val pubDate = obj.optString("pubDate", "")
                                     if (pubDate.isNotEmpty()) {
                                         try {

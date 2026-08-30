@@ -72,6 +72,33 @@ object AiRewriter {
         return null
     }
 
+    private fun getNextQuotaResetTime(): Long {
+        val cal = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("Europe/Kiev"))
+        if (cal.get(java.util.Calendar.HOUR_OF_DAY) >= 10) {
+            cal.add(java.util.Calendar.DAY_OF_YEAR, 1)
+        }
+        cal.set(java.util.Calendar.HOUR_OF_DAY, 10)
+        cal.set(java.util.Calendar.MINUTE, 0)
+        cal.set(java.util.Calendar.SECOND, 0)
+        cal.set(java.util.Calendar.MILLISECOND, 0)
+        return cal.timeInMillis
+    }
+
+    fun isGloballyBlocked(): Boolean {
+        val keys = apiKeys
+        if (keys.isEmpty()) return false
+        val nextTime = keys.map { keyCooldowns[it] ?: 0L }.minOrNull() ?: 0L
+        return System.currentTimeMillis() < nextTime
+    }
+
+    fun getBlockTimeFormatted(): String {
+        val keys = apiKeys
+        if (keys.isEmpty()) return ""
+        val nextTime = keys.map { keyCooldowns[it] ?: 0L }.minOrNull() ?: 0L
+        val sdf = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
+        return sdf.format(java.util.Date(nextTime))
+    }
+
     suspend fun translateFullArticle(newsItem: NewsItem): String? {
         var fullOriginalText = ""
         try {
@@ -112,8 +139,15 @@ object AiRewriter {
             }
             if (newsToProcess.isEmpty()) return
             LogManager.log("AI_START", "Обробка ${newsToProcess.size} новин")
+            
+            var isQueueStopped = false
 
             for (item in newsToProcess) {
+                if (isQueueStopped) {
+                    processingNewsIds.remove(item.id)
+                    continue
+                }
+                
                 try {
                     val prompt = "Зроби пост для Telegram українською. СТИСЛО!\n1. Яскравий заголовок.\n2. 2 речення суті.\n3. 3 головні факти булітами (•).\nБез вступів, без \"Ось переклад\", без **. Джерело не пиши.\n\nЗаголовок: ${item.title.replace("\"", "'").replace("\n", " ").replace("🚀", "")}\nТекст: ${item.description.replace("\"", "'").replace("\n", " ")}"
                     var translatedText: String? = null
@@ -121,8 +155,13 @@ object AiRewriter {
 
                     while (translatedText == null && attempts < (apiKeys.size * 2)) {
                         if (getActiveKey() == null) { 
-                            LogManager.log("AI_WAIT", "Всі ключі на паузі, очікування 10 сек...")
-                            delay(10000)
+                            if (isGloballyBlocked() && keyCooldowns.values.any { it > System.currentTimeMillis() + 3600000L }) {
+                                LogManager.log("AI_ERR", "Денні ліміти вичерпано. Зупинка черги до 10:00.")
+                                isQueueStopped = true
+                                break
+                            }
+                            LogManager.log("AI_WAIT", "Всі ключі на паузі (RPM/503), очікування 15 сек...")
+                            delay(15000)
                             continue
                         }
                         translatedText = callGeminiApi(prompt, "gemini-3.6-flash")
@@ -160,21 +199,6 @@ object AiRewriter {
         } finally { context?.let { NewsProcessingService.stop(it) } }
     }
 
-    fun isGloballyBlocked(): Boolean {
-        val keys = apiKeys
-        if (keys.isEmpty()) return false
-        val nextTime = keys.map { keyCooldowns[it] ?: 0L }.minOrNull() ?: 0L
-        return System.currentTimeMillis() < nextTime
-    }
-
-    fun getBlockTimeFormatted(): String {
-        val keys = apiKeys
-        if (keys.isEmpty()) return ""
-        val nextTime = keys.map { keyCooldowns[it] ?: 0L }.minOrNull() ?: 0L
-        val sdf = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
-        return sdf.format(java.util.Date(nextTime))
-    }
-
     suspend fun callGeminiApi(prompt: String, modelName: String): String? {
         enforceRateLimit()
         val active = getActiveKey()
@@ -191,14 +215,21 @@ object AiRewriter {
                 JSONObject(response.bodyAsText()).optJSONArray("candidates")?.optJSONObject(0)?.optJSONObject("content")?.optJSONArray("parts")?.optJSONObject(0)?.optString("text")?.takeIf { it.isNotEmpty() }
             } else {
                 val respBody = try { response.bodyAsText() } catch (e: Exception) { "" }
+                val errBody = respBody.lowercase()
                 
                 if (response.status.value == 401) {
                     LogManager.log("AI_ERR", "Ключ №$keyNum недійсний. Блок 24г.")
                     keyCooldowns[apiKey] = System.currentTimeMillis() + (24 * 60 * 60 * 1000L)
                 } else if (response.status.value == 429) {
-                    LogManager.log("AI_WARN", "Ключ №$keyNum ліміт RPM. Пауза 2 хв.")
-                    keyCooldowns[apiKey] = System.currentTimeMillis() + (2 * 60 * 1000L)
-                } else if (response.status.value == 503) {
+                    if (errBody.contains("quota") || errBody.contains("per day")) {
+                        val resetTime = getNextQuotaResetTime()
+                        LogManager.log("AI_ERR", "Ключ №$keyNum: Денний ліміт (Quota). Блок до 10:00.")
+                        keyCooldowns[apiKey] = resetTime
+                    } else {
+                        LogManager.log("AI_WARN", "Ключ №$keyNum: ліміт RPM. Пауза 2 хв.")
+                        keyCooldowns[apiKey] = System.currentTimeMillis() + (2 * 60 * 1000L)
+                    }
+                } else if (response.status.value == 503 || errBody.contains("unavailable") || errBody.contains("high demand")) {
                     LogManager.log("AI_WARN", "Google сервери перевантажені (503). Пауза 2 хв.")
                     keyCooldowns[apiKey] = System.currentTimeMillis() + (2 * 60 * 1000L)
                 } else {
@@ -209,7 +240,7 @@ object AiRewriter {
             }
         } catch (e: Exception) {
             val msg = e.message ?: "Таймаут/Немає інтернету"
-            LogManager.log("AI_WARN", "Мережа: \$msg. Пауза 30с.")
+            LogManager.log("AI_WARN", "Мережа: $msg. Пауза 30с.")
             keyCooldowns[apiKey] = System.currentTimeMillis() + 30_000L
             null 
         }
