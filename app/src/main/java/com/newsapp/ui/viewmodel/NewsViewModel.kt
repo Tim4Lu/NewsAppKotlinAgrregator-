@@ -265,16 +265,18 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
                     if (norm.isNotEmpty()) norm else it.originalTitle.trim().lowercase()
                 }
 
-                val freshNews = uniqueRawNews.filter { item ->
-                    val normTitle = item.title.trim().lowercase()
-                    val origTitle = item.originalTitle.trim().lowercase()
-                    val normLink = item.link.normalizeUrl()
+                val maxAgeMillis = System.currentTimeMillis() - (3L * 24 * 60 * 60 * 1000)
+        val freshNews = uniqueRawNews.filter { item ->
+            val normTitle = item.title.trim().lowercase()
+            val origTitle = item.originalTitle.trim().lowercase()
+            val normLink = item.link.normalizeUrl()
 
-                    val isTitleDuplicate = existingTitles.contains(normTitle) || (origTitle.isNotEmpty() && existingTitles.contains(origTitle))
-                    val isLinkDuplicate = normLink.isNotEmpty() && existingLinks.contains(normLink)
+            val isTitleDuplicate = existingTitles.contains(normTitle) || (origTitle.isNotEmpty() && existingTitles.contains(origTitle))
+            val isLinkDuplicate = normLink.isNotEmpty() && existingLinks.contains(normLink)
+            val isRecent = item.timestamp > maxAgeMillis
 
-                    !isTitleDuplicate && !isLinkDuplicate
-                }
+            !isTitleDuplicate && !isLinkDuplicate && isRecent
+        }
 
                 if (freshNews.isNotEmpty()) {
                     val freshInitial = freshNews.map { it.copy(status = "В черзі", telegramCaption = "Обробка...") }

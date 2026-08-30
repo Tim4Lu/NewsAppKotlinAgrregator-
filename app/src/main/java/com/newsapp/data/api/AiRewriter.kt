@@ -232,26 +232,12 @@ object AiRewriter {
                 }
                 null
             }
-        } catch (e: Exception) { "" }
-                if (errBody.contains("per day") || errBody.contains("quota")) {
-                val resetTime = getNextQuotaResetTime()
-                LogManager.log("AI_ERR", "Ключ №$keyNum вичерпав денний ліміт. Блок до 10:00 ранку.")
-                keyCooldowns[apiKey] = resetTime
-            } else {
-                    LogManager.log("AI_WARN", "Ключ №$keyNum перевантажений (RPM). Пауза 5 хв...")
-                    keyCooldowns[apiKey] = System.currentTimeMillis() + (5 * 60 * 1000L)
-                }
-                null
-            } else {
-                LogManager.log("AI_ERR", "Gemini HTTP ${response.status.value}: ${response.bodyAsText()}")
-                null
-            }
         } catch (e: Exception) {
-                val msg = e.message ?: ""
-                if (msg.contains("EOF")) LogManager.log("AI_WARN", "Мережа: обрив з'єднання (EOF). Повтор...")
-                else LogManager.log("AI_ERR", "Мережевий збій Gemini: $msg")
-                keyCooldowns[apiKey] = System.currentTimeMillis() + 30_000L // Пауза 30с від спаму
-                null 
-            }
+            val msg = e.message ?: ""
+            if (msg.contains("EOF")) LogManager.log("AI_WARN", "Мережа: обрив з'єднання (EOF). Повтор...")
+            else LogManager.log("AI_ERR", "Мережевий збій Gemini: $msg")
+            keyCooldowns[apiKey] = System.currentTimeMillis() + 30_000L
+            null 
+        }
     }
 }
