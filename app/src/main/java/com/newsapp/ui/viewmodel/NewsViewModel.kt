@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.newsapp.data.LogManager
+import com.newsapp.data.NewsCacheManager
 import com.newsapp.data.NewsParserFactory
 import com.newsapp.data.api.TelegramBotService
 import com.newsapp.data.api.AiRewriter
@@ -23,7 +24,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
-import java.io.File
 import java.net.URL
 import java.net.URLEncoder
 import java.text.SimpleDateFormat
@@ -43,7 +43,7 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
     }
     
     private val telegramBotService = TelegramBotService()
-    private val cacheFile = File(application.filesDir, "saved_news.json")
+    private val cacheManager = NewsCacheManager(application)
 
     private val rssUrls = listOf(
         "https://www.nasa.gov/feed/",
@@ -58,8 +58,10 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
     )
 
     init {
-        loadCachedNews()
-        loadNews()
+        viewModelScope.launch {
+            loadCachedNews()
+            loadNews()
+        }
     }
 
     private fun String.normalizeUrl(): String {
@@ -70,64 +72,30 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
             .trimEnd('/')
     }
 
-    private fun loadCachedNews() {
-        try {
-            if (cacheFile.exists()) {
-                val jsonText = cacheFile.readText()
-                val jsonArray = JSONArray(jsonText)
-                val cached = mutableListOf<NewsItem>()
-                for (i in 0 until jsonArray.length()) {
-                    val obj = jsonArray.getJSONObject(i)
-                    cached.add(
-                        NewsItem(
-                            id = obj.optString("id"),
-                            title = obj.optString("title"),
-                            originalTitle = obj.optString("originalTitle"),
-                            link = obj.optString("link"),
-                            description = obj.optString("description"),
-                            source = obj.optString("source"),
-                            image = obj.optString("image"),
-                            status = obj.optString("status", "Готово"),
-                            telegramCaption = obj.optString("telegramCaption"),
-                            timestamp = obj.optLong("timestamp", System.currentTimeMillis())
-                        )
-                    )
-                }
-                val threeDaysAgo = System.currentTimeMillis() - (3L * 24 * 60 * 60 * 1000)
-                val uniqueCached = cached.distinctBy {
-                    val normLink = it.link.normalizeUrl()
-                    if (normLink.isNotEmpty()) normLink else it.originalTitle.ifEmpty { it.title }
-                }.filter { it.timestamp > threeDaysAgo }
+    private suspend fun loadCachedNews() {
+        LogManager.log("TRACE", "Викликано функцію: loadCachedNews")
+        val cached = cacheManager.loadNews()
+        if (cached.isNotEmpty()) {
+            val threeDaysAgo = System.currentTimeMillis() - (3L * 24 * 60 * 60 * 1000)
+            val uniqueCached = cached.distinctBy {
+                val normLink = it.link.normalizeUrl()
+                if (normLink.isNotEmpty()) normLink else it.originalTitle.ifEmpty { it.title }
+            }.filter { it.timestamp > threeDaysAgo }
 
-                _newsList.value = uniqueCached.sortedByDescending { it.timestamp }
-                saveNewsToDisk(_newsList.value)
-            }
-        } catch (e: Exception) {}
+            _newsList.value = uniqueCached.sortedByDescending { it.timestamp }
+            saveNewsToDisk(_newsList.value)
+        }
     }
 
     private fun saveNewsToDisk(list: List<NewsItem>) {
-        try {
-            val jsonArray = JSONArray()
-            list.take(250).forEach { item ->
-                val obj = JSONObject().apply {
-                    put("id", item.id)
-                    put("title", item.title)
-                    put("originalTitle", item.originalTitle)
-                    put("link", item.link)
-                    put("description", item.description)
-                    put("source", item.source)
-                    put("image", item.image)
-                    put("status", item.status)
-                    put("telegramCaption", item.telegramCaption)
-                    put("timestamp", item.timestamp)
-                }
-                jsonArray.put(obj)
-            }
-            cacheFile.writeText(jsonArray.toString())
-        } catch (e: Exception) {}
+        LogManager.log("TRACE", "Викликано функцію: saveNewsToDisk")
+        viewModelScope.launch {
+            cacheManager.saveNews(list)
+        }
     }
 
     fun checkAndRetryUntranslatedNews() {
+        LogManager.log("TRACE", "Викликано функцію: checkAndRetryUntranslatedNews")
         val untranslated = _newsList.value.filter { 
             it.status == "В черзі" 
         }
@@ -146,6 +114,7 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun loadNews() {
+        LogManager.log("TRACE", "Викликано функцію: loadNews")
         if (_newsList.value.isEmpty()) _isLoading.value = true
 
         viewModelScope.launch(Dispatchers.IO) {
@@ -153,50 +122,50 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
 
             for (url in rssUrls) {
                 try {
-                    com.newsapp.data.LogManager.log("FETCH", "Запит: ${url.take(45)}...")
-                    var fetchedItems = listOf<com.newsapp.model.NewsItem>()
+                    LogManager.log("FETCH", "Запит: ${url.take(45)}...")
+                    var fetchedItems = listOf<NewsItem>()
                     var successDirect = false
 
                     val response = client.get(url) {
-                        header(io.ktor.http.HttpHeaders.UserAgent, "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-                        header(io.ktor.http.HttpHeaders.Accept, "application/rss+xml, application/xml, text/xml")
+                        header(HttpHeaders.UserAgent, "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+                        header(HttpHeaders.Accept, "application/rss+xml, application/xml, text/xml")
                     }
 
-                    com.newsapp.data.LogManager.log("FETCH", "HTTP ${response.status.value} для ${url.take(30)}")
+                    LogManager.log("FETCH", "HTTP ${response.status.value} для ${url.take(30)}")
 
                     if (response.status.value in 200..299) {
                         val bodyText = response.bodyAsText()
-                        com.newsapp.data.LogManager.log("FETCH", "Розмір тіла: ${bodyText.length} симв.")
+                        LogManager.log("FETCH", "Розмір тіла: ${bodyText.length} симв.")
                         
-                        val parser = com.newsapp.data.NewsParserFactory.getParser(url)
+                        val parser = NewsParserFactory.getParser(url)
                         fetchedItems = parser.parse(bodyText)
                         
                         if (fetchedItems.isNotEmpty()) {
                             successDirect = true
-                            com.newsapp.data.LogManager.log("FETCH_OK", "Знайдено ${fetchedItems.size} новин (прямо)")
+                            LogManager.log("FETCH_OK", "Знайдено ${fetchedItems.size} новин (прямо)")
                         } else {
-                            com.newsapp.data.LogManager.log("FETCH_WARN", "Парсер не знайшов новин (можливо XML змінився)")
+                            LogManager.log("FETCH_WARN", "Парсер не знайшов новин (можливо XML змінився)")
                         }
                     } else {
-                        com.newsapp.data.LogManager.log("FETCH_ERR", "Помилка сервера: HTTP ${response.status.value}")
+                        LogManager.log("FETCH_ERR", "Помилка сервера: HTTP ${response.status.value}")
                     }
 
                     if (!successDirect) {
-                        com.newsapp.data.LogManager.log("FETCH", "Спроба через резервний rss2json...")
+                        LogManager.log("FETCH", "Спроба через резервний rss2json...")
                         val cleanUrl = if (url.contains("allorigins")) url.substringAfter("url=") else url
-                        val apiUrl = "https://api.rss2json.com/v1/api.json?rss_url=${java.net.URLEncoder.encode(cleanUrl, "UTF-8")}"
+                        val apiUrl = "https://api.rss2json.com/v1/api.json?rss_url=${URLEncoder.encode(cleanUrl, "UTF-8")}"
                         
                         val jsonResponse = client.get(apiUrl)
-                        com.newsapp.data.LogManager.log("FETCH", "rss2json HTTP: ${jsonResponse.status.value}")
+                        LogManager.log("FETCH", "rss2json HTTP: ${jsonResponse.status.value}")
                         
                         if (jsonResponse.status.value in 200..299) {
                             val jsonBody = jsonResponse.bodyAsText()
-                            com.newsapp.data.LogManager.log("FETCH", "rss2json тіло: ${jsonBody.length} симв.")
+                            LogManager.log("FETCH", "rss2json тіло: ${jsonBody.length} симв.")
                             
-                            val json = org.json.JSONObject(jsonBody)
+                            val json = JSONObject(jsonBody)
                             if (json.optString("status") == "ok") {
                                 val itemsArray = json.optJSONArray("items")
-                                val fallbackItems = mutableListOf<com.newsapp.model.NewsItem>()
+                                val fallbackItems = mutableListOf<NewsItem>()
                                 
                                 val sourceName = when {
                                     cleanUrl.contains("nasa.gov") -> "NASA"
@@ -224,13 +193,13 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
                                     val pubDate = obj.optString("pubDate", "")
                                     if (pubDate.isNotEmpty()) {
                                         try {
-                                            val sdf = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.ENGLISH)
+                                            val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.ENGLISH)
                                             ts = sdf.parse(pubDate)?.time ?: ts
                                         } catch(e: Exception) {}
                                     }
 
                                     fallbackItems.add(
-                                        com.newsapp.model.NewsItem(
+                                        NewsItem(
                                             title = rawTitle,
                                             originalTitle = obj.optString("title"),
                                             link = obj.optString("link").split(" ")[0],
@@ -242,15 +211,15 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
                                     )
                                 }
                                 fetchedItems = fallbackItems
-                                com.newsapp.data.LogManager.log("FETCH_OK", "Знайдено ${fetchedItems.size} новин (через rss2json)")
+                                LogManager.log("FETCH_OK", "Знайдено ${fetchedItems.size} новин (через rss2json)")
                             } else {
-                                com.newsapp.data.LogManager.log("FETCH_ERR", "Помилка rss2json: ${json.optString("message")}")
+                                LogManager.log("FETCH_ERR", "Помилка rss2json: ${json.optString("message")}")
                             }
                         }
                     }
                     rawNews.addAll(fetchedItems)
                 } catch (e: Exception) {
-                    com.newsapp.data.LogManager.log("FETCH_ERR", "Критичний збій завантаження ${url.take(30)}: ${e.message}")
+                    LogManager.log("FETCH_ERR", "Критичний збій завантаження ${url.take(30)}: ${e.message}")
                 }
             }
 
@@ -267,17 +236,17 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
                 }
 
                 val maxAgeMillis = System.currentTimeMillis() - (3L * 24 * 60 * 60 * 1000)
-        val freshNews = uniqueRawNews.filter { item ->
-            val normTitle = item.title.trim().lowercase()
-            val origTitle = item.originalTitle.trim().lowercase()
-            val normLink = item.link.normalizeUrl()
+                val freshNews = uniqueRawNews.filter { item ->
+                    val normTitle = item.title.trim().lowercase()
+                    val origTitle = item.originalTitle.trim().lowercase()
+                    val normLink = item.link.normalizeUrl()
 
-            val isTitleDuplicate = existingTitles.contains(normTitle) || (origTitle.isNotEmpty() && existingTitles.contains(origTitle))
-            val isLinkDuplicate = normLink.isNotEmpty() && existingLinks.contains(normLink)
-            val isRecent = item.timestamp > maxAgeMillis
+                    val isTitleDuplicate = existingTitles.contains(normTitle) || (origTitle.isNotEmpty() && existingTitles.contains(origTitle))
+                    val isLinkDuplicate = normLink.isNotEmpty() && existingLinks.contains(normLink)
+                    val isRecent = item.timestamp > maxAgeMillis
 
-            !isTitleDuplicate && !isLinkDuplicate && isRecent
-        }
+                    !isTitleDuplicate && !isLinkDuplicate && isRecent
+                }
 
                 if (freshNews.isNotEmpty()) {
                     val freshInitial = freshNews.map { it.copy(status = "В черзі", telegramCaption = "Обробка...") }
@@ -295,6 +264,7 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private suspend fun scrapeArticle(url: String): Pair<String, String?> {
+        LogManager.log("TRACE", "Викликано функцію: scrapeArticle")
         try {
             if (url.isEmpty()) return Pair("", null)
             val response: HttpResponse = client.get(url) {
@@ -326,6 +296,7 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private suspend fun processNewsWithScraperAndAi(rawNews: List<NewsItem>) {
+        LogManager.log("TRACE", "Викликано функцію: processNewsWithScraperAndAi")
         val updatedList = rawNews.map { item ->
             val (fullText, scrapedImage) = scrapeArticle(item.link)
             item.copy(
@@ -343,6 +314,7 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun rewriteSingleNews(newsItem: NewsItem) {
+        LogManager.log("TRACE", "Викликано функцію: rewriteSingleNews")
         viewModelScope.launch(Dispatchers.IO) {
             _newsList.value = _newsList.value.map {
                 if (it.id == newsItem.id) it.copy(status = "Переклад...", telegramCaption = "Обробка AI...") else it
@@ -355,10 +327,12 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun toggleEdit(id: String) {
+        LogManager.log("TRACE", "Викликано функцію: toggleEdit")
         _newsList.value = _newsList.value.map { if (it.id == id) it.copy(isEditing = !it.isEditing) else it }
     }
 
     fun updateNewsText(id: String, newText: String) {
+        LogManager.log("TRACE", "Викликано функцію: updateNewsText")
         _newsList.value = _newsList.value.map {
             if (it.id == id) {
                 val cleanTitle = it.title.replace("🚀", "").trim()
@@ -378,6 +352,7 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun sendNews(newsItem: NewsItem) {
+        LogManager.log("TRACE", "Викликано функцію: sendNews")
         if (newsItem.status == "Опубліковано" || newsItem.status == "Відправляється...") {
             LogManager.log("TELEGRAM", "Блокування подвійного кліку: новина вже ${newsItem.status}")
             return
