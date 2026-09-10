@@ -85,15 +85,11 @@ class UpdateManager(private val context: Context) {
             val apkFile = File(context.cacheDir, "update.apk")
             val outputStream = FileOutputStream(apkFile)
 
-            val buffer = ByteArray(8192)
-            var bytesRead: Int
-            while (inputStream.read(buffer).also { bytesRead = it } != -1) {
-                outputStream.write(buffer, 0, bytesRead)
+            inputStream.use { input ->
+                outputStream.use { output ->
+                    input.copyTo(output)
+                }
             }
-
-            outputStream.flush()
-            outputStream.close()
-            inputStream.close()
 
             LogManager.log("UPDATE_OK", "APK завантажено. Запуск встановлення...")
             installApk(apkFile)

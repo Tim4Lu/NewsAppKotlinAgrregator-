@@ -24,7 +24,11 @@ class NewsProcessingService : Service() {
         try {
             createNotificationChannel()
             val notification = createNotification("Обробка та відправка новин у фоновому режимі...")
-            startForeground(NOTIFICATION_ID, notification)
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                startForeground(NOTIFICATION_ID, notification, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+            } else {
+                startForeground(NOTIFICATION_ID, notification)
+            }
         } catch (e: Exception) {
             com.newsapp.data.LogManager.log("SERVICE_ERR", "Помилка служби: ${e.message}")
         }

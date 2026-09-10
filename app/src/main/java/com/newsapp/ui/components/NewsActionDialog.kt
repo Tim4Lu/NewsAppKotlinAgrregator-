@@ -137,7 +137,7 @@ fun NewsActionDialog(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
-                                    VoiceMode.values().forEach { mode ->
+                                    VoiceMode.entries.forEach { mode ->
                                         FilterChip(
                                             selected = (selectedVoiceMode == mode),
                                             onClick = { selectedVoiceMode = mode },
