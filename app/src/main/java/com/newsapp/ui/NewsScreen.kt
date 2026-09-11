@@ -118,7 +118,7 @@ fun NewsScreen(viewModel: NewsViewModel) {
                             NewsCard(
                                 item = item,
                                 onPublish = { viewModel.sendNews(it) },
-                                onUpdateText = { id, text -> viewModel.updateNewsText(id, text) },
+                                onUpdateText = { id, title, text -> viewModel.updateNewsText(id, title, text) },
                                 onToggleEdit = { id -> viewModel.toggleEdit(id) },
                                 onRewrite = { newsItem -> viewModel.rewriteSingleNews(newsItem) }
                             )

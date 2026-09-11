@@ -23,13 +23,14 @@ import com.newsapp.model.NewsItem
 fun NewsCard(
     item: NewsItem,
     onPublish: (NewsItem) -> Unit,
-    onUpdateText: (String, String) -> Unit,
+    onUpdateText: (String, String, String) -> Unit,
     onToggleEdit: (String) -> Unit,
     onRewrite: (NewsItem) -> Unit
 ) {
     LogManager.log("TRACE", "Викликано функцію: NewsCard")
     var showActionDialog by remember { mutableStateOf(false) }
     var localText by remember(item.id, item.description) { mutableStateOf(item.description) }
+    var localTitle by remember(item.id, item.title) { mutableStateOf(item.title.replace("🚀", "").trim()) }
     val isPublished = item.status == "Опубліковано"
 
     Card(
@@ -94,6 +95,12 @@ fun NewsCard(
 
                 if (item.isEditing) {
                     OutlinedTextField(
+                        value = localTitle,
+                        onValueChange = { localTitle = it },
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                        textStyle = LocalTextStyle.current.copy(color = androidx.compose.ui.graphics.Color.White, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                    )
+                    OutlinedTextField(
                         value = localText,
                         onValueChange = { localText = it },
                         modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
@@ -101,7 +108,7 @@ fun NewsCard(
                     )
                     Button(
                         onClick = {
-                            onUpdateText(item.id, localText)
+                            onUpdateText(item.id, localTitle, localText)
                             onToggleEdit(item.id)
                         },
                         modifier = Modifier.fillMaxWidth(),

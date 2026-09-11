@@ -331,11 +331,11 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
         _newsList.value = _newsList.value.map { if (it.id == id) it.copy(isEditing = !it.isEditing) else it }
     }
 
-    fun updateNewsText(id: String, newText: String) {
+    fun updateNewsText(id: String, newTitle: String, newText: String) {
         LogManager.log("TRACE", "Викликано функцію: updateNewsText")
         _newsList.value = _newsList.value.map {
             if (it.id == id) {
-                val cleanTitle = it.title.replace("🚀", "").trim()
+                val cleanTitle = newTitle.replace("🚀", "").trim()
                 var cleanDesc = newText
                 val sourceIndex = cleanDesc.indexOf("Джерело:", ignoreCase = true)
                 if (sourceIndex != -1) {

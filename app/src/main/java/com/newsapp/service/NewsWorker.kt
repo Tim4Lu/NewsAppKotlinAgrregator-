@@ -355,12 +355,21 @@ class NewsWorker(
                 notificationManager.createNotificationChannel(channel)
             }
 
+            val intent = android.content.Intent(appContext, com.newsapp.MainActivity::class.java).apply {
+                flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK
+            }
+            val pendingIntent = android.app.PendingIntent.getActivity(
+                appContext, 0, intent, 
+                android.app.PendingIntent.FLAG_IMMUTABLE or android.app.PendingIntent.FLAG_UPDATE_CURRENT
+            )
+
             val notification = NotificationCompat.Builder(appContext, channelId)
                 .setSmallIcon(appContext.applicationInfo.icon)
                 .setContentTitle("🚀 " + item.title)
                 .setContentText(item.description)
                 .setStyle(NotificationCompat.BigTextStyle().bigText(item.description))
                 .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+                .setContentIntent(pendingIntent)
                 .setAutoCancel(true)
                 .build()
 
