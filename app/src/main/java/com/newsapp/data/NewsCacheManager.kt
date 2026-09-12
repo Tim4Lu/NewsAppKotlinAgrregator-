@@ -35,6 +35,8 @@ class NewsCacheManager(context: Context) {
                             description = obj.optString("description"),
                             source = obj.optString("source"),
                             image = obj.optString("image"),
+                            images = (0 until (obj.optJSONArray("images")?.length() ?: 0)).map { obj.optJSONArray("images")?.getString(it) ?: "" },
+                            hasVideo = obj.optBoolean("hasVideo", false),
                             status = obj.optString("status", "Готово"),
                             telegramCaption = obj.optString("telegramCaption"),
                             timestamp = obj.optLong("timestamp", System.currentTimeMillis())
@@ -63,6 +65,8 @@ class NewsCacheManager(context: Context) {
                         put("description", item.description)
                         put("source", item.source)
                         put("image", item.image)
+                        put("images", org.json.JSONArray(item.images))
+                        put("hasVideo", item.hasVideo)
                         put("status", item.status)
                         put("telegramCaption", item.telegramCaption)
                         put("timestamp", item.timestamp)

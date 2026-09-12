@@ -22,7 +22,7 @@ import com.newsapp.model.NewsItem
 @Composable
 fun NewsCard(
     item: NewsItem,
-    onPublish: (NewsItem) -> Unit,
+    onPublish: (NewsItem, List<String>) -> Unit,
     onUpdateText: (String, String, String) -> Unit,
     onToggleEdit: (String) -> Unit,
     onRewrite: (NewsItem) -> Unit
@@ -62,12 +62,10 @@ fun NewsCard(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = item.source.uppercase(),
-                        color = Color(0xFF818CF8),
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 12.sp
-                    )
+                    Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                        Text(text = item.source.uppercase(), color = Color(0xFF818CF8), fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        if (item.hasVideo) { Text("  🎥 ВІДЕО", color = Color(0xFFEF4444), fontWeight = FontWeight.Bold, fontSize = 12.sp) }
+                    }
 
                     Box(
                         modifier = Modifier
@@ -131,7 +129,7 @@ fun NewsCard(
     if (showActionDialog) {
         NewsActionDialog(
             item = item,
-            onPublish = onPublish,
+            onPublish = { i, imgs -> onPublish(i, imgs) },
             onToggleEdit = onToggleEdit,
             onRewrite = onRewrite,
             onDismiss = { showActionDialog = false }

@@ -67,6 +67,7 @@ fun NewsActionDialog(
     
     var resultText by remember { mutableStateOf<String?>(null) }
     var isLoading by remember { mutableStateOf(false) }
+    var selectedImages by remember { mutableStateOf(item.images.ifEmpty { listOf(item.image).filter { it.isNotEmpty() } }) }
 
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -114,9 +115,30 @@ fun NewsActionDialog(
                         modifier = Modifier.fillMaxWidth(),
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
+                        if (item.images.isNotEmpty()) {
+                            Text("Оберіть фото (${selectedImages.size}/10)", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                            Spacer(modifier = Modifier.height(8.dp))
+                            androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                items(item.images.size) { idx ->
+                                    val imgUrl = item.images[idx]
+                                    val isSelected = selectedImages.contains(imgUrl)
+                                    Box(modifier = Modifier.size(80.dp).clip(RoundedCornerShape(8.dp)).clickable {
+                                        if (isSelected) selectedImages = selectedImages - imgUrl
+                                        else if (selectedImages.size < 10) selectedImages = selectedImages + imgUrl
+                                    }) {
+                                        coil.compose.AsyncImage(model = imgUrl, contentDescription = null, contentScale = androidx.compose.ui.layout.ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                                        if (isSelected) {
+                                            Box(modifier = Modifier.fillMaxSize().background(Color(0x66000000)))
+                                            Text("✅", modifier = Modifier.align(Alignment.Center), fontSize = 24.sp)
+                                        }
+                                    }
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(16.dp))
+                        }
                         Button(
                             onClick = {
-                                onPublish(item)
+                                onPublish(item, selectedImages)
                                 onDismiss()
                             },
                             modifier = Modifier.fillMaxWidth().height(48.dp),
