@@ -22,16 +22,13 @@ import com.newsapp.model.NewsItem
 @Composable
 fun NewsCard(
     item: NewsItem,
-    onPublish: (NewsItem, List<String>) -> Unit,
+    onPublish: (NewsItem) -> Unit,
     onUpdateText: (String, String, String) -> Unit,
     onToggleEdit: (String) -> Unit,
     onRewrite: (NewsItem) -> Unit
 ) {
     LogManager.log("TRACE", "Викликано функцію: NewsCard")
     var showActionDialog by remember { mutableStateOf(false) }
-    var localText by remember(item.id, item.description) { mutableStateOf(item.description) }
-    var localTitle by remember(item.id, item.title) { mutableStateOf(item.title.replace("🚀", "").trim()) }
-    val isPublished = item.status == "Опубліковано"
 
     Card(
         modifier = Modifier
@@ -62,27 +59,28 @@ fun NewsCard(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                        Text(text = item.source.uppercase(), color = Color(0xFF818CF8), fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                        if (item.hasVideo) { Text("  🎥 ВІДЕО", color = Color(0xFFEF4444), fontWeight = FontWeight.Bold, fontSize = 12.sp) }
-                    }
+                    Text(
+                        text = item.source.uppercase(),
+                        color = Color(0xFF818CF8),
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp
+                    )
 
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(4.dp))
-                            .background(if (isPublished) Color(0x3310B981) else Color(0xFF334155))
+                            .background(if (item.status == "Опубліковано") Color(0x3310B981) else Color(0xFF334155))
                             .padding(horizontal = 8.dp, vertical = 4.dp)
                     ) {
                         Text(
                             text = item.status,
-                            color = if (isPublished) Color(0xFF34D399) else Color(0xFFCBD5E1),
+                            color = if (item.status == "Опубліковано") Color(0xFF34D399) else Color(0xFFCBD5E1),
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold
                         )
                     }
                 }
 
-                // Заголовок тепер виглядає так само, як у Telegram
                 Text(
                     text = "🚀 ${item.title} 🚀",
                     color = Color.White,
@@ -92,17 +90,22 @@ fun NewsCard(
                 )
 
                 if (item.isEditing) {
+                    var localTitle by remember(item.id, item.title) { mutableStateOf(item.title.replace("🚀", "").trim()) }
+                    var localText by remember(item.id, item.description) { mutableStateOf(item.description) }
+
                     OutlinedTextField(
                         value = localTitle,
                         onValueChange = { localTitle = it },
                         modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
-                        textStyle = LocalTextStyle.current.copy(color = androidx.compose.ui.graphics.Color.White, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                        textStyle = LocalTextStyle.current.copy(color = Color(0xFFE2E8F0)),
+                        label = { Text("Заголовок", color = Color.Gray) }
                     )
                     OutlinedTextField(
                         value = localText,
                         onValueChange = { localText = it },
                         modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
-                        textStyle = LocalTextStyle.current.copy(color = Color(0xFFE2E8F0))
+                        textStyle = LocalTextStyle.current.copy(color = Color(0xFFE2E8F0)),
+                        label = { Text("Текст новини", color = Color.Gray) }
                     )
                     Button(
                         onClick = {
@@ -112,10 +115,9 @@ fun NewsCard(
                         modifier = Modifier.fillMaxWidth(),
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4F46E5))
                     ) {
-                        Text("Зберегти змінений текст")
+                        Text("Зберегти зміни")
                     }
                 } else {
-                    // Текст новини тепер показується повністю (без maxLines) та світлішим кольором
                     Text(
                         text = item.description,
                         color = Color(0xFFE2E8F0),
@@ -129,7 +131,7 @@ fun NewsCard(
     if (showActionDialog) {
         NewsActionDialog(
             item = item,
-            onPublish = { i, imgs -> onPublish(i, imgs) },
+            onPublish = onPublish,
             onToggleEdit = onToggleEdit,
             onRewrite = onRewrite,
             onDismiss = { showActionDialog = false }

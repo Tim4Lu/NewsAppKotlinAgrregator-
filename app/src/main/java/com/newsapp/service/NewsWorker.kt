@@ -118,7 +118,9 @@ class NewsWorker(
             "https://www.space.com/feeds/all/",
             "https://www.universetoday.com/feed",
             "https://www.spacedaily.com/spacedaily.xml",
-            "https://phys.org/rss-feed/space-news/"
+            "https://phys.org/rss-feed/space-news/",
+            "https://www.sciencedaily.com/rss/space_time.xml",
+            "https://www.nature.com/subjects/physical-sciences.rss"
         )
 
         val (existingTitles, existingLinks) = getCachedTitlesAndLinks()
@@ -351,13 +353,13 @@ class NewsWorker(
     private fun showNewsNotification(item: NewsItem) {
         try {
             val channelId = "news_updates_channel"
-            val notificationManager = appContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            val notificationManager = appContext.getSystemService(android.content.Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
 
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                val channel = NotificationChannel(
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                val channel = android.app.NotificationChannel(
                     channelId,
                     "Нові новини",
-                    NotificationManager.IMPORTANCE_DEFAULT
+                    android.app.NotificationManager.IMPORTANCE_DEFAULT
                 )
                 notificationManager.createNotificationChannel(channel)
             }
@@ -366,16 +368,18 @@ class NewsWorker(
                 flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK
             }
             val pendingIntent = android.app.PendingIntent.getActivity(
-                appContext, 0, intent, 
+                appContext,
+                item.id.hashCode(),
+                intent,
                 android.app.PendingIntent.FLAG_IMMUTABLE or android.app.PendingIntent.FLAG_UPDATE_CURRENT
             )
 
-            val notification = NotificationCompat.Builder(appContext, channelId)
+            val notification = androidx.core.app.NotificationCompat.Builder(appContext, channelId)
                 .setSmallIcon(appContext.applicationInfo.icon)
                 .setContentTitle("🚀 " + item.title)
                 .setContentText(item.description)
-                .setStyle(NotificationCompat.BigTextStyle().bigText(item.description))
-                .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+                .setStyle(androidx.core.app.NotificationCompat.BigTextStyle().bigText(item.description))
+                .setPriority(androidx.core.app.NotificationCompat.PRIORITY_DEFAULT)
                 .setContentIntent(pendingIntent)
                 .setAutoCancel(true)
                 .build()

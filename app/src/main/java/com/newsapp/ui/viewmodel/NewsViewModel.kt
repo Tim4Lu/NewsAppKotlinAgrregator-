@@ -54,7 +54,9 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
         "https://www.space.com/feeds/all/",
         "https://www.universetoday.com/feed",
         "https://www.spacedaily.com/spacedaily.xml",
-        "https://phys.org/rss-feed/space-news/"
+        "https://phys.org/rss-feed/space-news/",
+        "https://www.sciencedaily.com/rss/space_time.xml",
+        "https://www.nature.com/subjects/physical-sciences.rss"
     )
 
     init {
@@ -347,6 +349,7 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 
                 it.copy(
+                    title = cleanTitle,
                     description = cleanDesc, 
                     telegramCaption = "🚀 <b>$cleanTitle</b> 🚀\n\n$cleanDesc\n\n• <b>Джерело:</b> ${it.source}"
                 )
@@ -355,7 +358,7 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
         saveNewsToDisk(_newsList.value)
     }
 
-    fun sendNews(newsItem: NewsItem, selectedImages: List<String> = emptyList()) {
+    fun sendNews(newsItem: NewsItem) {
         LogManager.log("TRACE", "Викликано функцію: sendNews")
         if (newsItem.status == "Опубліковано" || newsItem.status == "Відправляється...") {
             LogManager.log("TELEGRAM", "Блокування подвійного кліку: новина вже ${newsItem.status}")
@@ -371,9 +374,9 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
             if (it.id == newsItem.id) it.copy(status = "Відправляється...") else it 
         }
 
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             LogManager.log("TELEGRAM", "Надсилання новини: ${newsItem.title}")
-            val success = telegramBotService.sendToTelegram(newsItem.telegramCaption, selectedImages.ifEmpty { listOf(newsItem.image).filter { it.isNotEmpty() } })
+            val success = telegramBotService.sendToTelegram(newsItem.telegramCaption, newsItem.image)
             
             if (success) {
                 _newsList.value = _newsList.value.map { 
