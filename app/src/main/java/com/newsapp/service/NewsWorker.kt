@@ -49,36 +49,40 @@ class NewsWorker(
     private suspend fun scrapeArticle(url: String): Triple<String, List<String>, Boolean> {
         try {
             if (url.isEmpty()) return Triple("", emptyList(), false)
-            val response = client.get(url) { io.ktor.client.request.header(io.ktor.http.HttpHeaders.UserAgent, "Mozilla/5.0") }
+            val response = client.get(url) {
+                io.ktor.client.request.header(io.ktor.http.HttpHeaders.UserAgent, "Mozilla/5.0")
+            }
             val html = io.ktor.client.statement.bodyAsText(response)
             val imageList = mutableListOf<String>()
 
-            val ogMatch = Regex("<meta[^>]+(?:property|name)=["'](?:og:image|twitter:image)["'][^>]+content=["']([^"']+)["']", RegexOption.IGNORE_CASE).find(html)
+            val ogMatch = Regex("<meta[^>]+(?:property|name)=[\"'](?:og:image|twitter:image)[\"'][^>]+content=[\"']([^\"']+)[\"']", RegexOption.IGNORE_CASE).find(html)
             if (ogMatch != null) {
                 var img = ogMatch.groupValues[1]
                 if (!img.startsWith("http")) { val b = java.net.URL(url); img = "${b.protocol}://${b.host}$img" }
                 imageList.add(img)
             }
 
-            val imgMatches = Regex("<img[^>]+src=["']([^"']+)["']", RegexOption.IGNORE_CASE).findAll(html)
+            val imgMatches = Regex("<img[^>]+src=[\"']([^\"']+)[\"']", RegexOption.IGNORE_CASE).findAll(html)
             val badWords = listOf("logo", "banner", "icon", "avatar", "sponsor", "advert", "sidebar", "footer", ".svg", ".gif")
             for (m in imgMatches) {
                 var imgSrc = m.groupValues[1]
-                if (!imgSrc.startsWith("http")) { try { val b = java.net.URL(url); imgSrc = "${b.protocol}://${b.host}$imgSrc" } catch(e:Exception){} }
+                if (!imgSrc.startsWith("http")) { 
+                    try { val b = java.net.URL(url); imgSrc = "${b.protocol}://${b.host}$imgSrc" } catch(e:Exception){} 
+                }
                 if (imgSrc.startsWith("http") && badWords.none { imgSrc.lowercase().contains(it) }) {
                     if (!imageList.contains(imgSrc)) imageList.add(imgSrc)
                 }
             }
 
-            val cleanHtml = html.replace(Regex("<(nav|header|footer|script|style|button|aside|noscript)[^>]*>[\s\S]*?<\/\1>", RegexOption.IGNORE_CASE), "")
-            val scrapedText = Regex("<p[^>]*>(.*?)</p>", RegexOption.IGNORE_CASE).findAll(cleanHtml).map { it.groupValues[1].replace(Regex("<[^>]*>"), "").trim() }.filter { it.length > 80 && it.contains(".") }.joinToString("
-
-")
+            val cleanHtml = html.replace(Regex("<(nav|header|footer|script|style|button|aside|noscript)[^>]*>[\\s\\S]*?<\\/\\1>", RegexOption.IGNORE_CASE), "")
+            val scrapedText = Regex("<p[^>]*>(.*?)</p>", RegexOption.IGNORE_CASE).findAll(cleanHtml).map { it.groupValues[1].replace(Regex("<[^>]*>"), "").trim() }.filter { it.length > 80 && it.contains(".") }.joinToString("\n\n")
             val hasVideo = html.contains("<video", ignoreCase=true) || html.contains("<iframe", ignoreCase=true) || html.contains("og:video", ignoreCase=true)
+            
             return Triple(if (scrapedText.length >= 150) scrapedText else "", imageList, hasVideo)
-        } catch (e: Exception) { return Triple("", emptyList(), false) }
+        } catch (e: Exception) { 
+            return Triple("", emptyList(), false) 
+        }
     }
-
     override suspend fun doWork(): Result {
         LogManager.log("WORKER", "Запуск фонової перевірки новин...")
 
