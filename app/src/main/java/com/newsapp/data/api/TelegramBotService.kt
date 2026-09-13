@@ -21,14 +21,15 @@ import io.ktor.http.contentType
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
+import kotlin.math.min
 
 class TelegramBotService {
     private val client = HttpClient(CIO) {
         expectSuccess = false
         install(HttpTimeout) {
-            requestTimeoutMillis = 60000
-            connectTimeoutMillis = 60000
-            socketTimeoutMillis = 60000
+            requestTimeoutMillis = 180000 // 3 хвилини
+            connectTimeoutMillis = 180000
+            socketTimeoutMillis = 180000
         }
     }
     private val channelId = "@pronaukyonline"
@@ -40,8 +41,18 @@ class TelegramBotService {
             val response = client.get(url)
             val imageBytes = response.readBytes()
             val bitmap = BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size) ?: return null
+            
+            // Стиснення фотографій, якщо вони більші за 1920px (економить час та пам'ять)
+            val maxDim = 1920f
+            val scale = min(maxDim / bitmap.width, maxDim / bitmap.height)
+            val finalBitmap = if (scale < 1f) {
+                Bitmap.createScaledBitmap(bitmap, (bitmap.width * scale).toInt(), (bitmap.height * scale).toInt(), true)
+            } else {
+                bitmap
+            }
+
             val outputStream = ByteArrayOutputStream()
-            bitmap.compress(Bitmap.CompressFormat.JPEG, 75, outputStream)
+            finalBitmap.compress(Bitmap.CompressFormat.JPEG, 75, outputStream)
             outputStream.toByteArray()
         } catch (e: Exception) { null }
     }
@@ -53,10 +64,11 @@ class TelegramBotService {
             val validUrls = imageUrls.filter { it.startsWith("http") }.take(10)
 
             if (validUrls.size > 1) {
-                LogManager.log("Telegram", "Відправка галереї з ${validUrls.size} фото...")
+                LogManager.log("Telegram", "Завантаження ${validUrls.size} фото для галереї...")
                 val bytesList = validUrls.mapNotNull { getJpegBytesFromUrl(it) }
                 if (bytesList.isEmpty()) return false
 
+                LogManager.log("Telegram", "Відправка галереї в Telegram...")
                 val response = client.post("https://api.telegram.org/bot$token/sendMediaGroup") {
                     setBody(MultiPartFormDataContent(formData {
                         append("chat_id", channelId)
@@ -73,12 +85,14 @@ class TelegramBotService {
                         bytesList.forEachIndexed { index, bytes ->
                             append("photo$index", bytes, Headers.build {
                                 append(HttpHeaders.ContentType, "image/jpeg")
-                                append(HttpHeaders.ContentDisposition, "filename=\"photo$index.jpg\"")
+                                append(HttpHeaders.ContentDisposition, "filename="photo$index.jpg"")
                             })
                         }
                     }))
                 }
-                JSONObject(response.bodyAsText()).optBoolean("ok", false)
+                JSONObject(response.bodyAsText()).optBoolean("ok", false).also {
+                    if (it) LogManager.log("Telegram_OK", "Галерею опубліковано!") else LogManager.log("Telegram_ERR", "Помилка галереї: ${response.bodyAsText()}")
+                }
             } else if (validUrls.size == 1) {
                 LogManager.log("Telegram", "Відправка одного фото...")
                 val jpegBytes = getJpegBytesFromUrl(validUrls.first()) ?: return false
@@ -89,7 +103,7 @@ class TelegramBotService {
                         append("parse_mode", "HTML")
                         append("photo", jpegBytes, Headers.build {
                             append(HttpHeaders.ContentType, "image/jpeg")
-                            append(HttpHeaders.ContentDisposition, "filename=\"image.jpg\"")
+                            append(HttpHeaders.ContentDisposition, "filename="image.jpg"")
                         })
                     }))
                 }

@@ -279,8 +279,12 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
                 imageList.add(img)
             }
 
-            val imgMatches = Regex("<img[^>]+src=[\'\"]([^\'\"]+)[\'\"]", RegexOption.IGNORE_CASE).findAll(html)
-            val badWords = listOf("logo", "banner", "icon", "avatar", "sponsor", "advert", "sidebar", "footer", ".svg", ".gif")
+            // 1. Очищаємо HTML від бокових панелей, футерів та меню, де лежать "схожі новини"
+            val cleanHtml = html.replace(Regex("<(nav|header|footer|script|style|button|aside|noscript)[^>]*>[\\s\\S]*?<\\/\\1>", RegexOption.IGNORE_CASE), "")
+
+            // 2. Шукаємо картинки ТІЛЬКИ всередині очищеної статті
+            val imgMatches = Regex("<img[^>]+src=[\'\"]([^\'\"]+)[\'\"]", RegexOption.IGNORE_CASE).findAll(cleanHtml)
+            val badWords = listOf("logo", "banner", "icon", "avatar", "sponsor", "advert", "sidebar", "footer", ".svg", ".gif", "thumb")
             for (m in imgMatches) {
                 var imgSrc = m.groupValues[1]
                 if (!imgSrc.startsWith("http")) { try { val b = java.net.URL(url); imgSrc = "${b.protocol}://${b.host}$imgSrc" } catch(e:Exception){} }
@@ -289,7 +293,6 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
 
-            val cleanHtml = html.replace(Regex("<(nav|header|footer|script|style|button|aside|noscript)[^>]*>[\\s\\S]*?<\\/\\1>", RegexOption.IGNORE_CASE), "")
             val scrapedText = Regex("<p[^>]*>(.*?)</p>", RegexOption.IGNORE_CASE).findAll(cleanHtml).map { it.groupValues[1].replace(Regex("<[^>]*>"), "").trim() }.filter { it.length > 80 && it.contains(".") }.joinToString("\n\n")
             val hasVideo = html.contains("<video", ignoreCase=true) || html.contains("<iframe", ignoreCase=true) || html.contains("og:video", ignoreCase=true)
             return Triple(if (scrapedText.length >= 150) scrapedText else "", imageList, hasVideo)
