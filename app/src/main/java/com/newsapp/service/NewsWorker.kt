@@ -1,3 +1,5 @@
+import io.ktor.client.statement.bodyAsText
+import io.ktor.client.statement.bodyAsText
 package com.newsapp.service
 
 import android.app.NotificationChannel
@@ -29,88 +31,88 @@ import java.util.Locale
 class NewsWorker(
     private val appContext: Context,
     workerParams: WorkerParameters
-) : CoroutineWorker(appContext, workerParams) {
+] : CoroutineWorker(appContext, workerParams] {
 
-    private val client = HttpClient(CIO) { 
+    private val client = HttpClient(CIO] { 
         expectSuccess = false 
         followRedirects = true 
     }
     
-    private val cacheFile = File(appContext.filesDir, "saved_news.json")
+    private val cacheFile = File(appContext.filesDir, "saved_news.json"]
 
-    private fun String.normalizeUrl(): String {
-        return this.lowercase()
-            .replace(Regex("^https?://"), "")
-            .replace(Regex("^www\\."), "")
-            .split("?")[0]
-            .trimEnd('/')
+    private fun String.normalizeUrl(]: String {
+        return this.lowercase(]
+            .replace(Regex("^https?://"], ""]
+            .replace(Regex("^www\\."], ""]
+            .split("?"][0]
+            .trimEnd('/']
     }
 
-    private suspend fun scrapeArticle(url: String): Triple<String, List<String>, Boolean> {
+    private suspend fun scrapeArticle(url: String]: Triple<String, List<String>, Boolean> {
         try {
-            if (url.isEmpty()) return Triple("", emptyList(), false)
-            val response = client.get(url) {
-                io.ktor.client.request.header(io.ktor.http.HttpHeaders.UserAgent, "Mozilla/5.0")
+            if (url.isEmpty(]] return Triple("", emptyList(], false]
+            val response = client.get(url] {
+                io.ktor.client.request.headers[io.ktor.http.HttpHeaders.UserAgent, "Mozilla/5.0"]
             }
-            val html = io.ktor.client.statement.bodyAsText(response)
-            val imageList = mutableListOf<String>()
+            val html = io.ktor.client.statement.bodyAsText(response]
+            val imageList = mutableListOf<String>(]
 
-            val ogMatch = Regex("<meta[^>]+(?:property|name)=[\"'](?:og:image|twitter:image)[\"'][^>]+content=[\"']([^\"']+)[\"']", RegexOption.IGNORE_CASE).find(html)
-            if (ogMatch != null) {
+            val ogMatch = Regex("<meta[^>]+(?:property|name]=[\"'](?:og:image|twitter:image][\"'][^>]+content=[\"']([^\"']+][\"']", RegexOption.IGNORE_CASE].find(html]
+            if (ogMatch != null] {
                 var img = ogMatch.groupValues[1]
-                if (!img.startsWith("http")) { val b = java.net.URL(url); img = "${b.protocol}://${b.host}$img" }
-                imageList.add(img)
+                if (!img.startsWith("http"]] { val b = java.net.URL(url]; img = "${b.protocol}://${b.host}$img" }
+                imageList.add(img]
             }
 
-            val imgMatches = Regex("<img[^>]+src=[\"']([^\"']+)[\"']", RegexOption.IGNORE_CASE).findAll(html)
-            val badWords = listOf("logo", "banner", "icon", "avatar", "sponsor", "advert", "sidebar", "footer", ".svg", ".gif")
-            for (m in imgMatches) {
+            val imgMatches = Regex("<img[^>]+src=[\"']([^\"']+][\"']", RegexOption.IGNORE_CASE].findAll(html]
+            val badWords = listOf("logo", "banner", "icon", "avatar", "sponsor", "advert", "sidebar", "footer", ".svg", ".gif"]
+            for (m in imgMatches] {
                 var imgSrc = m.groupValues[1]
-                if (!imgSrc.startsWith("http")) { 
-                    try { val b = java.net.URL(url); imgSrc = "${b.protocol}://${b.host}$imgSrc" } catch(e:Exception){} 
+                if (!imgSrc.startsWith("http"]] { 
+                    try { val b = java.net.URL(url]; imgSrc = "${b.protocol}://${b.host}$imgSrc" } catch(e:Exception]{} 
                 }
-                if (imgSrc.startsWith("http") && badWords.none { imgSrc.lowercase().contains(it) }) {
-                    if (!imageList.contains(imgSrc)) imageList.add(imgSrc)
+                if (imgSrc.startsWith("http"] && badWords.none { imgSrc.lowercase(].contains(it] }] {
+                    if (!imageList.contains(imgSrc]] imageList.add(imgSrc]
                 }
             }
 
-            val cleanHtml = html.replace(Regex("<(nav|header|footer|script|style|button|aside|noscript)[^>]*>[\\s\\S]*?<\\/\\1>", RegexOption.IGNORE_CASE), "")
-            val scrapedText = Regex("<p[^>]*>(.*?)</p>", RegexOption.IGNORE_CASE).findAll(cleanHtml).map { it.groupValues[1].replace(Regex("<[^>]*>"), "").trim() }.filter { it.length > 80 && it.contains(".") }.joinToString("\n\n")
-            val hasVideo = html.contains("<video", ignoreCase=true) || html.contains("<iframe", ignoreCase=true) || html.contains("og:video", ignoreCase=true)
+            val cleanHtml = html.replace(Regex("<(nav|header|footer|script|style|button|aside|noscript][^>]*>[\\s\\S]*?<\\/\\1>", RegexOption.IGNORE_CASE], ""]
+            val scrapedText = Regex("<p[^>]*>(.*?]</p>", RegexOption.IGNORE_CASE].findAll(cleanHtml].map { it.groupValues[1].replace(Regex("<[^>]*>"], ""].trim(] }.filter { it.length > 80 && it.contains("."] }.joinToString("\n\n"]
+            val hasVideo = html.contains("<video", ignoreCase=true] || html.contains("<iframe", ignoreCase=true] || html.contains("og:video", ignoreCase=true]
             
-            return Triple(if (scrapedText.length >= 150) scrapedText else "", imageList, hasVideo)
-        } catch (e: Exception) { 
-            return Triple("", emptyList(), false) 
+            return Triple(if (scrapedText.length >= 150] scrapedText else "", imageList, hasVideo]
+        } catch (e: Exception] { 
+            return Triple("", emptyList(], false] 
         }
     }
-    override suspend fun doWork(): Result {
-        LogManager.log("WORKER", "Запуск фонової перевірки новин...")
+    override suspend fun doWork(]: Result {
+        LogManager.log("WORKER", "Запуск фонової перевірки новин..."]
 
         try {
             val channelId = "news_worker_channel"
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O] {
                 val channel = NotificationChannel(
                     channelId,
                     "Фоновий пошук новин",
                     NotificationManager.IMPORTANCE_LOW
-                )
-                val manager = appContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-                manager.createNotificationChannel(channel)
+                ]
+                val manager = appContext.getSystemService(Context.NOTIFICATION_SERVICE] as NotificationManager
+                manager.createNotificationChannel(channel]
             }
-            val notification = NotificationCompat.Builder(appContext, channelId)
-                .setSmallIcon(appContext.applicationInfo.icon)
-                .setContentTitle("ШІ працює у фоні 🚀")
-                .setContentText("NewsApp шукає та перекладає нові статті...")
-                .setOngoing(true)
-                .build()
+            val notification = NotificationCompat.Builder(appContext, channelId]
+                .setSmallIcon(appContext.applicationInfo.icon]
+                .setContentTitle("ШІ працює у фоні 🚀"]
+                .setContentText("NewsApp шукає та перекладає нові статті..."]
+                .setOngoing(true]
+                .build(]
             
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                setForeground(ForegroundInfo(1005, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC))
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q] {
+                setForeground(ForegroundInfo(1005, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC]]
             } else {
-                setForeground(ForegroundInfo(1005, notification))
+                setForeground(ForegroundInfo(1005, notification]]
             }
-        } catch (e: Exception) {
-            LogManager.log("WORKER_ERR", "Не вдалося закріпити Foreground: ${e.message}")
+        } catch (e: Exception] {
+            LogManager.log("WORKER_ERR", "Не вдалося закріпити Foreground: ${e.message}"]
         }
 
         val rssUrls = listOf(
@@ -124,272 +126,272 @@ class NewsWorker(
             "https://phys.org/rss-feed/space-news/",
             "https://www.sciencedaily.com/rss/space_time.xml",
             "https://www.nature.com/subjects/physical-sciences.rss"
-        )
+        ]
 
-        val (existingTitles, existingLinks) = getCachedTitlesAndLinks()
-        val rawNews = mutableListOf<NewsItem>()
+        val (existingTitles, existingLinks] = getCachedTitlesAndLinks(]
+        val rawNews = mutableListOf<NewsItem>(]
 
-        for (url in rssUrls) {
+        for (url in rssUrls] {
                 try {
-                    com.newsapp.data.LogManager.log("FETCH", "Запит: ${url.take(45)}...")
-                    var fetchedItems = listOf<com.newsapp.model.NewsItem>()
+                    com.newsapp.data.LogManager.log("FETCH", "Запит: ${url.take(45]}..."]
+                    var fetchedItems = listOf<com.newsapp.model.NewsItem>(]
                     var successDirect = false
 
-                    val response = client.get(url) {
-                        header(io.ktor.http.HttpHeaders.UserAgent, "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-                        header(io.ktor.http.HttpHeaders.Accept, "application/rss+xml, application/xml, text/xml")
+                    val response = client.get(url] {
+                        header(io.ktor.http.HttpHeaders.UserAgent, "Mozilla/5.0 (Windows NT 10.0; Win64; x64] AppleWebKit/537.36 (KHTML, like Gecko] Chrome/120.0.0.0 Safari/537.36"]
+                        header(io.ktor.http.HttpHeaders.Accept, "application/rss+xml, application/xml, text/xml"]
                     }
 
-                    com.newsapp.data.LogManager.log("FETCH", "HTTP ${response.status.value} для ${url.take(30)}")
+                    com.newsapp.data.LogManager.log("FETCH", "HTTP ${response.status.value} для ${url.take(30]}"]
 
-                    if (response.status.value in 200..299) {
-                        val bodyText = response.bodyAsText()
-                        com.newsapp.data.LogManager.log("FETCH", "Розмір тіла: ${bodyText.length} симв.")
+                    if (response.status.value in 200..299] {
+                        val bodyText = response.bodyAsText(]
+                        com.newsapp.data.LogManager.log("FETCH", "Розмір тіла: ${bodyText.length} симв."]
                         
-                        val parser = com.newsapp.data.NewsParserFactory.getParser(url)
-                        fetchedItems = parser.parse(bodyText)
+                        val parser = com.newsapp.data.NewsParserFactory.getParser(url]
+                        fetchedItems = parser.parse(bodyText]
                         
-                        if (fetchedItems.isNotEmpty()) {
+                        if (fetchedItems.isNotEmpty(]] {
                             successDirect = true
-                            com.newsapp.data.LogManager.log("FETCH_OK", "Знайдено ${fetchedItems.size} новин (прямо)")
+                            com.newsapp.data.LogManager.log("FETCH_OK", "Знайдено ${fetchedItems.size} новин (прямо]"]
                         } else {
-                            com.newsapp.data.LogManager.log("FETCH_WARN", "Парсер не знайшов новин (можливо XML змінився)")
+                            com.newsapp.data.LogManager.log("FETCH_WARN", "Парсер не знайшов новин (можливо XML змінився]"]
                         }
                     } else {
-                        com.newsapp.data.LogManager.log("FETCH_ERR", "Помилка сервера: HTTP ${response.status.value}")
+                        com.newsapp.data.LogManager.log("FETCH_ERR", "Помилка сервера: HTTP ${response.status.value}"]
                     }
 
-                    if (!successDirect) {
-                        com.newsapp.data.LogManager.log("FETCH", "Спроба через резервний rss2json...")
-                        val cleanUrl = if (url.contains("allorigins")) url.substringAfter("url=") else url
-                        val apiUrl = "https://api.rss2json.com/v1/api.json?rss_url=${java.net.URLEncoder.encode(cleanUrl, "UTF-8")}"
+                    if (!successDirect] {
+                        com.newsapp.data.LogManager.log("FETCH", "Спроба через резервний rss2json..."]
+                        val cleanUrl = if (url.contains("allorigins"]] url.substringAfter("url="] else url
+                        val apiUrl = "https://api.rss2json.com/v1/api.json?rss_url=${java.net.URLEncoder.encode(cleanUrl, "UTF-8"]}"
                         
-                        val jsonResponse = client.get(apiUrl)
-                        com.newsapp.data.LogManager.log("FETCH", "rss2json HTTP: ${jsonResponse.status.value}")
+                        val jsonResponse = client.get(apiUrl]
+                        com.newsapp.data.LogManager.log("FETCH", "rss2json HTTP: ${jsonResponse.status.value}"]
                         
-                        if (jsonResponse.status.value in 200..299) {
-                            val jsonBody = jsonResponse.bodyAsText()
-                            com.newsapp.data.LogManager.log("FETCH", "rss2json тіло: ${jsonBody.length} симв.")
+                        if (jsonResponse.status.value in 200..299] {
+                            val jsonBody = jsonResponse.bodyAsText(]
+                            com.newsapp.data.LogManager.log("FETCH", "rss2json тіло: ${jsonBody.length} симв."]
                             
-                            val json = org.json.JSONObject(jsonBody)
-                            if (json.optString("status") == "ok") {
-                                val itemsArray = json.optJSONArray("items")
-                                val fallbackItems = mutableListOf<com.newsapp.model.NewsItem>()
+                            val json = org.json.JSONObject(jsonBody]
+                            if (json.optString("status"] == "ok"] {
+                                val itemsArray = json.optJSONArray("items"]
+                                val fallbackItems = mutableListOf<com.newsapp.model.NewsItem>(]
                                 
                                 val sourceName = when {
-                                    cleanUrl.contains("nasa.gov") -> "NASA"
-                                    cleanUrl.contains("esa.int") -> "ESA"
-                                    cleanUrl.contains("space.com") -> "Space.com"
-                                    cleanUrl.contains("spacedaily") -> "Space Daily"
-                                    cleanUrl.contains("universetoday") -> "Universe Today"
-                                    cleanUrl.contains("phys.org") -> "Phys.org"
+                                    cleanUrl.contains("nasa.gov"] -> "NASA"
+                                    cleanUrl.contains("esa.int"] -> "ESA"
+                                    cleanUrl.contains("space.com"] -> "Space.com"
+                                    cleanUrl.contains("spacedaily"] -> "Space Daily"
+                                    cleanUrl.contains("universetoday"] -> "Universe Today"
+                                    cleanUrl.contains("phys.org"] -> "Phys.org"
                                     else -> "Новина"
                                 }
 
-                                for (i in 0 until (itemsArray?.length() ?: 0)) {
-                                    val obj = itemsArray!!.getJSONObject(i)
-                                    var rawTitle = obj.optString("title").replace("(?i)APOD:\\s*(-\\s*)?".toRegex(), "").trim()
-                                    var rawDesc = obj.optString("description", "").replace(Regex("<[^>]*>"), "").trim()
-                                    if (rawDesc.length > 300) rawDesc = rawDesc.take(300) + "..."
+                                for (i in 0 until (itemsArray?.length(] ?: 0]] {
+                                    val obj = itemsArray!!.getJSONObject(i]
+                                    var rawTitle = obj.optString("title"].replace("(?i]APOD:\\s*(-\\s*]?".toRegex(], ""].trim(]
+                                    var rawDesc = obj.optString("description", ""].replace(Regex("<[^>]*>"], ""].trim(]
+                                    if (rawDesc.length > 300] rawDesc = rawDesc.take(300] + "..."
                                     
-                                    var img = obj.optString("thumbnail", "")
-                                    if (img.isEmpty()) {
-                                        val enc = obj.optJSONObject("enclosure")
-                                        if (enc != null) img = enc.optString("link", "")
+                                    var img = obj.optString("thumbnail", ""]
+                                    if (img.isEmpty(]] {
+                                        val enc = obj.optJSONObject("enclosure"]
+                                        if (enc != null] img = enc.optString("link", ""]
                                     }
 
-                                    var ts = System.currentTimeMillis()
-                                    val pubDate = obj.optString("pubDate", "")
-                                    if (pubDate.isNotEmpty()) {
+                                    var ts = System.currentTimeMillis(]
+                                    val pubDate = obj.optString("pubDate", ""]
+                                    if (pubDate.isNotEmpty(]] {
                                         try {
-                                            val sdf = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.ENGLISH)
-                                            ts = sdf.parse(pubDate)?.time ?: ts
-                                        } catch(e: Exception) {}
+                                            val sdf = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.ENGLISH]
+                                            ts = sdf.parse(pubDate]?.time ?: ts
+                                        } catch(e: Exception] {}
                                     }
 
                                     fallbackItems.add(
                                         com.newsapp.model.NewsItem(
                                             title = rawTitle,
-                                            originalTitle = obj.optString("title"),
-                                            link = obj.optString("link").split(" ")[0],
+                                            originalTitle = obj.optString("title"],
+                                            link = obj.optString("link"].split(" "][0],
                                             description = rawDesc,
                                             source = sourceName,
                                             image = img,
                                             timestamp = ts
-                                        )
-                                    )
+                                        ]
+                                    ]
                                 }
                                 fetchedItems = fallbackItems
-                                com.newsapp.data.LogManager.log("FETCH_OK", "Знайдено ${fetchedItems.size} новин (через rss2json)")
+                                com.newsapp.data.LogManager.log("FETCH_OK", "Знайдено ${fetchedItems.size} новин (через rss2json]"]
                             } else {
-                                com.newsapp.data.LogManager.log("FETCH_ERR", "Помилка rss2json: ${json.optString("message")}")
+                                com.newsapp.data.LogManager.log("FETCH_ERR", "Помилка rss2json: ${json.optString("message"]}"]
                             }
                         }
                     }
-                    rawNews.addAll(fetchedItems)
-                } catch (e: Exception) {
-                    com.newsapp.data.LogManager.log("FETCH_ERR", "Критичний збій завантаження ${url.take(30)}: ${e.message}")
+                    rawNews.addAll(fetchedItems]
+                } catch (e: Exception] {
+                    com.newsapp.data.LogManager.log("FETCH_ERR", "Критичний збій завантаження ${url.take(30]}: ${e.message}"]
                 }
             }
 
         val uniqueRawNews = rawNews.distinctBy { 
-            val norm = it.link.normalizeUrl()
-            if (norm.isNotEmpty()) norm else it.originalTitle.trim().lowercase()
+            val norm = it.link.normalizeUrl(]
+            if (norm.isNotEmpty(]] norm else it.originalTitle.trim(].lowercase(]
         }
 
-        val maxAgeMillis = System.currentTimeMillis() - (3L * 24 * 60 * 60 * 1000)
+        val maxAgeMillis = System.currentTimeMillis(] - (3L * 24 * 60 * 60 * 1000]
         val freshNews = uniqueRawNews.filter { item ->
-            val normTitle = item.title.trim().lowercase()
-            val origTitle = item.originalTitle.trim().lowercase()
-            val normLink = item.link.normalizeUrl()
+            val normTitle = item.title.trim(].lowercase(]
+            val origTitle = item.originalTitle.trim(].lowercase(]
+            val normLink = item.link.normalizeUrl(]
 
-            val isTitleDuplicate = existingTitles.contains(normTitle) || (origTitle.isNotEmpty() && existingTitles.contains(origTitle))
-            val isLinkDuplicate = normLink.isNotEmpty() && existingLinks.contains(normLink)
+            val isTitleDuplicate = existingTitles.contains(normTitle] || (origTitle.isNotEmpty(] && existingTitles.contains(origTitle]]
+            val isLinkDuplicate = normLink.isNotEmpty(] && existingLinks.contains(normLink]
             val isRecent = item.timestamp > maxAgeMillis
 
             !isTitleDuplicate && !isLinkDuplicate && isRecent
         }
 
-                if (freshNews.isNotEmpty()) {
-            com.newsapp.data.LogManager.log("WORKER", "Знайдено ${freshNews.size} нових новин. Фіксуємо в кеш...")
+                if (freshNews.isNotEmpty(]] {
+            com.newsapp.data.LogManager.log("WORKER", "Знайдено ${freshNews.size} нових новин. Фіксуємо в кеш..."]
 
             val enrichedNews = freshNews.map { item ->
-                val (fullText, scrapedImages, hasVid) = scrapeArticle(item.link)
+                val (fullText, scrapedImages, hasVid] = scrapeArticle(item.link]
                 item.copy(
-                    description = if (fullText.isNotEmpty()) fullText else item.description,
-                    image = if (scrapedImages.isNotEmpty()) scrapedImages.first() else item.image,
-                    images = if (scrapedImages.isNotEmpty()) scrapedImages else if (item.image.isNotEmpty()) listOf(item.image) else emptyList(),
+                    description = if (fullText.isNotEmpty(]] fullText else item.description,
+                    image = if (scrapedImages.isNotEmpty(]] scrapedImages.first(] else item.image,
+                    images = if (scrapedImages.isNotEmpty(]] scrapedImages else if (item.image.isNotEmpty(]] listOf(item.image] else emptyList(],
                     hasVideo = hasVid,
                     status = "В черзі"
-                )
+                ]
             }
-            saveToCache(enrichedNews)
+            saveToCache(enrichedNews]
 
-            if (AiRewriter.isGloballyBlocked()) {
-                LogManager.log("WORKER", "ШІ заблоковано до ${AiRewriter.getBlockTimeFormatted()}. Новини додано в чергу.")
+            if (AiRewriter.isGloballyBlocked(]] {
+                LogManager.log("WORKER", "ШІ заблоковано до ${AiRewriter.getBlockTimeFormatted(]}. Новини додано в чергу."]
             } else {
-                AiRewriter.processAllNewsWithAi(enrichedNews, appContext) { item ->
-                updateItemInCache(item)
-                showNewsNotification(item)
+                AiRewriter.processAllNewsWithAi(enrichedNews, appContext] { item ->
+                updateItemInCache(item]
+                showNewsNotification(item]
                 }
             }
         }
-        return Result.success()
+        return Result.success(]
     }
 
-    private fun updateItemInCache(item: NewsItem) {
+    private fun updateItemInCache(item: NewsItem] {
         try {
-            if (cacheFile.exists()) {
-                val jsonArray = JSONArray(cacheFile.readText())
-                val newArray = JSONArray()
-                for (i in 0 until jsonArray.length()) {
-                    val obj = jsonArray.getJSONObject(i)
-                    if (obj.optString("id") == item.id) {
-                        newArray.put(JSONObject().apply {
-                            put("id", item.id); put("title", item.title); put("originalTitle", item.originalTitle)
-                            put("link", item.link); put("description", item.description); put("source", item.source)
-                            put("image", item.image); put("images", org.json.JSONArray(item.images)); put("hasVideo", item.hasVideo); put("status", item.status); put("telegramCaption", item.telegramCaption)
-                            put("timestamp", item.timestamp)
-                        })
-                    } else { newArray.put(obj) }
+            if (cacheFile.exists(]] {
+                val jsonArray = JSONArray(cacheFile.readText(]]
+                val newArray = JSONArray(]
+                for (i in 0 until jsonArray.length(]] {
+                    val obj = jsonArray.getJSONObject(i]
+                    if (obj.optString("id"] == item.id] {
+                        newArray.put(JSONObject(].apply {
+                            put("id", item.id]; put("title", item.title]; put("originalTitle", item.originalTitle]
+                            put("link", item.link]; put("description", item.description]; put("source", item.source]
+                            put("image", item.image]; put("images", org.json.JSONArray(item.images]]; put("hasVideo", item.hasVideo]; put("status", item.status]; put("telegramCaption", item.telegramCaption]
+                            put("timestamp", item.timestamp]
+                        }]
+                    } else { newArray.put(obj] }
                 }
-                cacheFile.writeText(newArray.toString())
+                cacheFile.writeText(newArray.toString(]]
             }
-        } catch(e: Exception) {}
+        } catch(e: Exception] {}
     }
 
-    private fun getCachedTitlesAndLinks(): Pair<Set<String>, Set<String>> {
-        val titles = mutableSetOf<String>()
-        val links = mutableSetOf<String>()
+    private fun getCachedTitlesAndLinks(]: Pair<Set<String>, Set<String>> {
+        val titles = mutableSetOf<String>(]
+        val links = mutableSetOf<String>(]
         try {
-            if (cacheFile.exists()) {
-                val jsonArray = JSONArray(cacheFile.readText())
-                for (i in 0 until jsonArray.length()) {
-                    val obj = jsonArray.getJSONObject(i)
-                    val t = obj.optString("title").trim().lowercase()
-                    val orig = obj.optString("originalTitle").trim().lowercase()
-                    val link = obj.optString("link")
+            if (cacheFile.exists(]] {
+                val jsonArray = JSONArray(cacheFile.readText(]]
+                for (i in 0 until jsonArray.length(]] {
+                    val obj = jsonArray.getJSONObject(i]
+                    val t = obj.optString("title"].trim(].lowercase(]
+                    val orig = obj.optString("originalTitle"].trim(].lowercase(]
+                    val link = obj.optString("link"]
                     
-                    if (t.isNotEmpty()) titles.add(t)
-                    if (orig.isNotEmpty()) titles.add(orig)
-                    if (link.isNotEmpty()) links.add(link.normalizeUrl())
+                    if (t.isNotEmpty(]] titles.add(t]
+                    if (orig.isNotEmpty(]] titles.add(orig]
+                    if (link.isNotEmpty(]] links.add(link.normalizeUrl(]]
                 }
             }
-        } catch (e: Exception) { }
-        return Pair(titles, links)
+        } catch (e: Exception] { }
+        return Pair(titles, links]
     }
 
-    private fun saveToCache(newItems: List<NewsItem>) {
+    private fun saveToCache(newItems: List<NewsItem>] {
         try {
-            val existingArray = if (cacheFile.exists()) JSONArray(cacheFile.readText()) else JSONArray()
-            val newArray = JSONArray()
+            val existingArray = if (cacheFile.exists(]] JSONArray(cacheFile.readText(]] else JSONArray(]
+            val newArray = JSONArray(]
             
             newItems.forEach { item ->
-                val obj = JSONObject().apply {
-                    put("id", item.id)
-                    put("title", item.title)
-                    put("originalTitle", item.originalTitle)
-                    put("link", item.link)
-                    put("description", item.description)
-                    put("source", item.source)
-                    put("image", item.image)
-                    put("images", org.json.JSONArray(item.images))
-                    put("hasVideo", item.hasVideo)
-                    put("status", item.status)
-                    put("telegramCaption", item.telegramCaption)
-                    put("timestamp", item.timestamp)
+                val obj = JSONObject(].apply {
+                    put("id", item.id]
+                    put("title", item.title]
+                    put("originalTitle", item.originalTitle]
+                    put("link", item.link]
+                    put("description", item.description]
+                    put("source", item.source]
+                    put("image", item.image]
+                    put("images", org.json.JSONArray(item.images]]
+                    put("hasVideo", item.hasVideo]
+                    put("status", item.status]
+                    put("telegramCaption", item.telegramCaption]
+                    put("timestamp", item.timestamp]
                 }
-                newArray.put(obj)
+                newArray.put(obj]
             }
             
             val limit = 250 - newItems.size
             var added = 0
-            for (i in 0 until existingArray.length()) {
-                if (added >= limit) break
-                newArray.put(existingArray.getJSONObject(i))
+            for (i in 0 until existingArray.length(]] {
+                if (added >= limit] break
+                newArray.put(existingArray.getJSONObject(i]]
                 added++
             }
-            cacheFile.writeText(newArray.toString())
-        } catch (e: Exception) { }
+            cacheFile.writeText(newArray.toString(]]
+        } catch (e: Exception] { }
     }
 
-    private fun showNewsNotification(item: NewsItem) {
+    private fun showNewsNotification(item: NewsItem] {
         try {
             val channelId = "news_updates_channel"
-            val notificationManager = appContext.getSystemService(android.content.Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
+            val notificationManager = appContext.getSystemService(android.content.Context.NOTIFICATION_SERVICE] as android.app.NotificationManager
 
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O] {
                 val channel = android.app.NotificationChannel(
                     channelId,
                     "Нові новини",
                     android.app.NotificationManager.IMPORTANCE_DEFAULT
-                )
-                notificationManager.createNotificationChannel(channel)
+                ]
+                notificationManager.createNotificationChannel(channel]
             }
 
-            val intent = android.content.Intent(appContext, com.newsapp.MainActivity::class.java).apply {
+            val intent = android.content.Intent(appContext, com.newsapp.MainActivity::class.java].apply {
                 flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK
             }
             val pendingIntent = android.app.PendingIntent.getActivity(
                 appContext,
-                item.id.hashCode(),
+                item.id.hashCode(],
                 intent,
                 android.app.PendingIntent.FLAG_IMMUTABLE or android.app.PendingIntent.FLAG_UPDATE_CURRENT
-            )
+            ]
 
-            val notification = androidx.core.app.NotificationCompat.Builder(appContext, channelId)
-                .setSmallIcon(appContext.applicationInfo.icon)
-                .setContentTitle("🚀 " + item.title)
-                .setContentText(item.description)
-                .setStyle(androidx.core.app.NotificationCompat.BigTextStyle().bigText(item.description))
-                .setPriority(androidx.core.app.NotificationCompat.PRIORITY_DEFAULT)
-                .setContentIntent(pendingIntent)
-                .setAutoCancel(true)
-                .build()
+            val notification = androidx.core.app.NotificationCompat.Builder(appContext, channelId]
+                .setSmallIcon(appContext.applicationInfo.icon]
+                .setContentTitle("🚀 " + item.title]
+                .setContentText(item.description]
+                .setStyle(androidx.core.app.NotificationCompat.BigTextStyle(].bigText(item.description]]
+                .setPriority(androidx.core.app.NotificationCompat.PRIORITY_DEFAULT]
+                .setContentIntent(pendingIntent]
+                .setAutoCancel(true]
+                .build(]
 
-            notificationManager.notify(item.id.hashCode(), notification)
-        } catch (e: Exception) {
-            LogManager.log("WORKER_ERR", "Сповіщення не показано: ${e.message}")
+            notificationManager.notify(item.id.hashCode(], notification]
+        } catch (e: Exception] {
+            LogManager.log("WORKER_ERR", "Сповіщення не показано: ${e.message}"]
         }
     }
 }

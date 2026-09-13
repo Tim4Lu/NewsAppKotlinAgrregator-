@@ -1,3 +1,5 @@
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clip
 package com.newsapp.ui.components
 
 import android.content.ClipData
