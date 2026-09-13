@@ -363,38 +363,47 @@ class NewsViewModel(application: Application] : AndroidViewModel(application] {
         saveNewsToDisk(_newsList.value]
     }
 
-    fun sendNews(newsItem: NewsItem] {
-        LogManager.log("TRACE", "Викликано функцію: sendNews"]
-        if (newsItem.status == "Опубліковано" || newsItem.status == "Відправляється..."] {
-            LogManager.log("TELEGRAM", "Блокування подвійного кліку: новина вже ${newsItem.status}"]
+    fun sendNews(newsItem: NewsItem, selectedImages: List<String> = emptyList()) {
+        LogManager.log("TRACE", "Викликано функцію: sendNews")
+        if (newsItem.status == "Опубліковано" || newsItem.status == "Відправляється...") {
+            LogManager.log("TELEGRAM", "Блокування подвійного кліку: новина вже ${newsItem.status}")
             return
         }
 
-        if (newsItem.status == "В черзі" || newsItem.status == "Переклад..."] {
-            LogManager.log("TELEGRAM", "Блокування: новина ще обробляється ШІ, зачекайте."]
+        if (newsItem.status == "В черзі" || newsItem.status == "Переклад...") {
+            LogManager.log("TELEGRAM", "Блокування: новина ще обробляється ШІ, зачекайте.")
             return
         }
 
         _newsList.value = _newsList.value.map { 
-            if (it.id == newsItem.id] it.copy(status = "Відправляється..."] else it 
+            if (it.id == newsItem.id) it.copy(status = "Відправляється...") else it 
         }
 
-        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO] {
-            LogManager.log("TELEGRAM", "Надсилання новини: ${newsItem.title}"]
-            val success = telegramBotService.sendToTelegram(newsItem.telegramCaption, selectedImages.ifEmpty { listOf(newsItem.image].filter { it.isNotEmpty(] } }]
+        viewModelScope.launch(Dispatchers.IO) {
+            LogManager.log("TELEGRAM", "Надсилання новини: ${newsItem.title}")
             
-            if (success] {
+            val imagesToSend = if (selectedImages.isNotEmpty()) {
+                selectedImages
+            } else if (newsItem.image.isNotEmpty()) {
+                listOf(newsItem.image)
+            } else {
+                emptyList()
+            }
+            
+            val success = telegramBotService.sendToTelegram(newsItem.telegramCaption, imagesToSend)
+            
+            if (success) {
                 _newsList.value = _newsList.value.map { 
-                    if (it.id == newsItem.id] it.copy(status = "Опубліковано"] else it 
+                    if (it.id == newsItem.id) it.copy(status = "Опубліковано") else it 
                 }
-                LogManager.log("TELEGRAM", "Успішно опубліковано!"]
+                LogManager.log("TELEGRAM", "Успішно опубліковано!")
             } else {
                 _newsList.value = _newsList.value.map { 
-                    if (it.id == newsItem.id] it.copy(status = "Помилка"] else it 
+                    if (it.id == newsItem.id) it.copy(status = "Помилка") else it 
                 }
-                LogManager.log("TELEGRAM_ERR", "Помилка відправки новини"]
+                LogManager.log("TELEGRAM_ERR", "Помилка відправки новини")
             }
-            saveNewsToDisk(_newsList.value]
+            saveNewsToDisk(_newsList.value)
         }
     }
 }
