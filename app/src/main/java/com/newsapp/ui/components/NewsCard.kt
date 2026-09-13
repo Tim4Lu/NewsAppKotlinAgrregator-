@@ -22,7 +22,7 @@ import com.newsapp.model.NewsItem
 @Composable
 fun NewsCard(
     item: NewsItem,
-    onPublish: (NewsItem) -> Unit,
+    onPublish: (NewsItem, List<String>) -> Unit,
     onUpdateText: (String, String, String) -> Unit,
     onToggleEdit: (String) -> Unit,
     onRewrite: (NewsItem) -> Unit

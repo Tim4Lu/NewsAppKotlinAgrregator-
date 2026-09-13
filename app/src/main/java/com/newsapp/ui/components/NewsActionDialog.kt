@@ -58,7 +58,7 @@ private fun extractCleanVoiceText(fullScript: String): String {
 @Composable
 fun NewsActionDialog(
     item: NewsItem,
-    onPublish: (NewsItem) -> Unit,
+    onPublish: (NewsItem, List<String>) -> Unit,
     onToggleEdit: (String) -> Unit,
     onRewrite: (NewsItem) -> Unit,
     onDismiss: () -> Unit
