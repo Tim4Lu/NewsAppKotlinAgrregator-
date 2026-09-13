@@ -297,7 +297,6 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
             return Triple(if (scrapedText.length >= 150) scrapedText else "", imageList, hasVideo)
         } catch (e: Exception) { return Triple("", emptyList(), false) }
     }
-    }
 
     private suspend fun processNewsWithScraperAndAi(rawNews: List<NewsItem>) {
         LogManager.log("TRACE", "Викликано функцію: processNewsWithScraperAndAi")

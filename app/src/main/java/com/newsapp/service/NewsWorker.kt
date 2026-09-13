@@ -78,7 +78,6 @@ class NewsWorker(
             return Triple(if (scrapedText.length >= 150) scrapedText else "", imageList, hasVideo)
         } catch (e: Exception) { return Triple("", emptyList(), false) }
     }
-    }
 
     override suspend fun doWork(): Result {
         LogManager.log("WORKER", "Запуск фонової перевірки новин...")
