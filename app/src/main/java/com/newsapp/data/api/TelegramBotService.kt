@@ -18,6 +18,7 @@ import io.ktor.http.ContentType
 import io.ktor.http.Headers
 import io.ktor.http.HttpHeaders
 import io.ktor.http.contentType
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 
@@ -30,91 +31,75 @@ class TelegramBotService {
             socketTimeoutMillis = 60000
         }
     }
-
     private val channelId = "@pronaukyonline"
 
-    private fun sanitizeHtml(text: String): String {
-        LogManager.log("TRACE", "Викликано функцію: sanitizeHtml")
-        // Ескейпимо лише амперсанди, щоб не пошкодити валідні теги <b>, <i>, <a>
-        return text.replace(Regex("&(?!(amp|lt|gt|quot|apos);)"), "&amp;")
-    }
+    private fun sanitizeHtml(text: String): String = text.replace(Regex("&(?!(amp|lt|gt|quot|apos);)"), "&amp;")
 
     private suspend fun getJpegBytesFromUrl(url: String): ByteArray? {
         return try {
             val response = client.get(url)
             val imageBytes = response.readBytes()
-
-            val bitmap = BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
-                ?: return null
-
+            val bitmap = BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size) ?: return null
             val outputStream = ByteArrayOutputStream()
             bitmap.compress(Bitmap.CompressFormat.JPEG, 75, outputStream)
-            val jpegBytes = outputStream.toByteArray()
-            
-            LogManager.log("Telegram", "Картинку успішно конвертовано в JPEG (${jpegBytes.size / 1024} KB)")
-            jpegBytes
-        } catch (e: Exception) {
-            LogManager.log("Telegram_ERR", "Помилка завантаження картинки: ${e.message}")
-            null
-        }
+            outputStream.toByteArray()
+        } catch (e: Exception) { null }
     }
 
-    suspend fun sendToTelegram(caption: String, imageUrl: String? = null): Boolean {
+    suspend fun sendToTelegram(caption: String, imageUrls: List<String> = emptyList()): Boolean {
         return try {
             val token = BuildConfig.TELEGRAM_BOT_TOKEN
             val safeCaption = sanitizeHtml(caption)
-            val hasImage = !imageUrl.isNullOrEmpty() && imageUrl.startsWith("http")
+            val validUrls = imageUrls.filter { it.startsWith("http") }.take(10)
 
-            if (hasImage) {
-                val jpegBytes = getJpegBytesFromUrl(imageUrl!!)
-                if (jpegBytes == null) return false 
+            if (validUrls.size > 1) {
+                LogManager.log("Telegram", "Відправка галереї з ${validUrls.size} фото...")
+                val bytesList = validUrls.mapNotNull { getJpegBytesFromUrl(it) }
+                if (bytesList.isEmpty()) return false
 
-                val url = "https://api.telegram.org/bot$token/sendPhoto"
-                val response = client.post(url) {
-                    setBody(
-                        MultiPartFormDataContent(
-                            formData {
-                                append("chat_id", channelId)
-                                append("caption", safeCaption)
-                                append("parse_mode", "HTML")
-                                append("photo", jpegBytes, Headers.build {
-                                    append(HttpHeaders.ContentType, "image/jpeg")
-                                    append(HttpHeaders.ContentDisposition, "filename=\"image.jpg\"")
-                                })
+                val response = client.post("https://api.telegram.org/bot$token/sendMediaGroup") {
+                    setBody(MultiPartFormDataContent(formData {
+                        append("chat_id", channelId)
+                        val mediaArray = JSONArray()
+                        bytesList.forEachIndexed { index, _ ->
+                            val mediaObj = JSONObject().apply {
+                                put("type", "photo")
+                                put("media", "attach://photo$index")
+                                if (index == 0) { put("caption", safeCaption); put("parse_mode", "HTML") }
                             }
-                        )
-                    )
+                            mediaArray.put(mediaObj)
+                        }
+                        append("media", mediaArray.toString())
+                        bytesList.forEachIndexed { index, bytes ->
+                            append("photo$index", bytes, Headers.build {
+                                append(HttpHeaders.ContentType, "image/jpeg")
+                                append(HttpHeaders.ContentDisposition, "filename=\"photo$index.jpg\"")
+                            })
+                        }
+                    }))
                 }
-
-                val jsonResponse = JSONObject(response.bodyAsText())
-                if (jsonResponse.optBoolean("ok", false)) {
-                    LogManager.log("Telegram_OK", "Успішно опубліковано з фото!")
-                    true
-                } else {
-                    LogManager.log("Telegram_ERR", "Помилка Telegram: ${jsonResponse.optString("description")}")
-                    false
+                JSONObject(response.bodyAsText()).optBoolean("ok", false)
+            } else if (validUrls.size == 1) {
+                LogManager.log("Telegram", "Відправка одного фото...")
+                val jpegBytes = getJpegBytesFromUrl(validUrls.first()) ?: return false
+                val response = client.post("https://api.telegram.org/bot$token/sendPhoto") {
+                    setBody(MultiPartFormDataContent(formData {
+                        append("chat_id", channelId)
+                        append("caption", safeCaption)
+                        append("parse_mode", "HTML")
+                        append("photo", jpegBytes, Headers.build {
+                            append(HttpHeaders.ContentType, "image/jpeg")
+                            append(HttpHeaders.ContentDisposition, "filename=\"image.jpg\"")
+                        })
+                    }))
                 }
+                JSONObject(response.bodyAsText()).optBoolean("ok", false)
             } else {
-                val url = "https://api.telegram.org/bot$token/sendMessage"
-                val jsonBody = JSONObject().apply {
-                    put("chat_id", channelId)
-                    put("text", safeCaption)
-                    put("parse_mode", "HTML")
-                }
-
-                val response = client.post(url) {
+                val response = client.post("https://api.telegram.org/bot$token/sendMessage") {
                     contentType(ContentType.Application.Json)
-                    setBody(jsonBody.toString())
+                    setBody(JSONObject().apply { put("chat_id", channelId); put("text", safeCaption); put("parse_mode", "HTML") }.toString())
                 }
-
-                val jsonResponse = JSONObject(response.bodyAsText())
-                if (jsonResponse.optBoolean("ok", false)) {
-                    LogManager.log("Telegram_OK", "Успішно опубліковано текст!")
-                    true
-                } else {
-                    LogManager.log("Telegram_ERR", "Помилка Telegram: ${jsonResponse.optString("description")}")
-                    false
-                }
+                JSONObject(response.bodyAsText()).optBoolean("ok", false)
             }
         } catch (e: Exception) {
             LogManager.log("Telegram_ERR", "Мережа: ${e.message}")
