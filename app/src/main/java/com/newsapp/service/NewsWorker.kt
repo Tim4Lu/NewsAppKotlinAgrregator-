@@ -83,6 +83,7 @@ class NewsWorker(
     }
 
     override suspend fun doWork(): Result {
+        com.newsapp.data.api.AiRewriter.init(appContext)
         LogManager.log("WORKER", "Запуск фонової перевірки новин...")
 
         try {

@@ -58,6 +58,7 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
     )
 
     init {
+        com.newsapp.data.api.AiRewriter.init(application)
         viewModelScope.launch {
             loadCachedNews()
             loadNews()

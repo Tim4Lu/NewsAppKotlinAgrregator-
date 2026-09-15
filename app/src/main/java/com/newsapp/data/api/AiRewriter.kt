@@ -25,6 +25,29 @@ import java.util.concurrent.ConcurrentHashMap
 object AiRewriter {
     private val processingNewsIds = ConcurrentHashMap.newKeySet<String>()
     private val keyCooldowns = ConcurrentHashMap<String, Long>()
+    private var prefs: android.content.SharedPreferences? = null
+
+    fun init(context: android.content.Context) {
+        if (prefs == null) {
+            prefs = context.getSharedPreferences("ai_keys_cooldowns", android.content.Context.MODE_PRIVATE)
+            var blockedCount = 0
+            val now = System.currentTimeMillis()
+            prefs?.all?.forEach { (k, v) ->
+                if (v is Long) {
+                    setCooldown(k, v)
+                    if (v > now) blockedCount++
+                }
+            }
+            if (blockedCount > 0) {
+                LogManager.log("AI_MEM", "З пам'яті відновлено $blockedCount заблокованих ключів.")
+            }
+        }
+    }
+
+    private fun setCooldown(key: String, time: Long) {
+        setCooldown(key, time)
+        prefs?.edit()?.putLong(key, time)?.apply()
+    }
 
     private val client = HttpClient(CIO) {
         expectSuccess = false
@@ -220,29 +243,29 @@ object AiRewriter {
                 
                 if (response.status.value == 401) {
                     LogManager.log("AI_ERR", "Ключ №$keyNum недійсний. Блок 24г.")
-                    keyCooldowns[apiKey] = System.currentTimeMillis() + (24 * 60 * 60 * 1000L)
+                    setCooldown(apiKey, System.currentTimeMillis() + (24 * 60 * 60 * 1000L))
                 } else if (response.status.value == 429) {
                     if (errBody.contains("quota") || errBody.contains("per day")) {
                         val resetTime = getNextQuotaResetTime()
                         LogManager.log("AI_ERR", "Ключ №$keyNum: Денний ліміт (Quota). Блок до 10:00.")
-                        keyCooldowns[apiKey] = resetTime
+                        setCooldown(apiKey, resetTime)
                     } else {
                         LogManager.log("AI_WARN", "Ключ №$keyNum: ліміт RPM. Пауза 2 хв.")
-                        keyCooldowns[apiKey] = System.currentTimeMillis() + (2 * 60 * 1000L)
+                        setCooldown(apiKey, System.currentTimeMillis() + (2 * 60 * 1000L))
                     }
                 } else if (response.status.value == 503 || errBody.contains("unavailable") || errBody.contains("high demand")) {
                     LogManager.log("AI_WARN", "Google сервери перевантажені (503). Пауза 2 хв.")
-                    keyCooldowns[apiKey] = System.currentTimeMillis() + (2 * 60 * 1000L)
+                    setCooldown(apiKey, System.currentTimeMillis() + (2 * 60 * 1000L))
                 } else {
                     LogManager.log("AI_ERR", "Помилка HTTP ${response.status.value}. Пауза 30с.")
-                    keyCooldowns[apiKey] = System.currentTimeMillis() + 30_000L
+                    setCooldown(apiKey, System.currentTimeMillis() + 30_000L)
                 }
                 null
             }
         } catch (e: Exception) {
             val msg = e.message ?: "Таймаут/Немає інтернету"
             LogManager.log("AI_WARN", "Мережа: $msg. Пауза 30с.")
-            keyCooldowns[apiKey] = System.currentTimeMillis() + 30_000L
+            setCooldown(apiKey, System.currentTimeMillis() + 30_000L)
             null 
         }
     }
