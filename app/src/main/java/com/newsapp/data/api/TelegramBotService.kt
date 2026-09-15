@@ -85,7 +85,7 @@ class TelegramBotService {
                         bytesList.forEachIndexed { index, bytes ->
                             append("photo$index", bytes, Headers.build {
                                 append(HttpHeaders.ContentType, "image/jpeg")
-                                append(HttpHeaders.ContentDisposition, "filename="photo$index.jpg"")
+                                append(HttpHeaders.ContentDisposition, "filename=\"photo$index.jpg\"")
                             })
                         }
                     }))
@@ -103,7 +103,7 @@ class TelegramBotService {
                         append("parse_mode", "HTML")
                         append("photo", jpegBytes, Headers.build {
                             append(HttpHeaders.ContentType, "image/jpeg")
-                            append(HttpHeaders.ContentDisposition, "filename="image.jpg"")
+                            append(HttpHeaders.ContentDisposition, "filename=\"image.jpg\"")
                         })
                     }))
                 }
