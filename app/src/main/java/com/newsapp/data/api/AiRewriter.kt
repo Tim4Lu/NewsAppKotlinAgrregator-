@@ -216,6 +216,7 @@ object AiRewriter {
             } else {
                 val respBody = try { response.bodyAsText() } catch (e: Exception) { "" }
                 val errBody = respBody.lowercase()
+                LogManager.log("AI_RAW_ERR", "Ключ №$keyNum | HTTP ${response.status.value} | Відповідь: $respBody")
                 
                 if (response.status.value == 401) {
                     LogManager.log("AI_ERR", "Ключ №$keyNum недійсний. Блок 24г.")
