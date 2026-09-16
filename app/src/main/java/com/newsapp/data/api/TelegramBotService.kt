@@ -21,54 +21,77 @@ import io.ktor.http.contentType
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
-import kotlin.math.min
 
 class TelegramBotService {
     private val client = HttpClient(CIO) {
         expectSuccess = false
         install(HttpTimeout) {
-            requestTimeoutMillis = 180000 // 3 хвилини
-            connectTimeoutMillis = 180000
-            socketTimeoutMillis = 180000
+            requestTimeoutMillis = 60000 // Зменшено до 1 хв, щоб не висіло
+            connectTimeoutMillis = 30000
+            socketTimeoutMillis = 60000
         }
     }
     private val channelId = "@pronaukyonline"
 
     private fun sanitizeHtml(text: String): String = text.replace(Regex("&(?!(amp|lt|gt|quot|apos);)"), "&amp;")
 
+    private fun calculateInSampleSize(options: BitmapFactory.Options, reqWidth: Int, reqHeight: Int): Int {
+        val (height: Int, width: Int) = options.outHeight to options.outWidth
+        var inSampleSize = 1
+        if (height > reqHeight || width > reqWidth) {
+            val halfHeight: Int = height / 2
+            val halfWidth: Int = width / 2
+            while (halfHeight / inSampleSize >= reqHeight && halfWidth / inSampleSize >= reqWidth) {
+                inSampleSize *= 2
+            }
+        }
+        return inSampleSize
+    }
+
     private suspend fun getJpegBytesFromUrl(url: String): ByteArray? {
         return try {
             val response = client.get(url)
             val imageBytes = response.readBytes()
-            val bitmap = BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size) ?: return null
             
-            // Стиснення фотографій, якщо вони більші за 1920px (економить час та пам'ять)
-            val maxDim = 1920f
-            val scale = min(maxDim / bitmap.width, maxDim / bitmap.height)
-            val finalBitmap = if (scale < 1f) {
-                Bitmap.createScaledBitmap(bitmap, (bitmap.width * scale).toInt(), (bitmap.height * scale).toInt(), true)
-            } else {
-                bitmap
-            }
+            // Розумне декодування (тільки потрібний розмір, без забивання оперативної пам'яті)
+            val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size, options)
+            options.inSampleSize = calculateInSampleSize(options, 1280, 1280) // Оптимально для Telegram
+            options.inJustDecodeBounds = false
+            
+            val bitmap = BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size, options) ?: return null
 
             val outputStream = ByteArrayOutputStream()
-            finalBitmap.compress(Bitmap.CompressFormat.JPEG, 75, outputStream)
-            outputStream.toByteArray()
-        } catch (e: Throwable) { null }
+            bitmap.compress(Bitmap.CompressFormat.JPEG, 75, outputStream)
+            val finalBytes = outputStream.toByteArray()
+            bitmap.recycle() // Негайно віддаємо пам'ять системі!
+            finalBytes
+        } catch (e: Throwable) { 
+            LogManager.log("TG_IMG_ERR", "Не вдалося обробити фото: ${e.message}")
+            null 
+        }
     }
 
     suspend fun sendToTelegram(caption: String, imageUrls: List<String> = emptyList()): Boolean {
         return try {
             val token = BuildConfig.TELEGRAM_BOT_TOKEN
+            if (token.isEmpty() || token.contains("null")) {
+                LogManager.log("TG_ERR", "ТОКЕН ВІДСУТНІЙ! Перевір local.properties")
+                return false
+            }
+            
             val safeCaption = sanitizeHtml(caption)
             val validUrls = imageUrls.filter { it.startsWith("http") }.take(10)
 
             if (validUrls.size > 1) {
-                LogManager.log("Telegram", "Завантаження ${validUrls.size} фото для галереї...")
+                LogManager.log("TG", "Стискаємо ${validUrls.size} фотографій...")
                 val bytesList = validUrls.mapNotNull { getJpegBytesFromUrl(it) }
-                if (bytesList.isEmpty()) return false
+                if (bytesList.isEmpty()) {
+                    LogManager.log("TG_ERR", "Жодне фото не вдалося стиснути")
+                    return false
+                }
 
-                LogManager.log("Telegram", "Відправка галереї в Telegram...")
+                LogManager.log("TG", "Відправка галереї в Telegram...")
                 val response = client.post("https://api.telegram.org/bot$token/sendMediaGroup") {
                     setBody(MultiPartFormDataContent(formData {
                         append("chat_id", channelId)
@@ -85,17 +108,21 @@ class TelegramBotService {
                         bytesList.forEachIndexed { index, bytes ->
                             append("photo$index", bytes, Headers.build {
                                 append(HttpHeaders.ContentType, "image/jpeg")
-                                append(HttpHeaders.ContentDisposition, "filename=\"photo$index.jpg\"")
+                                append(HttpHeaders.ContentDisposition, "filename="photo$index.jpg"")
                             })
                         }
                     }))
                 }
-                JSONObject(response.bodyAsText()).optBoolean("ok", false).also {
-                    if (it) LogManager.log("Telegram_OK", "Галерею опубліковано!") else LogManager.log("Telegram_ERR", "Помилка галереї: ${response.bodyAsText()}")
-                }
+                val isOk = JSONObject(response.bodyAsText()).optBoolean("ok", false)
+                if (isOk) LogManager.log("TG_OK", "Галерею опубліковано!") else LogManager.log("TG_ERR", "Помилка галереї: ${response.bodyAsText()}")
+                return isOk
             } else if (validUrls.size == 1) {
-                LogManager.log("Telegram", "Відправка одного фото...")
-                val jpegBytes = getJpegBytesFromUrl(validUrls.first()) ?: return false
+                LogManager.log("TG", "Обробка 1 фотографії...")
+                val jpegBytes = getJpegBytesFromUrl(validUrls.first())
+                if (jpegBytes == null) {
+                    LogManager.log("TG_ERR", "Не вдалося стиснути фото")
+                    return false
+                }
                 val response = client.post("https://api.telegram.org/bot$token/sendPhoto") {
                     setBody(MultiPartFormDataContent(formData {
                         append("chat_id", channelId)
@@ -103,20 +130,24 @@ class TelegramBotService {
                         append("parse_mode", "HTML")
                         append("photo", jpegBytes, Headers.build {
                             append(HttpHeaders.ContentType, "image/jpeg")
-                            append(HttpHeaders.ContentDisposition, "filename=\"image.jpg\"")
+                            append(HttpHeaders.ContentDisposition, "filename="image.jpg"")
                         })
                     }))
                 }
-                JSONObject(response.bodyAsText()).optBoolean("ok", false)
+                val isOk = JSONObject(response.bodyAsText()).optBoolean("ok", false)
+                if (isOk) LogManager.log("TG_OK", "Фото опубліковано!") else LogManager.log("TG_ERR", "Помилка фото: ${response.bodyAsText()}")
+                return isOk
             } else {
                 val response = client.post("https://api.telegram.org/bot$token/sendMessage") {
                     contentType(ContentType.Application.Json)
                     setBody(JSONObject().apply { put("chat_id", channelId); put("text", safeCaption); put("parse_mode", "HTML") }.toString())
                 }
-                JSONObject(response.bodyAsText()).optBoolean("ok", false)
+                val isOk = JSONObject(response.bodyAsText()).optBoolean("ok", false)
+                if (isOk) LogManager.log("TG_OK", "Текст опубліковано!") else LogManager.log("TG_ERR", "Помилка тексту: ${response.bodyAsText()}")
+                return isOk
             }
-        } catch (e: Exception) {
-            LogManager.log("Telegram_ERR", "Мережа: ${e.message}")
+        } catch (e: Throwable) {
+            LogManager.log("TG_CRASH", "Критичний збій (Пам'ять/Мережа): ${e.message}")
             false
         }
     }
