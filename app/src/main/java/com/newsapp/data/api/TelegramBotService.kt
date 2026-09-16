@@ -26,7 +26,7 @@ class TelegramBotService {
     private val client = HttpClient(CIO) {
         expectSuccess = false
         install(HttpTimeout) {
-            requestTimeoutMillis = 60000 // Зменшено до 1 хв, щоб не висіло
+            requestTimeoutMillis = 60000
             connectTimeoutMillis = 30000
             socketTimeoutMillis = 60000
         }
@@ -53,10 +53,9 @@ class TelegramBotService {
             val response = client.get(url)
             val imageBytes = response.readBytes()
             
-            // Розумне декодування (тільки потрібний розмір, без забивання оперативної пам'яті)
             val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
             BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size, options)
-            options.inSampleSize = calculateInSampleSize(options, 1280, 1280) // Оптимально для Telegram
+            options.inSampleSize = calculateInSampleSize(options, 1280, 1280)
             options.inJustDecodeBounds = false
             
             val bitmap = BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size, options) ?: return null
@@ -64,7 +63,7 @@ class TelegramBotService {
             val outputStream = ByteArrayOutputStream()
             bitmap.compress(Bitmap.CompressFormat.JPEG, 75, outputStream)
             val finalBytes = outputStream.toByteArray()
-            bitmap.recycle() // Негайно віддаємо пам'ять системі!
+            bitmap.recycle()
             finalBytes
         } catch (e: Throwable) { 
             LogManager.log("TG_IMG_ERR", "Не вдалося обробити фото: ${e.message}")
@@ -108,7 +107,7 @@ class TelegramBotService {
                         bytesList.forEachIndexed { index, bytes ->
                             append("photo$index", bytes, Headers.build {
                                 append(HttpHeaders.ContentType, "image/jpeg")
-                                append(HttpHeaders.ContentDisposition, "filename="photo$index.jpg"")
+                                append(HttpHeaders.ContentDisposition, "filename=\"photo$index.jpg\"")
                             })
                         }
                     }))
@@ -130,7 +129,7 @@ class TelegramBotService {
                         append("parse_mode", "HTML")
                         append("photo", jpegBytes, Headers.build {
                             append(HttpHeaders.ContentType, "image/jpeg")
-                            append(HttpHeaders.ContentDisposition, "filename="image.jpg"")
+                            append(HttpHeaders.ContentDisposition, "filename=\"image.jpg\"")
                         })
                     }))
                 }
