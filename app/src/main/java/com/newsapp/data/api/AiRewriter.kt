@@ -45,7 +45,7 @@ object AiRewriter {
     }
 
     private fun setCooldown(key: String, time: Long) {
-        setCooldown(key, time)
+        keyCooldowns[key] = time
         prefs?.edit()?.putLong(key, time)?.apply()
     }
 

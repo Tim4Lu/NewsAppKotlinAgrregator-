@@ -54,7 +54,7 @@ class TelegramBotService {
             val outputStream = ByteArrayOutputStream()
             finalBitmap.compress(Bitmap.CompressFormat.JPEG, 75, outputStream)
             outputStream.toByteArray()
-        } catch (e: Exception) { null }
+        } catch (e: Throwable) { null }
     }
 
     suspend fun sendToTelegram(caption: String, imageUrls: List<String> = emptyList()): Boolean {
