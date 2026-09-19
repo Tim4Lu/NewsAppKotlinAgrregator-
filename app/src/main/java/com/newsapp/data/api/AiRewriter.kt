@@ -140,7 +140,11 @@ object AiRewriter {
         var attempts = 0
         while (translatedText == null && attempts < apiKeys.size) {
             if (getActiveKey() == null) { 
-                LogManager.log("AI_ERR", "Усі ключі на паузі. Чекаємо...")
+                if (apiKeys.all { (keyCooldowns[it] ?: 0L) > System.currentTimeMillis() + 3600000L }) {
+                    LogManager.log("AI_ERR", "Усі ключі мертві/вичерпані. Переклад скасовано.")
+                    break
+                }
+                LogManager.log("AI_WAIT", "Ключі на паузі. Чекаємо 10с...")
                 delay(10000)
                 continue
             }
@@ -178,7 +182,7 @@ object AiRewriter {
 
                     while (translatedText == null && attempts < (apiKeys.size * 2)) {
                         if (getActiveKey() == null) { 
-                            if (isGloballyBlocked() && keyCooldowns.values.any { it > System.currentTimeMillis() + 3600000L }) {
+                            if (isGloballyBlocked() && apiKeys.all { (keyCooldowns[it] ?: 0L) > System.currentTimeMillis() + 3600000L }) {
                                 LogManager.log("AI_ERR", "Денні ліміти вичерпано. Зупинка черги до 10:00.")
                                 isQueueStopped = true
                                 break
