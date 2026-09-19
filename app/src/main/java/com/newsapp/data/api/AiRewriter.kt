@@ -88,7 +88,7 @@ object AiRewriter {
             val index = (currentKeyIndex + i) % keys.size
             val key = keys[index]
             if (now > (keyCooldowns[key] ?: 0L)) {
-                currentKeyIndex = index
+                currentKeyIndex = (index + 1) % keys.size
                 return Pair(key, index + 1)
             }
         }
@@ -241,8 +241,8 @@ object AiRewriter {
                 val errBody = respBody.lowercase()
                 LogManager.log("AI_RAW_ERR", "Ключ №$keyNum | HTTP ${response.status.value} | Відповідь: $respBody")
                 
-                if (response.status.value == 401) {
-                    LogManager.log("AI_ERR", "Ключ №$keyNum недійсний. Блок 24г.")
+                if (response.status.value == 401 || response.status.value == 403) {
+                    LogManager.log("AI_ERR", "Ключ №$keyNum заблоковано (401/403). Блок 24г.")
                     setCooldown(apiKey, System.currentTimeMillis() + (24 * 60 * 60 * 1000L))
                 } else if (response.status.value == 429) {
                     if (errBody.contains("quota") || errBody.contains("per day")) {
