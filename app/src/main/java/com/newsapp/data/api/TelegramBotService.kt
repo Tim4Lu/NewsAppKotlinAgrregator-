@@ -80,73 +80,80 @@ class TelegramBotService {
             }
             
             val safeCaption = sanitizeHtml(caption)
+            // Telegram ліміт на підпис до медіа - 1024 символи. Беремо з запасом 1000.
+            val isCaptionTooLong = safeCaption.length > 1000
+            val captionForMedia = if (isCaptionTooLong) "" else safeCaption
+
             val validUrls = imageUrls.filter { it.startsWith("http") }.take(10)
+            var mediaSentOk = false
 
             if (validUrls.size > 1) {
-                LogManager.log("TG", "Стискаємо ${validUrls.size} фотографій...")
                 val bytesList = validUrls.mapNotNull { getJpegBytesFromUrl(it) }
-                if (bytesList.isEmpty()) {
-                    LogManager.log("TG_ERR", "Жодне фото не вдалося стиснути")
-                    return false
-                }
-
-                LogManager.log("TG", "Відправка галереї в Telegram...")
-                val response = client.post("https://api.telegram.org/bot$token/sendMediaGroup") {
-                    setBody(MultiPartFormDataContent(formData {
-                        append("chat_id", channelId)
-                        val mediaArray = JSONArray()
-                        bytesList.forEachIndexed { index, _ ->
-                            val mediaObj = JSONObject().apply {
-                                put("type", "photo")
-                                put("media", "attach://photo$index")
-                                if (index == 0) { put("caption", safeCaption); put("parse_mode", "HTML") }
+                if (bytesList.isNotEmpty()) {
+                    val response = client.post("https://api.telegram.org/bot$token/sendMediaGroup") {
+                        setBody(MultiPartFormDataContent(formData {
+                            append("chat_id", channelId)
+                            val mediaArray = JSONArray()
+                            bytesList.forEachIndexed { index, _ ->
+                                val mediaObj = JSONObject().apply {
+                                    put("type", "photo")
+                                    put("media", "attach://photo$index")
+                                    if (index == 0 && captionForMedia.isNotEmpty()) { 
+                                        put("caption", captionForMedia)
+                                        put("parse_mode", "HTML") 
+                                    }
+                                }
+                                mediaArray.put(mediaObj)
                             }
-                            mediaArray.put(mediaObj)
-                        }
-                        append("media", mediaArray.toString())
-                        bytesList.forEachIndexed { index, bytes ->
-                            append("photo$index", bytes, Headers.build {
-                                append(HttpHeaders.ContentType, "image/jpeg")
-                                append(HttpHeaders.ContentDisposition, "filename=\"photo$index.jpg\"")
-                            })
-                        }
-                    }))
+                            append("media", mediaArray.toString())
+                            bytesList.forEachIndexed { index, bytes ->
+                                append("photo$index", bytes, Headers.build {
+                                    append(HttpHeaders.ContentType, "image/jpeg")
+                                    append(HttpHeaders.ContentDisposition, "filename=\"photo$index.jpg\"")
+                                })
+                            }
+                        }))
+                    }
+                    mediaSentOk = JSONObject(response.bodyAsText()).optBoolean("ok", false)
+                    if (!mediaSentOk) LogManager.log("TG_ERR", "Помилка галереї: ${response.bodyAsText()}")
                 }
-                val isOk = JSONObject(response.bodyAsText()).optBoolean("ok", false)
-                if (isOk) LogManager.log("TG_OK", "Галерею опубліковано!") else LogManager.log("TG_ERR", "Помилка галереї: ${response.bodyAsText()}")
-                return isOk
             } else if (validUrls.size == 1) {
-                LogManager.log("TG", "Обробка 1 фотографії...")
                 val jpegBytes = getJpegBytesFromUrl(validUrls.first())
-                if (jpegBytes == null) {
-                    LogManager.log("TG_ERR", "Не вдалося стиснути фото")
-                    return false
+                if (jpegBytes != null) {
+                    val response = client.post("https://api.telegram.org/bot$token/sendPhoto") {
+                        setBody(MultiPartFormDataContent(formData {
+                            append("chat_id", channelId)
+                            if (captionForMedia.isNotEmpty()) {
+                                append("caption", captionForMedia)
+                                append("parse_mode", "HTML")
+                            }
+                            append("photo", jpegBytes, Headers.build {
+                                append(HttpHeaders.ContentType, "image/jpeg")
+                                append(HttpHeaders.ContentDisposition, "filename=\"image.jpg\"")
+                            })
+                        }))
+                    }
+                    mediaSentOk = JSONObject(response.bodyAsText()).optBoolean("ok", false)
+                    if (!mediaSentOk) LogManager.log("TG_ERR", "Помилка фото: ${response.bodyAsText()}")
                 }
-                val response = client.post("https://api.telegram.org/bot$token/sendPhoto") {
-                    setBody(MultiPartFormDataContent(formData {
-                        append("chat_id", channelId)
-                        append("caption", safeCaption)
-                        append("parse_mode", "HTML")
-                        append("photo", jpegBytes, Headers.build {
-                            append(HttpHeaders.ContentType, "image/jpeg")
-                            append(HttpHeaders.ContentDisposition, "filename=\"image.jpg\"")
-                        })
-                    }))
-                }
-                val isOk = JSONObject(response.bodyAsText()).optBoolean("ok", false)
-                if (isOk) LogManager.log("TG_OK", "Фото опубліковано!") else LogManager.log("TG_ERR", "Помилка фото: ${response.bodyAsText()}")
-                return isOk
-            } else {
+            }
+
+            // Якщо фото відправлено, але текст був занадто довгий, або якщо фото взагалі не було
+            if ((mediaSentOk && isCaptionTooLong) || validUrls.isEmpty()) {
                 val response = client.post("https://api.telegram.org/bot$token/sendMessage") {
                     contentType(ContentType.Application.Json)
                     setBody(JSONObject().apply { put("chat_id", channelId); put("text", safeCaption); put("parse_mode", "HTML") }.toString())
                 }
-                val isOk = JSONObject(response.bodyAsText()).optBoolean("ok", false)
-                if (isOk) LogManager.log("TG_OK", "Текст опубліковано!") else LogManager.log("TG_ERR", "Помилка тексту: ${response.bodyAsText()}")
-                return isOk
+                val textSentOk = JSONObject(response.bodyAsText()).optBoolean("ok", false)
+                if (textSentOk) LogManager.log("TG_OK", "Текст опубліковано!") else LogManager.log("TG_ERR", "Помилка тексту: ${response.bodyAsText()}")
+                return textSentOk
             }
+
+            if (mediaSentOk && !isCaptionTooLong) LogManager.log("TG_OK", "Медіа з підписом опубліковано!")
+            return mediaSentOk
+
         } catch (e: Throwable) {
-            LogManager.log("TG_CRASH", "Критичний збій (Пам'ять/Мережа): ${e.message}")
+            LogManager.log("TG_CRASH", "Збій мережі TG: ${e.message}")
             false
         }
     }
