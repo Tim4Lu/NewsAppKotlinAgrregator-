@@ -100,8 +100,7 @@ class TelegramBotService {
                                     put("media", "attach://photo$index")
                                     if (index == 0 && captionForMedia.isNotEmpty()) { 
                                         put("caption", captionForMedia)
-                                        put("parse_mode", "HTML") 
-                                    }
+                                        put("parse_mode", "HTML"); put("disable_web_page_preview", true) }
                                 }
                                 mediaArray.put(mediaObj)
                             }
@@ -142,7 +141,7 @@ class TelegramBotService {
             if ((mediaSentOk && isCaptionTooLong) || validUrls.isEmpty()) {
                 val response = client.post("https://api.telegram.org/bot$token/sendMessage") {
                     contentType(ContentType.Application.Json)
-                    setBody(JSONObject().apply { put("chat_id", channelId); put("text", safeCaption); put("parse_mode", "HTML") }.toString())
+                    setBody(JSONObject().apply { put("chat_id", channelId); put("text", safeCaption); put("parse_mode", "HTML"); put("disable_web_page_preview", true) }.toString())
                 }
                 val textSentOk = JSONObject(response.bodyAsText()).optBoolean("ok", false)
                 if (textSentOk) LogManager.log("TG_OK", "Текст опубліковано!") else LogManager.log("TG_ERR", "Помилка тексту: ${response.bodyAsText()}")
