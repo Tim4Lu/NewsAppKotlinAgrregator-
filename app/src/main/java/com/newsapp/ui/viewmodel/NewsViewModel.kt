@@ -39,7 +39,8 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
 
     private val client = HttpClient(CIO) { 
         expectSuccess = false 
-        followRedirects = true 
+        followRedirects = true
+        engine { requestTimeout = 30_000; endpoint { connectTimeout = 30_000; socketTimeout = 30_000 } } 
     }
     
     private val telegramBotService = TelegramBotService()
@@ -51,7 +52,8 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
         "https://blogs.nasa.gov/feed/",
         "https://www.esa.int/rssfeed/TopNews",
         "https://www.esa.int/rssfeed/Our_Activities/Space_Science",
-        "https://www.space.com/feeds/all/",
+        "https://www.space.com/feeds/all",
+        "https://www.nature.com/subjects/astronomy-and-planetary-science.rss",
         "https://www.universetoday.com/feed",
         "https://www.spacedaily.com/spacedaily.xml",
         "https://phys.org/rss-feed/space-news/"
@@ -175,6 +177,7 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
                                     cleanUrl.contains("spacedaily") -> "Space Daily"
                                     cleanUrl.contains("universetoday") -> "Universe Today"
                                     cleanUrl.contains("phys.org") -> "Phys.org"
+                                    cleanUrl.contains("nature.com") -> "Nature"
                                     else -> "Новина"
                                 }
 
