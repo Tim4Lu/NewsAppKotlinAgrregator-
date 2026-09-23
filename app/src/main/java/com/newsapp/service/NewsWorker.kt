@@ -15,6 +15,7 @@ import com.newsapp.data.api.AiRewriter
 import com.newsapp.model.NewsItem
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
+import io.ktor.client.engine.cio.endpoint
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.statement.bodyAsText
