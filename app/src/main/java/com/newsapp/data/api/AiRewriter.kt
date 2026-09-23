@@ -71,8 +71,8 @@ object AiRewriter {
         geminiMutex.withLock {
             val now = System.currentTimeMillis()
             val timeSinceLastRequest = now - lastRequestTimestamp
-            if (timeSinceLastRequest < 16_000) {
-                val waitTime = 16_000 - timeSinceLastRequest
+            if (timeSinceLastRequest < 12_000) {
+                val waitTime = 12_000 - timeSinceLastRequest
                 LogManager.log("AI_RATE", "Mutex: чекаємо ${waitTime / 1000} сек...")
                 delay(waitTime)
             }
@@ -255,11 +255,11 @@ object AiRewriter {
                         setCooldown(apiKey, resetTime)
                     } else {
                         LogManager.log("AI_WARN", "Ключ №$keyNum: ліміт RPM. Пауза 2 хв.")
-                        setCooldown(apiKey, System.currentTimeMillis() + (2 * 60 * 1000L))
+                        setCooldown(apiKey, System.currentTimeMillis() + (30_000L))
                     }
                 } else if (response.status.value == 503 || errBody.contains("unavailable") || errBody.contains("high demand")) {
                     LogManager.log("AI_WARN", "Google сервери перевантажені (503). Пауза 2 хв.")
-                    setCooldown(apiKey, System.currentTimeMillis() + (2 * 60 * 1000L))
+                    setCooldown(apiKey, System.currentTimeMillis() + (30_000L))
                 } else {
                     LogManager.log("AI_ERR", "Помилка HTTP ${response.status.value}. Пауза 30с.")
                     setCooldown(apiKey, System.currentTimeMillis() + 30_000L)
