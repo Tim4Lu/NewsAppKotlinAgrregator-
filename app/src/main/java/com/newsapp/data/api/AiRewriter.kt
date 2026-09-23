@@ -148,7 +148,7 @@ object AiRewriter {
                 delay(10000)
                 continue
             }
-            translatedText = callGeminiApi(prompt, "gemini-1.5-flash")
+            translatedText = callGeminiApi(prompt, "gemini-3.6-flash")
             if (translatedText == null) attempts++
         }
         return translatedText
@@ -191,7 +191,7 @@ object AiRewriter {
                             delay(15000)
                             continue
                         }
-                        translatedText = callGeminiApi(prompt, "gemini-1.5-flash")
+                        translatedText = callGeminiApi(prompt, "gemini-3.6-flash")
                         if (translatedText == null) attempts++
                     }
 
