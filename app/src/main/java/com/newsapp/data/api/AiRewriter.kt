@@ -148,7 +148,7 @@ object AiRewriter {
                 delay(10000)
                 continue
             }
-            translatedText = callGeminiApi(prompt, "gemini-3.6-flash")
+            translatedText = callGeminiApi(prompt, "gemini-1.5-flash")
             if (translatedText == null) attempts++
         }
         return translatedText
@@ -191,7 +191,7 @@ object AiRewriter {
                             delay(15000)
                             continue
                         }
-                        translatedText = callGeminiApi(prompt, "gemini-3.6-flash")
+                        translatedText = callGeminiApi(prompt, "gemini-1.5-flash")
                         if (translatedText == null) attempts++
                     }
 
@@ -234,7 +234,7 @@ object AiRewriter {
         val apiKey = active.first
         val keyNum = active.second
         return try {
-            val response = client.post("https://generativelanguage.googleapis.com/v1beta/models/$modelName:generateContent?key=$apiKey") {
+            val response = client.post("https://generativelanguage.googleapis.com/v1beta/models/$modelName:generateContent") { header("x-goog-api-key", apiKey)
                 contentType(ContentType.Application.Json)
                 setBody(JSONObject().apply { put("contents", JSONArray().apply { put(JSONObject().apply { put("parts", JSONArray().apply { put(JSONObject().apply { put("text", prompt) }) }) }) }) }.toString())
             }
