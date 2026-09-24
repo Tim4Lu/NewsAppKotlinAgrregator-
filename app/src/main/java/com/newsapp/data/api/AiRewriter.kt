@@ -87,7 +87,9 @@ object AiRewriter {
                         .getJSONObject(0)
                         .getString("text")
                 }
+            } else { com.newsapp.data.LogManager.log("AI_ERR", "Ключ відхилено. HTTP: ${response.status.value}") }
             } catch (e: Exception) {
+                com.newsapp.data.LogManager.log("AI_CRASH", "Збій мережі API: ${e.message}")
                 // Виклик наступного ключа при помилці
             }
         }
