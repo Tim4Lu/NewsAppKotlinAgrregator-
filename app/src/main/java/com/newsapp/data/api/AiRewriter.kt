@@ -53,8 +53,7 @@ object AiRewriter {
         return keys[Math.abs(index)]
     }
 
-    suspend fun callGeminiApi(prompt: String, model: String = "gemini-1.5-flash"): String? {
-        val url = "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent"
+    suspend fun callGeminiApi(prompt: String, model: String = "gemini-3.6-flash", fallbackModel: String = "gemini-3.7-flash"): String? {
         val keys = apiKeys
         if (keys.isEmpty()) {
             com.newsapp.data.LogManager.log("AI_ERR", "Немає доступних ключів Gemini.")
@@ -69,30 +68,36 @@ object AiRewriter {
             ))
         }
 
-        for (attempt in keys.indices) {
-            val apiKey = getNextKey()
-            try {
-                val response: HttpResponse = client.post(url) {
-                    header("x-goog-api-key", apiKey)
-                    contentType(ContentType.Application.Json)
-                    setBody(jsonBody.toString())
-                }
+        val modelsToTry = listOf(model, fallbackModel).distinct()
 
-                if (response.status == HttpStatusCode.OK) {
-                    val responseBody = response.bodyAsText()
-                    val jsonResponse = JSONObject(responseBody)
-                    return jsonResponse
-                        .getJSONArray("candidates")
-                        .getJSONObject(0)
-                        .getJSONObject("content")
-                        .getJSONArray("parts")
-                        .getJSONObject(0)
-                        .getString("text")
-                } else {
-                    com.newsapp.data.LogManager.log("AI_ERR", "Ключ відхилено. HTTP: ${response.status.value}")
+        for (currentModel in modelsToTry) {
+            for (attempt in keys.indices) {
+                val apiKey = getNextKey()
+                val url = "https://generativelanguage.googleapis.com/v1beta/models/$currentModel:generateContent"
+                
+                try {
+                    val response: HttpResponse = client.post(url) {
+                        header("x-goog-api-key", apiKey)
+                        contentType(ContentType.Application.Json)
+                        setBody(jsonBody.toString())
+                    }
+
+                    if (response.status == HttpStatusCode.OK) {
+                        val responseBody = response.bodyAsText()
+                        val jsonResponse = JSONObject(responseBody)
+                        return jsonResponse
+                            .getJSONArray("candidates")
+                            .getJSONObject(0)
+                            .getJSONObject("content")
+                            .getJSONArray("parts")
+                            .getJSONObject(0)
+                            .getString("text")
+                    } else {
+                        com.newsapp.data.LogManager.log("AI_ERR", "Ключ відхилено ($currentModel). HTTP: ${response.status.value}")
+                    }
+                } catch (e: Exception) {
+                    com.newsapp.data.LogManager.log("AI_CRASH", "Збій мережі API ($currentModel): ${e.message}")
                 }
-            } catch (e: Exception) {
-                com.newsapp.data.LogManager.log("AI_CRASH", "Збій мережі API: ${e.message}")
             }
         }
         return null
