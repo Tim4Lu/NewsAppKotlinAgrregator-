@@ -73,11 +73,11 @@ object AiRewriter {
         for (currentModel in modelsToTry) {
             for (attempt in keys.indices) {
                 val apiKey = getNextKey()
-                val url = "https://generativelanguage.googleapis.com/v1beta/models/$currentModel:generateContent"
+                // Передаємо ключ через параметр URL, що гарантує роботу AQ-токенів без блокування шлюзом
+                val url = "https://generativelanguage.googleapis.com/v1beta/models/$currentModel:generateContent?key=$apiKey"
                 
                 try {
                     val response: HttpResponse = client.post(url) {
-                        header("x-goog-api-key", apiKey)
                         contentType(ContentType.Application.Json)
                         setBody(jsonBody.toString())
                     }
