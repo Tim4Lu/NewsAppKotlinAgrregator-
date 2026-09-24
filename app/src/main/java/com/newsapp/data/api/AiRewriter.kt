@@ -73,11 +73,11 @@ object AiRewriter {
         for (currentModel in modelsToTry) {
             for (attempt in keys.indices) {
                 val apiKey = getNextKey()
-                // Передаємо ключ через параметр URL, що гарантує роботу AQ-токенів без блокування шлюзом
-                val url = "https://generativelanguage.googleapis.com/v1beta/models/$currentModel:generateContent?key=$apiKey"
+                val url = "https://generativelanguage.googleapis.com/v1beta/models/$currentModel:generateContent"
                 
                 try {
                     val response: HttpResponse = client.post(url) {
+                        header("x-goog-api-key", apiKey)
                         contentType(ContentType.Application.Json)
                         setBody(jsonBody.toString())
                     }
@@ -104,7 +104,6 @@ object AiRewriter {
     }
 
     suspend fun rewriteNews(title: String, content: String): String? {
-        delay(12000)
         val prompt = "Зроби якісний рерайт та переклад українською мовою для публікації в Telegram:\nЗаголовок: $title\nТекст: $content"
         return callGeminiApi(prompt)
     }
@@ -122,7 +121,11 @@ object AiRewriter {
         context: Context? = null,
         onItemProcessed: (NewsItem) -> Unit
     ) {
-        items.forEach { item ->
+        items.forEachIndexed { index, item ->
+            // Сувора пауза 12 секунд між кожним запитом згідно з лімітами Free Tier
+            if (index > 0) {
+                delay(12000)
+            }
             val newDesc = rewriteNews(item.title, item.description)
             if (newDesc != null) {
                 val updatedItem = item.copy(
