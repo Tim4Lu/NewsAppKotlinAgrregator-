@@ -11,7 +11,7 @@ import org.json.JSONObject
 import kotlinx.coroutines.delay
 import java.util.concurrent.atomic.AtomicInteger
 
-class AiRewriter {
+object AiRewriter {
     private val client = HttpClient(CIO) {
         install(HttpTimeout) {
             requestTimeoutMillis = 30_000
@@ -20,13 +20,20 @@ class AiRewriter {
         }
     }
 
-    // Зчитуємо ключі з BuildConfig, розбиваючи за комою
     private val apiKeys: List<String> = BuildConfig.GEMINI_KEYS
         .split(",")
         .map { it.trim() }
         .filter { it.isNotBlank() }
 
     private val currentKeyIndex = AtomicInteger(0)
+
+    fun init() {
+        // Метод ініціалізації при потребі
+    }
+
+    fun isGloballyBlocked(): Boolean = false
+
+    fun getBlockTimeFormatted(): String = ""
 
     private fun getNextKey(): String {
         if (apiKeys.isEmpty()) return ""
@@ -73,10 +80,22 @@ class AiRewriter {
                         .getString("text")
                 }
             } catch (e: Exception) {
-                // Спробувати наступний ключ у разі помилки
+                // Спробувати наступний ключ
             }
         }
 
-        return "Помилка: не вдалося згенерувати текст через жоден із наданих API ключів."
+        return "Помилка при генерації через Gemini API."
+    }
+
+    suspend fun translateFullArticle(title: String, content: String): String {
+        return rewriteNews(title, content)
+    }
+
+    suspend fun <T> processAllNewsWithAi(
+        items: List<T>,
+        onProgress: (Int, Int) -> Unit = { _, _ -> },
+        onItemProcessed: (T) -> Unit = {}
+    ) {
+        // Заглушка обробки списку для сумісності з ViewModel та Worker
     }
 }
