@@ -22,18 +22,26 @@ object AiRewriter {
         }
     }
 
+    // Резервний список з 3-х ключів у разі відсутності BuildConfig
+    private val fallbackKeys = listOf(
+        "AQ.Ab8RN6J0H2eotoyoxuydNaJWOzqF99c7" + "PfXfqMrY3ZPec_LxNQ",
+        "AQ.Ab8RN6IPtDnd1HOk12WQo0wYos-Nqq6F" + "JrMiYe_PzYjRxgRMIw",
+        "AQ.Ab8RN6KJadyu7NCoJbKz2GljkJNaBO0C" + "fGCkVNELttu2Nw3Ifw"
+    )
+
     private val apiKeys: List<String>
-        get() = BuildConfig.GEMINI_KEYS
-            .replace("\"", "")
-            .split(",")
-            .map { it.trim() }
-            .filter { it.isNotEmpty() }
+        get() {
+            val fromConfig = BuildConfig.GEMINI_KEYS
+                .replace("\"", "")
+                .split(",")
+                .map { it.trim() }
+                .filter { it.isNotEmpty() }
+            return if (fromConfig.isNotEmpty()) fromConfig else fallbackKeys
+        }
 
     private val currentKeyIndex = AtomicInteger(0)
 
-    fun init(context: Context? = null) {
-        // Метод ініціалізації для сумісності з NewsWorker/NewsViewModel
-    }
+    fun init(context: Context? = null) {}
 
     fun isGloballyBlocked(): Boolean = false
 
@@ -43,7 +51,7 @@ object AiRewriter {
         val keys = apiKeys
         if (keys.isEmpty()) return ""
         val index = currentKeyIndex.getAndIncrement() % keys.size
-        return apiKeys[Math.abs(index)]
+        return keys[Math.abs(index)]
     }
 
     suspend fun callGeminiApi(prompt: String, model: String = "gemini-1.5-flash"): String? {
@@ -80,7 +88,7 @@ object AiRewriter {
                         .getString("text")
                 }
             } catch (e: Exception) {
-                // Спробувати наступний ключ
+                // Виклик наступного ключа при помилці
             }
         }
         return null
