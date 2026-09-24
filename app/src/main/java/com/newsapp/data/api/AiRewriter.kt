@@ -94,18 +94,18 @@ object AiRewriter {
         return null
     }
 
-    suspend fun rewriteNews(title: String, content: String): String {
+    suspend fun rewriteNews(title: String, content: String): String? {
         delay(12000)
         val prompt = "Зроби якісний рерайт та переклад українською мовою для публікації в Telegram:\nЗаголовок: $title\nТекст: $content"
-        return callGeminiApi(prompt) ?: "Помилка при генерації через Gemini API."
+        return callGeminiApi(prompt)
     }
 
     suspend fun translateFullArticle(item: NewsItem): String {
-        return rewriteNews(item.title, item.description)
+        return rewriteNews(item.title, item.description) ?: "Помилка перекладу."
     }
 
     suspend fun translateFullArticle(title: String, content: String): String {
-        return rewriteNews(title, content)
+        return rewriteNews(title, content) ?: "Помилка перекладу."
     }
 
     suspend fun processAllNewsWithAi(
@@ -115,12 +115,12 @@ object AiRewriter {
     ) {
         items.forEach { item ->
             val newDesc = rewriteNews(item.title, item.description)
-            val updatedItem = item.copy(
+            if (newDesc != null) { val updatedItem = item.copy(
                 description = newDesc,
                 status = "Готово",
                 telegramCaption = "🚀 <b>${item.title}</b> 🚀\n\n$newDesc\n\n• <b>Джерело:</b> ${item.source}"
             )
-            onItemProcessed(updatedItem)
+            onItemProcessed(updatedItem) } else { onItemProcessed(item.copy(status = "Помилка")) }
         }
     }
 }
