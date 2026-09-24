@@ -13,7 +13,7 @@ import org.json.JSONObject
 import kotlinx.coroutines.delay
 import java.util.concurrent.atomic.AtomicInteger
 
-class AiRewriter {
+object AiRewriter {
     private val client = HttpClient(CIO) {
         install(HttpTimeout) {
             requestTimeoutMillis = 30_000
@@ -31,18 +31,25 @@ class AiRewriter {
 
     private val currentKeyIndex = AtomicInteger(0)
 
+    fun init(context: Context? = null) {
+        // Метод ініціалізації для сумісності з NewsWorker/NewsViewModel
+    }
+
+    fun isGloballyBlocked(): Boolean = false
+
+    fun getBlockTimeFormatted(): String = ""
+
     private fun getNextKey(): String {
         val keys = apiKeys
         if (keys.isEmpty()) return ""
         val index = currentKeyIndex.getAndIncrement() % keys.size
-        return keys[Math.abs(index)]
+        return apiKeys[Math.abs(index)]
     }
 
-    suspend fun rewriteNews(title: String, content: String): String {
-        delay(12000)
-
-        val url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
-        val prompt = "Зроби якісний рерайт та переклад українською мовою для публікації в Telegram:\nЗаголовок: $title\nТекст: $content"
+    suspend fun callGeminiApi(prompt: String, model: String = "gemini-1.5-flash"): String? {
+        val url = "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent"
+        val keys = apiKeys
+        if (keys.isEmpty()) return null
 
         val jsonBody = JSONObject().apply {
             put("contents", org.json.JSONArray().put(
@@ -50,11 +57,6 @@ class AiRewriter {
                     JSONObject().put("text", prompt)
                 ))
             ))
-        }
-
-        val keys = apiKeys
-        if (keys.isEmpty()) {
-            return "Помилка: API ключі не знайдені в конфігурації збірки."
         }
 
         for (attempt in keys.indices) {
@@ -78,14 +80,18 @@ class AiRewriter {
                         .getString("text")
                 }
             } catch (e: Exception) {
-                // Ігноруємо та пробуємо наступний ключ
+                // Спробувати наступний ключ
             }
         }
-
-        return "Помилка при генерації через Gemini API."
+        return null
     }
 
-    // Метод для обробки суцільного тексту або об'єкта
+    suspend fun rewriteNews(title: String, content: String): String {
+        delay(12000)
+        val prompt = "Зроби якісний рерайт та переклад українською мовою для публікації в Telegram:\nЗаголовок: $title\nТекст: $content"
+        return callGeminiApi(prompt) ?: "Помилка при генерації через Gemini API."
+    }
+
     suspend fun translateFullArticle(item: NewsItem): String {
         return rewriteNews(item.title, item.description)
     }
@@ -94,45 +100,19 @@ class AiRewriter {
         return rewriteNews(title, content)
     }
 
-    companion object {
-        private val sharedRewriter = AiRewriter()
-
-        // 1. Приймаємо Context для сумісності з NewsWorker і NewsViewModel
-        fun init(context: Context? = null) {}
-
-        fun isGloballyBlocked(): Boolean = false
-
-        fun getBlockTimeFormatted(): String = ""
-
-        // 2. Метод, якого вимагав ScriptGenerator.kt
-        suspend fun callGeminiApi(prompt: String, model: String = "gemini-1.5-flash"): String? {
-            return sharedRewriter.rewriteNews("Сценарій", prompt)
-        }
-
-        // 3. Підтримка виклику processAllNewsWithAi з 2 та 3 параметрами
-        suspend fun processAllNewsWithAi(
-            items: List<NewsItem>,
-            context: Context,
-            onItemProcessed: (NewsItem) -> Unit
-        ) {
-            processAllNewsWithAi(items, { _, _ -> }, onItemProcessed)
-        }
-
-        suspend fun processAllNewsWithAi(
-            items: List<NewsItem>,
-            onProgress: (Int, Int) -> Unit = { _, _ -> },
-            onItemProcessed: (NewsItem) -> Unit = {}
-        ) {
-            items.forEachIndexed { index, item ->
-                val newDesc = sharedRewriter.rewriteNews(item.title, item.description)
-                val updatedItem = item.copy(
-                    description = newDesc,
-                    status = "Готово",
-                    telegramCaption = "🚀 <b>${item.title}</b> 🚀\n\n$newDesc\n\n• <b>Джерело:</b> ${item.source}"
-                )
-                onProgress(index + 1, items.size)
-                onItemProcessed(updatedItem)
-            }
+    suspend fun processAllNewsWithAi(
+        items: List<NewsItem>,
+        context: Context? = null,
+        onItemProcessed: (NewsItem) -> Unit
+    ) {
+        items.forEach { item ->
+            val newDesc = rewriteNews(item.title, item.description)
+            val updatedItem = item.copy(
+                description = newDesc,
+                status = "Готово",
+                telegramCaption = "🚀 <b>${item.title}</b> 🚀\n\n$newDesc\n\n• <b>Джерело:</b> ${item.source}"
+            )
+            onItemProcessed(updatedItem)
         }
     }
 }
