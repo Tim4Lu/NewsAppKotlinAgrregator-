@@ -22,21 +22,13 @@ object AiRewriter {
         }
     }
 
-    // Резервний список з 3-х ключів у разі відсутності BuildConfig
-    private val fallbackKeys = listOf(
-        "AQ.Ab8RN6J0H2eotoyoxuydNaJWOzqF99c7" + "PfXfqMrY3ZPec_LxNQ",
-        "AQ.Ab8RN6IPtDnd1HOk12WQo0wYos-Nqq6F" + "JrMiYe_PzYjRxgRMIw",
-        "AQ.Ab8RN6KJadyu7NCoJbKz2GljkJNaBO0C" + "fGCkVNELttu2Nw3Ifw"
-    )
-
     private val apiKeys: List<String>
         get() {
-            val fromConfig = BuildConfig.GEMINI_KEYS
+            return BuildConfig.GEMINI_KEYS
                 .replace("\"", "")
                 .split(",")
                 .map { it.trim() }
                 .filter { it.isNotEmpty() }
-            return if (fromConfig.isNotEmpty()) fromConfig else fallbackKeys
         }
 
     private val currentKeyIndex = AtomicInteger(0)
@@ -57,7 +49,10 @@ object AiRewriter {
     suspend fun callGeminiApi(prompt: String, model: String = "gemini-1.5-flash"): String? {
         val url = "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent"
         val keys = apiKeys
-        if (keys.isEmpty()) return null
+        if (keys.isEmpty()) {
+            com.newsapp.data.LogManager.log("AI_ERR", "Немає доступних ключів Gemini.")
+            return null
+        }
 
         val jsonBody = JSONObject().apply {
             put("contents", org.json.JSONArray().put(
@@ -86,11 +81,11 @@ object AiRewriter {
                         .getJSONArray("parts")
                         .getJSONObject(0)
                         .getString("text")
+                } else {
+                    com.newsapp.data.LogManager.log("AI_ERR", "Ключ відхилено. HTTP: ${response.status.value}")
                 }
-            } else { com.newsapp.data.LogManager.log("AI_ERR", "Ключ відхилено. HTTP: ${response.status.value}") }
             } catch (e: Exception) {
                 com.newsapp.data.LogManager.log("AI_CRASH", "Збій мережі API: ${e.message}")
-                // Виклик наступного ключа при помилці
             }
         }
         return null
@@ -117,12 +112,16 @@ object AiRewriter {
     ) {
         items.forEach { item ->
             val newDesc = rewriteNews(item.title, item.description)
-            if (newDesc != null) { val updatedItem = item.copy(
-                description = newDesc,
-                status = "Готово",
-                telegramCaption = "🚀 <b>${item.title}</b> 🚀\n\n$newDesc\n\n• <b>Джерело:</b> ${item.source}"
-            )
-            onItemProcessed(updatedItem) } else { onItemProcessed(item.copy(status = "Помилка")) }
+            if (newDesc != null) {
+                val updatedItem = item.copy(
+                    description = newDesc,
+                    status = "Готово",
+                    telegramCaption = "🚀 <b>${item.title}</b> 🚀\n\n$newDesc\n\n• <b>Джерело:</b> ${item.source}"
+                )
+                onItemProcessed(updatedItem)
+            } else {
+                onItemProcessed(item.copy(status = "Помилка"))
+            }
         }
     }
 }
