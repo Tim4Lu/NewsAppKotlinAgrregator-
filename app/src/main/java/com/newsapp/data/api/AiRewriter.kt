@@ -1,6 +1,8 @@
 package com.newsapp.data.api
 
+import android.content.Context
 import com.newsapp.BuildConfig
+import com.newsapp.model.NewsItem
 import io.ktor.client.*
 import io.ktor.client.engine.cio.*
 import io.ktor.client.plugins.*
@@ -11,7 +13,7 @@ import org.json.JSONObject
 import kotlinx.coroutines.delay
 import java.util.concurrent.atomic.AtomicInteger
 
-object AiRewriter {
+class AiRewriter {
     private val client = HttpClient(CIO) {
         install(HttpTimeout) {
             requestTimeoutMillis = 30_000
@@ -20,25 +22,20 @@ object AiRewriter {
         }
     }
 
-    private val apiKeys: List<String> = BuildConfig.GEMINI_KEYS
-        .split(",")
-        .map { it.trim() }
-        .filter { it.isNotBlank() }
+    private val apiKeys: List<String>
+        get() = BuildConfig.GEMINI_KEYS
+            .replace("\"", "")
+            .split(",")
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
 
     private val currentKeyIndex = AtomicInteger(0)
 
-    fun init() {
-        // Метод ініціалізації при потребі
-    }
-
-    fun isGloballyBlocked(): Boolean = false
-
-    fun getBlockTimeFormatted(): String = ""
-
     private fun getNextKey(): String {
-        if (apiKeys.isEmpty()) return ""
-        val index = currentKeyIndex.getAndIncrement() % apiKeys.size
-        return apiKeys[Math.abs(index)]
+        val keys = apiKeys
+        if (keys.isEmpty()) return ""
+        val index = currentKeyIndex.getAndIncrement() % keys.size
+        return keys[Math.abs(index)]
     }
 
     suspend fun rewriteNews(title: String, content: String): String {
@@ -55,11 +52,12 @@ object AiRewriter {
             ))
         }
 
-        if (apiKeys.isEmpty()) {
+        val keys = apiKeys
+        if (keys.isEmpty()) {
             return "Помилка: API ключі не знайдені в конфігурації збірки."
         }
 
-        for (attempt in apiKeys.indices) {
+        for (attempt in keys.indices) {
             val apiKey = getNextKey()
             try {
                 val response: HttpResponse = client.post(url) {
@@ -80,22 +78,61 @@ object AiRewriter {
                         .getString("text")
                 }
             } catch (e: Exception) {
-                // Спробувати наступний ключ
+                // Ігноруємо та пробуємо наступний ключ
             }
         }
 
         return "Помилка при генерації через Gemini API."
     }
 
+    // Метод для обробки суцільного тексту або об'єкта
+    suspend fun translateFullArticle(item: NewsItem): String {
+        return rewriteNews(item.title, item.description)
+    }
+
     suspend fun translateFullArticle(title: String, content: String): String {
         return rewriteNews(title, content)
     }
 
-    suspend fun <T> processAllNewsWithAi(
-        items: List<T>,
-        onProgress: (Int, Int) -> Unit = { _, _ -> },
-        onItemProcessed: (T) -> Unit = {}
-    ) {
-        // Заглушка обробки списку для сумісності з ViewModel та Worker
+    companion object {
+        private val sharedRewriter = AiRewriter()
+
+        // 1. Приймаємо Context для сумісності з NewsWorker і NewsViewModel
+        fun init(context: Context? = null) {}
+
+        fun isGloballyBlocked(): Boolean = false
+
+        fun getBlockTimeFormatted(): String = ""
+
+        // 2. Метод, якого вимагав ScriptGenerator.kt
+        suspend fun callGeminiApi(prompt: String, model: String = "gemini-1.5-flash"): String? {
+            return sharedRewriter.rewriteNews("Сценарій", prompt)
+        }
+
+        // 3. Підтримка виклику processAllNewsWithAi з 2 та 3 параметрами
+        suspend fun processAllNewsWithAi(
+            items: List<NewsItem>,
+            context: Context,
+            onItemProcessed: (NewsItem) -> Unit
+        ) {
+            processAllNewsWithAi(items, { _, _ -> }, onItemProcessed)
+        }
+
+        suspend fun processAllNewsWithAi(
+            items: List<NewsItem>,
+            onProgress: (Int, Int) -> Unit = { _, _ -> },
+            onItemProcessed: (NewsItem) -> Unit = {}
+        ) {
+            items.forEachIndexed { index, item ->
+                val newDesc = sharedRewriter.rewriteNews(item.title, item.description)
+                val updatedItem = item.copy(
+                    description = newDesc,
+                    status = "Готово",
+                    telegramCaption = "🚀 <b>${item.title}</b> 🚀\n\n$newDesc\n\n• <b>Джерело:</b> ${item.source}"
+                )
+                onProgress(index + 1, items.size)
+                onItemProcessed(updatedItem)
+            }
+        }
     }
 }
