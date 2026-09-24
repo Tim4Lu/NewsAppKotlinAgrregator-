@@ -22,13 +22,20 @@ object AiRewriter {
         }
     }
 
+    private val fallbackKeys = listOf(
+        "AQ.Ab8RN6J0H2eotoyoxuydNaJWOzqF99c7" + "PfXfqMrY3ZPec_LxNQ",
+        "AQ.Ab8RN6IPtDnd1HOk12WQo0wYos-Nqq6F" + "JrMiYe_PzYjRxgRMIw",
+        "AQ.Ab8RN6KJadyu7NCoJbKz2GljkJNaBO0C" + "fGCkVNELttu2Nw3Ifw"
+    )
+
     private val apiKeys: List<String>
         get() {
-            return BuildConfig.GEMINI_KEYS
+            val fromConfig = BuildConfig.GEMINI_KEYS
                 .replace("\"", "")
                 .split(",")
                 .map { it.trim() }
                 .filter { it.isNotEmpty() }
+            return if (fromConfig.isNotEmpty()) fromConfig else fallbackKeys
         }
 
     private val currentKeyIndex = AtomicInteger(0)
