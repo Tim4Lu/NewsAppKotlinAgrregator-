@@ -37,18 +37,13 @@ object AiRewriter {
         }
     }
 
-    private val fallbackKeys = listOf(
-        "AQ.Ab8RN6LI8pwSHCFtWMXjfjYpP8lifm" + "YzpAFtybcB6EcB_RZVDw",
-        "AQ.Ab8RN6J0H2eotoyoxuydNaJWOzqF99c7" + "PfXfqMrY3ZPec_LxNQ",
-        "AQ.Ab8RN6IPtDnd1HOk12WQo0wYos-Nqq6F" + "JrMiYe_PzYjRxgRMIw",
-        "AQ.Ab8RN6KJadyu7NCoJbKz2GljkJNaBO0C" + "fGCkVNELttu2Nw3Ifw"
-    )
-
+    // Чиста логіка без fallbackKeys. Тільки BuildConfig!
     private val apiKeys: List<String> 
-        get() {
-            val fromConfig = BuildConfig.GEMINI_KEYS.replace("\"", "").split(",").map { it.trim() }.filter { it.isNotEmpty() }
-            return if (fromConfig.isNotEmpty()) fromConfig else fallbackKeys
-        }
+        get() = BuildConfig.GEMINI_KEYS
+            .replace("\"", "")
+            .split(",")
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
         
     private var currentKeyIndex = 0
     var lastRequestTimestamp = 0L
@@ -229,7 +224,12 @@ object AiRewriter {
     suspend fun callGeminiApi(prompt: String, modelName: String = "gemini-3.6-flash"): String? {
         enforceRateLimit()
         val active = getActiveKey()
-        if (active == null) return null
+        
+        // Запобіжник, якщо Secrets або local.properties не підтягнулися
+        if (active == null) {
+            LogManager.log("AI_ERR", "Не знайдено жодного ключа Gemini! Перевірте Secrets.")
+            return null
+        }
         
         val apiKey = active.first
         val keyNum = active.second
