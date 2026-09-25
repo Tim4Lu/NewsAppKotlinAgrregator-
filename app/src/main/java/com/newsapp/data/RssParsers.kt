@@ -14,6 +14,7 @@ class SpaceComParser : BaseRssParser { override fun parse(xml: String) = parseRo
 class SpaceDailyParser : BaseRssParser { override fun parse(xml: String) = parseRobust(xml, "Space Daily") }
 class UniverseTodayParser : BaseRssParser { override fun parse(xml: String) = parseRobust(xml, "Universe Today") }
 class PhysOrgParser : BaseRssParser { override fun parse(xml: String) = parseRobust(xml, "Phys.org") }
+class NatureParser : BaseRssParser { override fun parse(xml: String) = parseRobust(xml, "Nature") }
 
 private fun String.cleanHtmlAndEntities(): String {
     val text = this.replace(Regex("(?s)(?i)<!\\[CDATA\\[(.*?)\\]\\]>"), "$1")
@@ -32,7 +33,7 @@ private fun String.cleanHtmlAndEntities(): String {
         .replace(Regex("<[^>]*>"), "\n")
 
     val artifacts = setOf(
-        "science", "apod", "today's apod", "archive", "submissions", 
+        "apod", "today's apod", "archive", "submissions", 
         "index", "search", "calendar", "rss", "education", "about", "discuss"
     )
 
@@ -58,19 +59,25 @@ private fun parseRobust(xml: String, sourceName: String): List<NewsItem> {
         for (match in matches) {
             val block = match.groupValues[1]
 
-            val titleMatch = Regex("(?s)(?i)<title[^>]*>(.*?)</title>").find(block)
+            val titleMatch = Regex("(?s)(?i)<(?:title|dc:title)[^>]*>(.*?)</(?:title|dc:title)>").find(block)
             var rawTitle = titleMatch?.groupValues?.getOrNull(1)?.cleanHtmlAndEntities() ?: ""
             rawTitle = rawTitle.replace("(?i)APOD:\\s*(-\\s*)?".toRegex(), "").trim()
 
             val linkHref = Regex("(?i)<link[^>]*href=[\"']([^\"']+)[\"']").find(block)?.groupValues?.getOrNull(1)
             val linkTag = Regex("(?s)(?i)<link[^>]*>(.*?)</link>").find(block)?.groupValues?.getOrNull(1)
             val guidTag = Regex("(?s)(?i)<guid[^>]*>(.*?)</guid>").find(block)?.groupValues?.getOrNull(1)
-            var rawLink = (linkHref ?: linkTag ?: guidTag ?: "").cleanHtmlAndEntities()
+            
+            // Безпечне очищення URL (без розбиття на нові рядки)
+            var rawLink = (linkHref ?: linkTag ?: guidTag ?: "")
+                .replace("(?s)(?i)<!\\[CDATA\\[(.*?)\\]\\]>".toRegex(), "$1")
+                .replace("&amp;", "&")
+                .replace(Regex("<[^>]*>"), "")
+                .trim()
             if (rawLink.contains(" ")) rawLink = rawLink.split(" ")[0]
 
-            var rawDesc = Regex("(?s)(?i)<content:encoded[^>]*>(.*?)</content:encoded>").find(block)?.groupValues?.getOrNull(1)?.cleanHtmlAndEntities() ?: ""
+            var rawDesc = Regex("(?s)(?i)<(?:content:encoded|content)[^>]*>(.*?)</(?:content:encoded|content)>").find(block)?.groupValues?.getOrNull(1)?.cleanHtmlAndEntities() ?: ""
             if (rawDesc.isEmpty()) {
-                rawDesc = Regex("(?s)(?i)<(?:description|summary|content)[^>]*>(.*?)</(?:description|summary|content)>").find(block)?.groupValues?.getOrNull(1)?.cleanHtmlAndEntities() ?: ""
+                rawDesc = Regex("(?s)(?i)<(?:description|summary|dc:description)[^>]*>(.*?)</(?:description|summary|dc:description)>").find(block)?.groupValues?.getOrNull(1)?.cleanHtmlAndEntities() ?: ""
             }
 
             var img: String? = null
@@ -82,7 +89,6 @@ private fun parseRobust(xml: String, sourceName: String): List<NewsItem> {
                 if (imgMatch != null) img = imgMatch.groupValues.getOrNull(1)
             }
             
-            // Відновлення оригінальної якості картинок (Phys.org + WP)
             if (img != null) {
                 img = img.replace("/tmb/", "/")
                          .replace(Regex("-\\d{2,4}x\\d{2,4}(?=\\.[a-zA-Z]+)"), "")
@@ -91,7 +97,7 @@ private fun parseRobust(xml: String, sourceName: String): List<NewsItem> {
             var timestamp = System.currentTimeMillis()
             val dateMatch = Regex("(?i)<(?:pubDate|published|dc:date)[^>]*>(.*?)</(?:pubDate|published|dc:date)>").find(block)
             if (dateMatch != null) {
-                val dateStr = dateMatch.groupValues[1].cleanHtmlAndEntities()
+                val dateStr = dateMatch.groupValues[1].replace(Regex("<[^>]*>"), "").trim()
                 val formats = listOf(
                     "EEE, dd MMM yyyy HH:mm:ss Z",
                     "EEE, dd MMM yyyy HH:mm:ss zzz",
@@ -99,7 +105,8 @@ private fun parseRobust(xml: String, sourceName: String): List<NewsItem> {
                     "yyyy-MM-dd'T'HH:mm:ss'Z'",
                     "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",
                     "yyyy-MM-dd'T'HH:mm:ssXXX",
-                    "yyyy-MM-dd HH:mm:ss"
+                    "yyyy-MM-dd HH:mm:ss",
+                    "yyyy-MM-dd"
                 )
                 for (format in formats) {
                     try {
@@ -113,7 +120,7 @@ private fun parseRobust(xml: String, sourceName: String): List<NewsItem> {
                 }
             }
 
-            if (rawTitle.isNotEmpty()) {
+            if (rawTitle.isNotEmpty() && rawLink.isNotEmpty()) {
                 var cleanDesc = rawDesc
                 if (cleanDesc.length > 300) cleanDesc = cleanDesc.take(300) + "..."
 
@@ -140,9 +147,10 @@ object NewsParserFactory {
             url.contains("nasa.gov") -> NasaParser()
             url.contains("esa.int") -> EsaParser()
             url.contains("space.com") -> SpaceComParser()
-            url.contains("spacedaily.com") -> SpaceDailyParser()
-            url.contains("universetoday.com") -> UniverseTodayParser()
+            url.contains("spacedaily") -> SpaceDailyParser()
+            url.contains("universetoday") -> UniverseTodayParser()
             url.contains("phys.org") -> PhysOrgParser()
+            url.contains("nature.com") -> NatureParser()
             else -> NasaParser()
         }
     }
