@@ -14,7 +14,6 @@ class SpaceComParser : BaseRssParser { override fun parse(xml: String) = parseRo
 class SpaceDailyParser : BaseRssParser { override fun parse(xml: String) = parseRobust(xml, "Space Daily") }
 class UniverseTodayParser : BaseRssParser { override fun parse(xml: String) = parseRobust(xml, "Universe Today") }
 class PhysOrgParser : BaseRssParser { override fun parse(xml: String) = parseRobust(xml, "Phys.org") }
-class NatureParser : BaseRssParser { override fun parse(xml: String) = parseRobust(xml, "Nature") }
 
 private fun String.cleanHtmlAndEntities(): String {
     val text = this.replace(Regex("(?s)(?i)<!\\[CDATA\\[(.*?)\\]\\]>"), "$1")
@@ -144,7 +143,6 @@ object NewsParserFactory {
             url.contains("spacedaily.com") -> SpaceDailyParser()
             url.contains("universetoday.com") -> UniverseTodayParser()
             url.contains("phys.org") -> PhysOrgParser()
-            url.contains("nature.com") -> NatureParser()
             else -> NasaParser()
         }
     }
