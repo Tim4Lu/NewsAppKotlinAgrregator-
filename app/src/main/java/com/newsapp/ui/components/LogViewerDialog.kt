@@ -1,5 +1,9 @@
 package com.newsapp.ui.components
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -13,6 +17,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -24,6 +29,7 @@ import com.newsapp.data.api.AiRewriter
 fun LogViewerDialog(onDismiss: () -> Unit) {
     val logs by LogManager.logs.collectAsState()
     val stats = remember { AiRewriter.getStats() }
+    val context = LocalContext.current
 
     Dialog(onDismissRequest = onDismiss) {
         Surface(
@@ -44,11 +50,20 @@ fun LogViewerDialog(onDismiss: () -> Unit) {
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "📜 Системні Логи",
+                        text = "📜 Логи",
                         color = Color.White,
                         style = MaterialTheme.typography.titleMedium
                     )
                     Row {
+                        TextButton(onClick = {
+                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            val logsText = "СТАТИСТИКА:\n$stats\n\nЛОГИ:\n${logs.joinToString("\n")}"
+                            val clip = ClipData.newPlainText("Logs", logsText)
+                            clipboard.setPrimaryClip(clip)
+                            Toast.makeText(context, "Логи скопійовано!", Toast.LENGTH_SHORT).show()
+                        }) {
+                            Text("Копіювати", color = Color(0xFF38BDF8))
+                        }
                         TextButton(onClick = { LogManager.clear() }) {
                             Text("Очистити", color = Color(0xFFEF4444))
                         }
