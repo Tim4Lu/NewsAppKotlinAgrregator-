@@ -40,33 +40,25 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
     private val telegramBotService = TelegramBotService()
     private val cacheManager = NewsCacheManager(application)
 
+    // Прибрано сліші з кінця URL! Вони викликали помилки 404
     private val rssUrls = listOf(
         "https://www.nasa.gov/feed/",
         "https://science.nasa.gov/feed/",
         "https://www.esa.int/rssfeed/TopNews",
         "https://www.esa.int/rssfeed/Our_Activities/Space_Science",
-        "https://www.space.com/feeds/all/",
+        "https://www.space.com/feeds/all",
         "https://www.nature.com/subjects/astronomy-and-planetary-science.rss",
-        "https://www.universetoday.com/feed/",
+        "https://www.universetoday.com/feed",
         "https://www.spacedaily.com/spacedaily.xml",
-        "https://phys.org/rss-feed/space-news/"
+        "https://phys.org/rss-feed/space-news"
     )
 
     init {
         AiRewriter.init(application)
-        viewModelScope.launch {
-            loadCachedNews()
-            loadNews()
-        }
+        viewModelScope.launch { loadCachedNews(); loadNews() }
     }
 
-    private fun String.normalizeUrl(): String {
-        return this.lowercase()
-            .replace(Regex("^https?://"), "")
-            .replace(Regex("^www\\."), "")
-            .split("?")[0]
-            .trimEnd('/')
-    }
+    private fun String.normalizeUrl() = this.lowercase().replace(Regex("^https?://"), "").replace(Regex("^www\\."), "").split("?")[0].trimEnd('/')
 
     private suspend fun loadCachedNews() {
         val cached = cacheManager.loadNews()
@@ -76,7 +68,6 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
                 val normLink = it.link.normalizeUrl()
                 if (normLink.isNotEmpty()) normLink else it.originalTitle.ifEmpty { it.title }
             }.filter { it.timestamp > threeDaysAgo }
-
             _newsList.value = uniqueCached.sortedByDescending { it.timestamp }
             cacheManager.saveNews(_newsList.value)
         }
@@ -84,11 +75,8 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
 
     fun checkAndRetryUntranslatedNews() {
         val untranslated = _newsList.value.filter { it.status == "В черзі" }
-        if (untranslated.isNotEmpty()) {
-            if (AiRewriter.isGloballyBlocked()) return
-            viewModelScope.launch(Dispatchers.IO) {
-                processNewsWithScraperAndAi(untranslated)
-            }
+        if (untranslated.isNotEmpty() && !AiRewriter.isGloballyBlocked()) {
+            viewModelScope.launch(Dispatchers.IO) { processNewsWithScraperAndAi(untranslated) }
         }
     }
 
@@ -100,40 +88,89 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
 
             for (url in rssUrls) {
                 try {
-                    LogManager.log("FETCH", "Запит: ${url.take(45)}...")
+                    LogManager.log("FETCH", "Запит: ${url.take(40)}")
                     var fetchedItems = listOf<NewsItem>()
-                    var successDirect = false
+                    val parser = NewsParserFactory.getParser(url)
 
-                    val response = client.get(url) {
-                        header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36")
-                        header("Accept", "application/rss+xml, application/xml, text/xml;q=0.9, */*;q=0.8")
-                        header("Accept-Language", "en-US,en;q=0.9,uk;q=0.8")
-                    }
-
-                    if (response.status.value in 200..299) {
-                        val parser = NewsParserFactory.getParser(url)
-                        fetchedItems = parser.parse(response.bodyAsText())
-                        if (fetchedItems.isNotEmpty()) successDirect = true
-                    }
-
-                    if (!successDirect) {
-                        LogManager.log("FETCH", "Cloudflare блок. Спроба через AllOrigins...")
-                        val proxyUrl = "https://api.allorigins.win/get?url=${URLEncoder.encode(url, "UTF-8")}"
-                        val proxyResponse = client.get(proxyUrl)
-                        
-                        if (proxyResponse.status.value in 200..299) {
-                            val json = JSONObject(proxyResponse.bodyAsText())
-                            val rawXml = json.optString("contents", "")
-                            if (rawXml.isNotEmpty()) {
-                                val parser = NewsParserFactory.getParser(url)
-                                fetchedItems = parser.parse(rawXml)
-                                LogManager.log("FETCH_OK", "Проксі успішно витягнув ${fetchedItems.size} новин")
+                    // Спроба 1: Прямий запит (найшвидший)
+                    try {
+                        val response = client.get(url) {
+                            header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                            header("Accept", "application/xml, text/xml")
+                        }
+                        if (response.status.value in 200..299) {
+                            val xml = response.bodyAsText()
+                            if (xml.contains("<rss") || xml.contains("<feed") || xml.contains("<?xml")) {
+                                fetchedItems = parser.parse(xml)
+                                if (fetchedItems.isNotEmpty()) LogManager.log("FETCH_OK", "Direct: ${fetchedItems.size} новин")
                             }
                         }
+                    } catch (e: Exception) { LogManager.log("FETCH_ERR", "Direct fail: ${e.message}") }
+
+                    // Спроба 2: AllOrigins Proxy (якщо блокує Cloudflare)
+                    if (fetchedItems.isEmpty()) {
+                        try {
+                            val proxyUrl = "https://api.allorigins.win/get?url=${URLEncoder.encode(url, "UTF-8")}"
+                            val response = client.get(proxyUrl)
+                            if (response.status.value in 200..299) {
+                                val json = JSONObject(response.bodyAsText())
+                                val xml = json.optString("contents", "")
+                                if (xml.contains("<rss") || xml.contains("<feed") || xml.contains("<?xml")) {
+                                    fetchedItems = parser.parse(xml)
+                                    if (fetchedItems.isNotEmpty()) LogManager.log("FETCH_OK", "AllOrigins: ${fetchedItems.size} новин")
+                                }
+                            }
+                        } catch (e: Exception) { LogManager.log("FETCH_ERR", "AllOrigins fail: ${e.message}") }
                     }
+
+                    // Спроба 3: Rss2Json (якщо навіть AllOrigins видає капчу)
+                    if (fetchedItems.isEmpty()) {
+                        try {
+                            val r2jUrl = "https://api.rss2json.com/v1/api.json?rss_url=${URLEncoder.encode(url, "UTF-8")}"
+                            val response = client.get(r2jUrl)
+                            if (response.status.value in 200..299) {
+                                val json = JSONObject(response.bodyAsText())
+                                if (json.optString("status") == "ok") {
+                                    val itemsArray = json.optJSONArray("items")
+                                    val fallbackItems = mutableListOf<NewsItem>()
+                                    val sourceName = when {
+                                        url.contains("nasa.gov") -> "NASA"
+                                        url.contains("esa.int") -> "ESA"
+                                        url.contains("space.com") -> "Space.com"
+                                        url.contains("spacedaily") -> "Space Daily"
+                                        url.contains("universetoday") -> "Universe Today"
+                                        url.contains("phys.org") -> "Phys.org"
+                                        url.contains("nature.com") -> "Nature"
+                                        else -> "Новина"
+                                    }
+                                    for (i in 0 until (itemsArray?.length() ?: 0)) {
+                                        val obj = itemsArray!!.getJSONObject(i)
+                                        var rawTitle = obj.optString("title").replace("(?i)APOD:\\s*(-\\s*)?".toRegex(), "").trim()
+                                        var rawDesc = obj.optString("description", "").replace(Regex("<[^>]*>"), "").trim()
+                                        if (rawDesc.length > 300) rawDesc = rawDesc.take(300) + "..."
+                                        var img = obj.optString("thumbnail", "")
+                                        if (img.isEmpty()) img = obj.optJSONObject("enclosure")?.optString("link", "") ?: ""
+                                        var ts = System.currentTimeMillis()
+                                        val pubDate = obj.optString("pubDate", "")
+                                        if (pubDate.isNotEmpty()) {
+                                            try { ts = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.ENGLISH).parse(pubDate)?.time ?: ts } catch(e: Exception) {}
+                                        }
+                                        fallbackItems.add(NewsItem(title = rawTitle, originalTitle = obj.optString("title"), link = obj.optString("link").split(" ")[0], description = rawDesc, source = sourceName, image = img, timestamp = ts))
+                                    }
+                                    fetchedItems = fallbackItems
+                                    if (fetchedItems.isNotEmpty()) LogManager.log("FETCH_OK", "Rss2Json: ${fetchedItems.size} новин")
+                                }
+                            }
+                        } catch (e: Exception) { LogManager.log("FETCH_ERR", "Rss2Json fail: ${e.message}") }
+                    }
+
+                    if (fetchedItems.isEmpty()) {
+                        LogManager.log("FETCH_FAIL", "Всі 3 методи провалилися для ${url.take(30)}")
+                    }
+
                     rawNews.addAll(fetchedItems)
                 } catch (e: Exception) {
-                    LogManager.log("FETCH_ERR", "Збій завантаження ${url.take(30)}: ${e.message}")
+                    LogManager.log("FETCH_FATAL", "Збій ${url.take(30)}: ${e.message}")
                 }
             }
 

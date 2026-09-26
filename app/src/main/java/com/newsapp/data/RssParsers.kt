@@ -24,12 +24,6 @@ private fun String.cleanHtmlAndEntities(): String {
         .replace("&quot;", "\"")
         .replace("&#39;", "'")
         .replace("&apos;", "'")
-        .replace("&#8217;", "'")
-        .replace("&rsquo;", "'")
-        .replace("&lsquo;", "'")
-        .replace("&ldquo;", "\"")
-        .replace("&rdquo;", "\"")
-        .replace("&nbsp;", " ")
         .replace(Regex("<[^>]*>"), "\n")
 
     val artifacts = setOf(
@@ -53,8 +47,12 @@ private fun String.cleanHtmlAndEntities(): String {
 private fun parseRobust(xml: String, sourceName: String): List<NewsItem> {
     val items = mutableListOf<NewsItem>()
     try {
+        LogManager.log("PARSER", "Парсинг $sourceName. Отримано текст: ${xml.length} символів")
+        
         val itemRegex = Regex("(?s)(?i)<(?:item|entry)[^>]*>(.*?)</(?:item|entry)>")
         val matches = itemRegex.findAll(xml).toList()
+        
+        LogManager.log("PARSER", "[$sourceName] Знайдено блоків <item>: ${matches.size}")
 
         for (match in matches) {
             val block = match.groupValues[1]
@@ -67,7 +65,6 @@ private fun parseRobust(xml: String, sourceName: String): List<NewsItem> {
             val linkTag = Regex("(?s)(?i)<link[^>]*>(.*?)</link>").find(block)?.groupValues?.getOrNull(1)
             val guidTag = Regex("(?s)(?i)<guid[^>]*>(.*?)</guid>").find(block)?.groupValues?.getOrNull(1)
             
-            // Безпечне очищення URL (без розбиття на нові рядки)
             var rawLink = (linkHref ?: linkTag ?: guidTag ?: "")
                 .replace("(?s)(?i)<!\\[CDATA\\[(.*?)\\]\\]>".toRegex(), "$1")
                 .replace("&amp;", "&")
@@ -90,32 +87,19 @@ private fun parseRobust(xml: String, sourceName: String): List<NewsItem> {
             }
             
             if (img != null) {
-                img = img.replace("/tmb/", "/")
-                         .replace(Regex("-\\d{2,4}x\\d{2,4}(?=\\.[a-zA-Z]+)"), "")
+                img = img.replace("/tmb/", "/").replace(Regex("-\\d{2,4}x\\d{2,4}(?=\\.[a-zA-Z]+)"), "")
             }
 
             var timestamp = System.currentTimeMillis()
             val dateMatch = Regex("(?i)<(?:pubDate|published|dc:date)[^>]*>(.*?)</(?:pubDate|published|dc:date)>").find(block)
             if (dateMatch != null) {
                 val dateStr = dateMatch.groupValues[1].replace(Regex("<[^>]*>"), "").trim()
-                val formats = listOf(
-                    "EEE, dd MMM yyyy HH:mm:ss Z",
-                    "EEE, dd MMM yyyy HH:mm:ss zzz",
-                    "EEE, dd MMM yyyy",
-                    "yyyy-MM-dd'T'HH:mm:ss'Z'",
-                    "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",
-                    "yyyy-MM-dd'T'HH:mm:ssXXX",
-                    "yyyy-MM-dd HH:mm:ss",
-                    "yyyy-MM-dd"
-                )
+                val formats = listOf("EEE, dd MMM yyyy HH:mm:ss Z", "yyyy-MM-dd'T'HH:mm:ss'Z'", "yyyy-MM-dd HH:mm:ss")
                 for (format in formats) {
                     try {
                         val sdf = SimpleDateFormat(format, Locale.ENGLISH)
                         val parsed = sdf.parse(dateStr)
-                        if (parsed != null) {
-                            timestamp = parsed.time
-                            break
-                        }
+                        if (parsed != null) { timestamp = parsed.time; break }
                     } catch (e: Exception) {}
                 }
             }
@@ -123,21 +107,10 @@ private fun parseRobust(xml: String, sourceName: String): List<NewsItem> {
             if (rawTitle.isNotEmpty() && rawLink.isNotEmpty()) {
                 var cleanDesc = rawDesc
                 if (cleanDesc.length > 300) cleanDesc = cleanDesc.take(300) + "..."
-
-                items.add(NewsItem(
-                    title = rawTitle,
-                    originalTitle = rawTitle,
-                    link = rawLink,
-                    description = cleanDesc,
-                    source = sourceName,
-                    image = img ?: "",
-                    timestamp = timestamp
-                ))
+                items.add(NewsItem(title = rawTitle, originalTitle = rawTitle, link = rawLink, description = cleanDesc, source = sourceName, image = img ?: "", timestamp = timestamp))
             }
         }
-    } catch (e: Exception) {
-        LogManager.log("PARSER_ERR", "Помилка парсингу $sourceName: ${e.message}")
-    }
+    } catch (e: Exception) { LogManager.log("PARSER_ERR", "Крах парсера $sourceName: ${e.message}") }
     return items
 }
 

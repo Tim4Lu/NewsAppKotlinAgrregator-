@@ -39,13 +39,19 @@ class NewsWorker(
     
     private val cacheManager = NewsCacheManager(appContext)
 
-    private fun String.normalizeUrl(): String {
-        return this.lowercase()
-            .replace(Regex("^https?://"), "")
-            .replace(Regex("^www\\."), "")
-            .split("?")[0]
-            .trimEnd('/')
-    }
+    private val rssUrls = listOf(
+        "https://www.nasa.gov/feed/",
+        "https://science.nasa.gov/feed/",
+        "https://www.esa.int/rssfeed/TopNews",
+        "https://www.esa.int/rssfeed/Our_Activities/Space_Science",
+        "https://www.space.com/feeds/all",
+        "https://www.nature.com/subjects/astronomy-and-planetary-science.rss",
+        "https://www.universetoday.com/feed",
+        "https://www.spacedaily.com/spacedaily.xml",
+        "https://phys.org/rss-feed/space-news"
+    )
+
+    private fun String.normalizeUrl() = this.lowercase().replace(Regex("^https?://"), "").replace(Regex("^www\\."), "").split("?")[0].trimEnd('/')
 
     private suspend fun scrapeArticle(url: String): Triple<String, List<String>, Boolean> {
         try {
@@ -82,7 +88,7 @@ class NewsWorker(
             val notification = NotificationCompat.Builder(appContext, channelId)
                 .setSmallIcon(appContext.applicationInfo.icon)
                 .setContentTitle("ШІ працює у фоні 🚀")
-                .setContentText("NewsApp шукає та перекладає нові статті...")
+                .setContentText("NewsApp шукає нові статті...")
                 .setOngoing(true)
                 .build()
             
@@ -91,19 +97,7 @@ class NewsWorker(
             } else {
                 setForeground(ForegroundInfo(1005, notification))
             }
-        } catch (e: Exception) { LogManager.log("WORKER_ERR", "Не вдалося закріпити Foreground: ${e.message}") }
-
-        val rssUrls = listOf(
-            "https://www.nasa.gov/feed/",
-            "https://science.nasa.gov/feed/",
-            "https://www.esa.int/rssfeed/TopNews",
-            "https://www.esa.int/rssfeed/Our_Activities/Space_Science",
-            "https://www.space.com/feeds/all/",
-            "https://www.nature.com/subjects/astronomy-and-planetary-science.rss",
-            "https://www.universetoday.com/feed/",
-            "https://www.spacedaily.com/spacedaily.xml",
-            "https://phys.org/rss-feed/space-news/"
-        )
+        } catch (e: Exception) { LogManager.log("WORKER_ERR", "Помилка Foreground: ${e.message}") }
 
         val cachedNews = cacheManager.loadNews()
         val existingTitles = cachedNews.flatMap { listOf(it.title.trim().lowercase(), it.originalTitle.trim().lowercase()) }.filter { it.isNotEmpty() }.toSet()
@@ -113,40 +107,76 @@ class NewsWorker(
 
         for (url in rssUrls) {
             try {
-                LogManager.log("FETCH", "Worker Запит: ${url.take(45)}...")
                 var fetchedItems = listOf<NewsItem>()
-                var successDirect = false
+                val parser = NewsParserFactory.getParser(url)
 
-                val response = client.get(url) {
-                    header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36")
-                    header("Accept", "application/rss+xml, application/xml, text/xml;q=0.9, */*;q=0.8")
-                    header("Accept-Language", "en-US,en;q=0.9,uk;q=0.8")
-                }
-
-                if (response.status.value in 200..299) {
-                    val parser = NewsParserFactory.getParser(url)
-                    fetchedItems = parser.parse(response.bodyAsText())
-                    if (fetchedItems.isNotEmpty()) successDirect = true
-                }
-
-                if (!successDirect) {
-                    LogManager.log("FETCH", "Worker Cloudflare блок. Спроба через AllOrigins...")
-                    val proxyUrl = "https://api.allorigins.win/get?url=${URLEncoder.encode(url, "UTF-8")}"
-                    val proxyResponse = client.get(proxyUrl)
-                    
-                    if (proxyResponse.status.value in 200..299) {
-                        val json = JSONObject(proxyResponse.bodyAsText())
-                        val rawXml = json.optString("contents", "")
-                        if (rawXml.isNotEmpty()) {
-                            val parser = NewsParserFactory.getParser(url)
-                            fetchedItems = parser.parse(rawXml)
+                try {
+                    val response = client.get(url) {
+                        header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+                        header("Accept", "application/xml, text/xml")
+                    }
+                    if (response.status.value in 200..299) {
+                        val xml = response.bodyAsText()
+                        if (xml.contains("<rss") || xml.contains("<feed") || xml.contains("<?xml")) {
+                            fetchedItems = parser.parse(xml)
                         }
                     }
+                } catch (e: Exception) {}
+
+                if (fetchedItems.isEmpty()) {
+                    try {
+                        val proxyUrl = "https://api.allorigins.win/get?url=${URLEncoder.encode(url, "UTF-8")}"
+                        val response = client.get(proxyUrl)
+                        if (response.status.value in 200..299) {
+                            val json = JSONObject(response.bodyAsText())
+                            val xml = json.optString("contents", "")
+                            if (xml.contains("<rss") || xml.contains("<feed") || xml.contains("<?xml")) {
+                                fetchedItems = parser.parse(xml)
+                            }
+                        }
+                    } catch (e: Exception) {}
+                }
+
+                if (fetchedItems.isEmpty()) {
+                    try {
+                        val r2jUrl = "https://api.rss2json.com/v1/api.json?rss_url=${URLEncoder.encode(url, "UTF-8")}"
+                        val response = client.get(r2jUrl)
+                        if (response.status.value in 200..299) {
+                            val json = JSONObject(response.bodyAsText())
+                            if (json.optString("status") == "ok") {
+                                val itemsArray = json.optJSONArray("items")
+                                val fallbackItems = mutableListOf<NewsItem>()
+                                val sourceName = when {
+                                    url.contains("nasa.gov") -> "NASA"
+                                    url.contains("esa.int") -> "ESA"
+                                    url.contains("space.com") -> "Space.com"
+                                    url.contains("spacedaily") -> "Space Daily"
+                                    url.contains("universetoday") -> "Universe Today"
+                                    url.contains("phys.org") -> "Phys.org"
+                                    url.contains("nature.com") -> "Nature"
+                                    else -> "Новина"
+                                }
+                                for (i in 0 until (itemsArray?.length() ?: 0)) {
+                                    val obj = itemsArray!!.getJSONObject(i)
+                                    var rawTitle = obj.optString("title").replace("(?i)APOD:\\s*(-\\s*)?".toRegex(), "").trim()
+                                    var rawDesc = obj.optString("description", "").replace(Regex("<[^>]*>"), "").trim()
+                                    if (rawDesc.length > 300) rawDesc = rawDesc.take(300) + "..."
+                                    var img = obj.optString("thumbnail", "")
+                                    if (img.isEmpty()) img = obj.optJSONObject("enclosure")?.optString("link", "") ?: ""
+                                    var ts = System.currentTimeMillis()
+                                    val pubDate = obj.optString("pubDate", "")
+                                    if (pubDate.isNotEmpty()) {
+                                        try { ts = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.ENGLISH).parse(pubDate)?.time ?: ts } catch(e: Exception) {}
+                                    }
+                                    fallbackItems.add(NewsItem(title = rawTitle, originalTitle = obj.optString("title"), link = obj.optString("link").split(" ")[0], description = rawDesc, source = sourceName, image = img, timestamp = ts))
+                                }
+                                fetchedItems = fallbackItems
+                            }
+                        }
+                    } catch (e: Exception) {}
                 }
                 rawNews.addAll(fetchedItems)
-            } catch (e: Exception) {
-                LogManager.log("FETCH_ERR", "Worker Збій завантаження ${url.take(30)}: ${e.message}")
-            }
+            } catch (e: Exception) {}
         }
 
         val uniqueRawNews = rawNews.distinctBy { 
@@ -165,8 +195,6 @@ class NewsWorker(
         }
 
         if (freshNews.isNotEmpty()) {
-            LogManager.log("WORKER", "Знайдено ${freshNews.size} нових новин. Зберігаємо...")
-
             val enrichedNews = freshNews.map { item ->
                 val (fullText, scrapedImages, hasVid) = scrapeArticle(item.link)
                 item.copy(
@@ -183,10 +211,7 @@ class NewsWorker(
 
             if (!AiRewriter.isGloballyBlocked()) {
                 AiRewriter.processAllNewsWithAi(enrichedNews, appContext) { item ->
-                    // ВИПРАВЛЕННЯ ТУТ: Використовуємо корутину для suspend-функції
-                    CoroutineScope(Dispatchers.IO).launch {
-                        updateItemInCacheSafely(item)
-                    }
+                    CoroutineScope(Dispatchers.IO).launch { updateItemInCacheSafely(item) }
                     showNewsNotification(item)
                 }
             }
@@ -225,6 +250,6 @@ class NewsWorker(
                 .setAutoCancel(true)
                 .build()
             notificationManager.notify(item.id.hashCode(), notification)
-        } catch (e: Exception) { LogManager.log("WORKER_ERR", "Сповіщення не показано: ${e.message}") }
+        } catch (e: Exception) {}
     }
 }
