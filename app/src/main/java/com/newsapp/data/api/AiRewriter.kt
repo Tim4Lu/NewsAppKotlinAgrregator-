@@ -1,6 +1,7 @@
 package com.newsapp.data.api
 
 import android.content.Context
+import android.content.SharedPreferences
 import com.newsapp.BuildConfig
 import com.newsapp.data.LogManager
 import com.newsapp.model.NewsItem
@@ -30,35 +31,64 @@ object AiRewriter {
         expectSuccess = false
         engine { 
             requestTimeout = 60_000 
-            endpoint { 
-                connectTimeout = 60_000 
-                socketTimeout = 60_000 
-            } 
+            endpoint { connectTimeout = 60_000; socketTimeout = 60_000 } 
         }
     }
 
-    // Чиста логіка без fallbackKeys. Тільки BuildConfig!
     private val apiKeys: List<String> 
-        get() = BuildConfig.GEMINI_KEYS
-            .replace("\"", "")
-            .split(",")
-            .map { it.trim() }
-            .filter { it.isNotEmpty() }
+        get() = BuildConfig.GEMINI_KEYS.replace("\"", "").split(",").map { it.trim() }.filter { it.isNotEmpty() }
         
     private var currentKeyIndex = 0
     var lastRequestTimestamp = 0L
     val geminiMutex = Mutex()
 
-    fun init(context: Context? = null) {}
+    private lateinit var prefs: SharedPreferences
+    private var isInitialized = false
+
+    fun init(context: Context? = null) {
+        if (context != null && !isInitialized) {
+            prefs = context.getSharedPreferences("ai_stats", Context.MODE_PRIVATE)
+            checkAndResetDailyCounters()
+            isInitialized = true
+        }
+    }
+
+    private fun checkAndResetDailyCounters() {
+        if (!isInitialized) return
+        val lastReset = prefs.getLong("last_reset_day", 0L)
+        val cal = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("Europe/Kiev"))
+        val currentDay = cal.get(java.util.Calendar.DAY_OF_YEAR)
+        if (lastReset != currentDay.toLong()) {
+            prefs.edit().clear().putLong("last_reset_day", currentDay.toLong()).apply()
+        }
+    }
+
+    fun getStats(): String {
+        if (!isInitialized) return "Статистика завантажується..."
+        checkAndResetDailyCounters()
+        val keys = apiKeys
+        val sb = StringBuilder("📊 Запитів до Gemini сьогодні:\n")
+        keys.forEachIndexed { index, key ->
+            val count = prefs.getInt("key_count_$index", 0)
+            val status = if (keyCooldowns[key] ?: 0L > System.currentTimeMillis()) "🔴 Ліміт/Пауза" else "🟢 Активний"
+            sb.append("Ключ ${index + 1}: $count / 1500 ($status)\n")
+        }
+        return sb.toString().trim()
+    }
+
+    private fun incrementKeyUsage(keyIndex: Int) {
+        if (isInitialized) {
+            val current = prefs.getInt("key_count_$keyIndex", 0)
+            prefs.edit().putInt("key_count_$keyIndex", current + 1).apply()
+        }
+    }
 
     suspend fun enforceRateLimit() {
         geminiMutex.withLock {
             val now = System.currentTimeMillis()
             val timeSinceLastRequest = now - lastRequestTimestamp
-            if (timeSinceLastRequest < 16_000) {
-                val waitTime = 16_000 - timeSinceLastRequest
-                LogManager.log("AI_RATE", "Mutex: чекаємо ${waitTime / 1000} сек...")
-                delay(waitTime)
+            if (timeSinceLastRequest < 4_000) {
+                delay(4_000 - timeSinceLastRequest) // 15 RPM = 1 запит на 4 секунди
             }
             lastRequestTimestamp = System.currentTimeMillis()
         }
@@ -73,7 +103,7 @@ object AiRewriter {
             val key = keys[index]
             if (now > (keyCooldowns[key] ?: 0L)) {
                 currentKeyIndex = index
-                return Pair(key, index + 1)
+                return Pair(key, index)
             }
         }
         return null
@@ -81,13 +111,8 @@ object AiRewriter {
 
     private fun getNextQuotaResetTime(): Long {
         val cal = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("Europe/Kiev"))
-        if (cal.get(java.util.Calendar.HOUR_OF_DAY) >= 10) {
-            cal.add(java.util.Calendar.DAY_OF_YEAR, 1)
-        }
-        cal.set(java.util.Calendar.HOUR_OF_DAY, 10)
-        cal.set(java.util.Calendar.MINUTE, 0)
-        cal.set(java.util.Calendar.SECOND, 0)
-        cal.set(java.util.Calendar.MILLISECOND, 0)
+        if (cal.get(java.util.Calendar.HOUR_OF_DAY) >= 10) cal.add(java.util.Calendar.DAY_OF_YEAR, 1)
+        cal.set(java.util.Calendar.HOUR_OF_DAY, 10); cal.set(java.util.Calendar.MINUTE, 0); cal.set(java.util.Calendar.SECOND, 0)
         return cal.timeInMillis
     }
 
@@ -123,30 +148,12 @@ object AiRewriter {
         var translatedText: String? = null
         var attempts = 0
         while (translatedText == null && attempts < apiKeys.size) {
-            if (getActiveKey() == null) { 
-                LogManager.log("AI_ERR", "Усі ключі на паузі. Чекаємо...")
-                delay(10000)
-                continue
-            }
+            if (getActiveKey() == null) { delay(10000); continue }
             translatedText = callGeminiApi(prompt, "gemini-3.6-flash")
+            if (translatedText == "[SAFETY_BLOCK]") return "Текст заблоковано фільтрами безпеки Gemini (Google вважає текст небезпечним)."
             if (translatedText == null) attempts++
         }
         return translatedText
-    }
-
-    suspend fun translateFullArticle(title: String, content: String): String {
-        val prompt = "Ти — науковий перекладач. Зроби повний, детальний та якісний переклад усієї статті українською мовою. Збережи всі абзаци, наукові факти, терміни та деталі оригінального тексту. Нічого не скорочуй.\n\nЗаголовок: $title\nТекст: $content"
-        var translatedText: String? = null
-        var attempts = 0
-        while (translatedText == null && attempts < apiKeys.size) {
-            if (getActiveKey() == null) { 
-                delay(10000)
-                continue
-            }
-            translatedText = callGeminiApi(prompt, "gemini-3.6-flash")
-            if (translatedText == null) attempts++
-        }
-        return translatedText ?: "Помилка перекладу."
     }
 
     suspend fun processAllNewsWithAi(newsList: List<NewsItem>, context: Context? = null, onItemProcessed: (NewsItem) -> Unit) {
@@ -161,58 +168,46 @@ object AiRewriter {
             }
             if (newsToProcess.isEmpty()) return
             LogManager.log("AI_START", "Обробка ${newsToProcess.size} новин")
-            
             var isQueueStopped = false
 
             for (item in newsToProcess) {
-                if (isQueueStopped) {
-                    processingNewsIds.remove(item.id)
-                    continue
-                }
-                
+                if (isQueueStopped) { processingNewsIds.remove(item.id); continue }
                 try {
                     val prompt = "Зроби пост для Telegram українською. СТИСЛО!\n1. Яскравий заголовок.\n2. 2 речення суті.\n3. 3 головні факти булітами (•).\nБез вступів, без \"Ось переклад\", без **. Джерело не пиши.\n\nЗаголовок: ${item.title.replace("\"", "'").replace("\n", " ").replace("🚀", "")}\nТекст: ${item.description.replace("\"", "'").replace("\n", " ")}"
                     var translatedText: String? = null
                     var attempts = 0
 
-                    while (translatedText == null && attempts < (apiKeys.size * 2)) {
+                    while (translatedText == null && attempts < 3) {
                         if (getActiveKey() == null) { 
                             if (isGloballyBlocked() && keyCooldowns.values.any { it > System.currentTimeMillis() + 3600000L }) {
-                                LogManager.log("AI_ERR", "Денні ліміти вичерпано. Зупинка черги до 10:00.")
+                                LogManager.log("AI_ERR", "Денні ліміти вичерпано.")
                                 isQueueStopped = true
                                 break
                             }
-                            LogManager.log("AI_WAIT", "Всі ключі на паузі (RPM/503), очікування 15 сек...")
                             delay(15000)
                             continue
                         }
                         translatedText = callGeminiApi(prompt, "gemini-3.6-flash")
+                        if (translatedText == "[SAFETY_BLOCK]") break
                         if (translatedText == null) attempts++
                     }
 
-                    val finalItem = if (!translatedText.isNullOrEmpty()) {
+                    val finalItem = if (!translatedText.isNullOrEmpty() && translatedText != "[SAFETY_BLOCK]") {
                         var cleanResult = translatedText.replace("**", "").trim().replace("(?i)^текст новини:\\s*".toRegex(), "")
                         val parts = cleanResult.split("\n", limit = 2)
                         val rawTitle = parts.getOrNull(0)?.replace(Regex("^[#*\\s🚀]+"), "")?.trim() ?: item.title
                         var newDesc = parts.getOrNull(1)?.trim() ?: cleanResult
                         val sourceIndex = newDesc.indexOf("Джерело:", ignoreCase = true)
                         if (sourceIndex != -1) newDesc = newDesc.substring(0, sourceIndex).trimEnd(' ', '\n', '•', '\r')
-                        
                         val sourceLinkHtml = if (item.link.isNotEmpty()) "• <b>Джерело:</b> <a href=\"${item.link}\">${item.source}</a>" else "• <b>Джерело:</b> ${item.source}"
                         item.copy(title = rawTitle, description = "$newDesc\n\n• Джерело: ${item.source}", telegramCaption = "🚀 <b>$rawTitle</b> 🚀\n\n$newDesc\n\n$sourceLinkHtml", status = "Готово")
                     } else {
-                        LogManager.log("AI_WARN", "Не перекладено: '${item.title}'")
+                        if (translatedText == "[SAFETY_BLOCK]") LogManager.log("AI_WARN", "Пропущено (Safety): '${item.title}'")
                         val cleanOrigTitle = item.title.replace("🚀", "").trim()
-                        var cleanOrigDesc = item.description
-                        val sourceIdx = cleanOrigDesc.indexOf("Джерело:", ignoreCase = true)
-                        if (sourceIdx != -1) cleanOrigDesc = cleanOrigDesc.substring(0, sourceIdx).trimEnd(' ', '\n', '•', '\r')
-                        val sourceLinkHtml = if (item.link.isNotEmpty()) "• <b>Джерело:</b> <a href=\"${item.link}\">${item.source}</a>" else "• <b>Джерело:</b> ${item.source}"
-                        item.copy(title = cleanOrigTitle, description = "$cleanOrigDesc\n\n• Джерело: ${item.source}", telegramCaption = "🚀 <b>$cleanOrigTitle</b> 🚀\n\n$cleanOrigDesc\n\n$sourceLinkHtml", status = "Не перекладено")
+                        item.copy(title = cleanOrigTitle, description = "${item.description}\n\n• Джерело: ${item.source}", status = "Не перекладено")
                     }
                     onItemProcessed(finalItem)
                 } catch (e: Exception) {
-                    if (e is kotlinx.coroutines.CancellationException) throw e
-                    LogManager.log("AI_CRITICAL", "Збій: ${e.message}")
                     onItemProcessed(item.copy(status = "Не перекладено"))
                 } finally {
                     processingNewsIds.remove(item.id)
@@ -223,42 +218,57 @@ object AiRewriter {
 
     suspend fun callGeminiApi(prompt: String, modelName: String = "gemini-3.6-flash"): String? {
         enforceRateLimit()
-        val active = getActiveKey()
-        
-        // Запобіжник, якщо Secrets або local.properties не підтягнулися
-        if (active == null) {
-            LogManager.log("AI_ERR", "Не знайдено жодного ключа Gemini! Перевірте Secrets.")
-            return null
-        }
+        val active = getActiveKey() ?: return null
         
         val apiKey = active.first
-        val keyNum = active.second
+        val keyIndex = active.second // 0-based
+
+        incrementKeyUsage(keyIndex)
+
         return try {
             val response = client.post("https://generativelanguage.googleapis.com/v1beta/models/$modelName:generateContent?key=$apiKey") {
                 contentType(ContentType.Application.Json)
-                setBody(JSONObject().apply { put("contents", JSONArray().apply { put(JSONObject().apply { put("parts", JSONArray().apply { put(JSONObject().apply { put("text", prompt) }) }) }) }) }.toString())
+                setBody(JSONObject().apply { 
+                    put("contents", JSONArray().apply { put(JSONObject().apply { put("parts", JSONArray().apply { put(JSONObject().apply { put("text", prompt) }) }) }) }) 
+                    put("safetySettings", JSONArray().apply {
+                        listOf("HARM_CATEGORY_HARASSMENT", "HARM_CATEGORY_HATE_SPEECH", "HARM_CATEGORY_SEXUALLY_EXPLICIT", "HARM_CATEGORY_DANGEROUS_CONTENT").forEach { category ->
+                            put(JSONObject().apply { put("category", category); put("threshold", "BLOCK_NONE") })
+                        }
+                    })
+                }.toString())
             }
+
+            val respBody = response.bodyAsText()
+            
             if (response.status.value == 200) {
-                JSONObject(response.bodyAsText()).optJSONArray("candidates")?.optJSONObject(0)?.optJSONObject("content")?.optJSONArray("parts")?.optJSONObject(0)?.optString("text")?.takeIf { it.isNotEmpty() }
-            } else {
-                val respBody = try { response.bodyAsText() } catch (e: Exception) { "" }
-                val errBody = respBody.lowercase()
+                val json = JSONObject(respBody)
+                val candidates = json.optJSONArray("candidates")
+                val text = candidates?.optJSONObject(0)?.optJSONObject("content")?.optJSONArray("parts")?.optJSONObject(0)?.optString("text")
                 
-                if (response.status.value == 401) {
-                    LogManager.log("AI_ERR", "Ключ №$keyNum недійсний. Блок 24г.")
+                if (text.isNullOrEmpty()) {
+                    if (candidates?.optJSONObject(0)?.optString("finishReason") == "SAFETY") {
+                        LogManager.log("AI_WARN", "Ключ №${keyIndex + 1}: Текст заблоковано фільтром безпеки.")
+                        return "[SAFETY_BLOCK]"
+                    }
+                    return null
+                }
+                text
+            } else {
+                val errBody = respBody.lowercase()
+                if (response.status.value == 401 || errBody.contains("api_key_invalid")) {
+                    LogManager.log("AI_ERR", "Ключ №${keyIndex + 1} недійсний. Блок 24г.")
                     keyCooldowns[apiKey] = System.currentTimeMillis() + (24 * 60 * 60 * 1000L)
                 } else if (response.status.value == 429) {
                     if (errBody.contains("quota") || errBody.contains("per day")) {
-                        val resetTime = getNextQuotaResetTime()
-                        LogManager.log("AI_ERR", "Ключ №$keyNum: Денний ліміт (Quota). Блок до 10:00.")
-                        keyCooldowns[apiKey] = resetTime
+                        LogManager.log("AI_ERR", "Ключ №${keyIndex + 1}: Денний ліміт. Блок до 10:00.")
+                        keyCooldowns[apiKey] = getNextQuotaResetTime()
                     } else {
-                        LogManager.log("AI_WARN", "Ключ №$keyNum: ліміт RPM. Пауза 2 хв.")
+                        LogManager.log("AI_WARN", "Ключ №${keyIndex + 1}: ліміт RPM. Пауза 2 хв.")
                         keyCooldowns[apiKey] = System.currentTimeMillis() + (2 * 60 * 1000L)
                     }
-                } else if (response.status.value == 503 || errBody.contains("unavailable") || errBody.contains("high demand")) {
-                    LogManager.log("AI_WARN", "Google сервери перевантажені (503). Пауза 2 хв.")
-                    keyCooldowns[apiKey] = System.currentTimeMillis() + (2 * 60 * 1000L)
+                } else if (response.status.value == 404) {
+                    LogManager.log("AI_ERR", "Ключ №${keyIndex + 1}: Модель не знайдено (404).")
+                    keyCooldowns[apiKey] = System.currentTimeMillis() + 60_000L
                 } else {
                     LogManager.log("AI_ERR", "Помилка HTTP ${response.status.value}. Пауза 30с.")
                     keyCooldowns[apiKey] = System.currentTimeMillis() + 30_000L
@@ -266,9 +276,7 @@ object AiRewriter {
                 null
             }
         } catch (e: Exception) {
-            val msg = e.message ?: "Таймаут/Немає інтернету"
-            LogManager.log("AI_WARN", "Мережа: $msg. Пауза 30с.")
-            keyCooldowns[apiKey] = System.currentTimeMillis() + 30_000L
+            keyCooldowns[apiKey] = System.currentTimeMillis() + 15_000L
             null 
         }
     }

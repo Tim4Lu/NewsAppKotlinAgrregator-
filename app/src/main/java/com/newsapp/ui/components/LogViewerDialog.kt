@@ -9,6 +9,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -17,11 +18,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.newsapp.data.LogManager
+import com.newsapp.data.api.AiRewriter
 
 @Composable
 fun LogViewerDialog(onDismiss: () -> Unit) {
-        com.newsapp.data.LogManager.log("TRACE", "Викликано функцію: LogViewerDialog")
     val logs by LogManager.logs.collectAsState()
+    val stats = remember { AiRewriter.getStats() }
 
     Dialog(onDismissRequest = onDismiss) {
         Surface(
@@ -54,6 +56,24 @@ fun LogViewerDialog(onDismiss: () -> Unit) {
                             Text("Закрити", color = Color(0xFF818CF8))
                         }
                     }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+                
+                // Блок зі статистикою ключів
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFF1E293B), shape = RoundedCornerShape(8.dp))
+                        .padding(12.dp)
+                ) {
+                    Text(
+                        text = stats,
+                        color = Color(0xFF38BDF8),
+                        fontSize = 12.sp,
+                        lineHeight = 18.sp,
+                        fontFamily = FontFamily.Monospace
+                    )
                 }
 
                 Spacer(modifier = Modifier.height(8.dp))
