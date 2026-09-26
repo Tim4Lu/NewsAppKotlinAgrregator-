@@ -22,6 +22,9 @@ import io.ktor.client.request.header
 import io.ktor.client.statement.bodyAsText
 import org.json.JSONObject
 import java.net.URLEncoder
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 class NewsWorker(
     private val appContext: Context,
@@ -180,7 +183,10 @@ class NewsWorker(
 
             if (!AiRewriter.isGloballyBlocked()) {
                 AiRewriter.processAllNewsWithAi(enrichedNews, appContext) { item ->
-                    updateItemInCacheSafely(item)
+                    // ВИПРАВЛЕННЯ ТУТ: Використовуємо корутину для suspend-функції
+                    CoroutineScope(Dispatchers.IO).launch {
+                        updateItemInCacheSafely(item)
+                    }
                     showNewsNotification(item)
                 }
             }
