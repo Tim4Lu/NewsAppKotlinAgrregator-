@@ -45,6 +45,9 @@ object AiRewriter {
     private lateinit var prefs: SharedPreferences
     private var isInitialized = false
 
+    // Ліміт безкоштовної версії 1500. Ставимо 1450, щоб не ловити хард-блок від Google.
+    private const val DAILY_LIMIT = 1450 
+
     fun init(context: Context? = null) {
         if (context != null && !isInitialized) {
             prefs = context.getSharedPreferences("ai_stats", Context.MODE_PRIVATE)
@@ -60,6 +63,7 @@ object AiRewriter {
         val currentDay = cal.get(java.util.Calendar.DAY_OF_YEAR)
         if (lastReset != currentDay.toLong()) {
             prefs.edit().clear().putLong("last_reset_day", currentDay.toLong()).apply()
+            keyCooldowns.clear()
         }
     }
 
@@ -70,8 +74,12 @@ object AiRewriter {
         val sb = StringBuilder("📊 Запитів до Gemini сьогодні:\n")
         keys.forEachIndexed { index, key ->
             val count = prefs.getInt("key_count_$index", 0)
-            val status = if (keyCooldowns[key] ?: 0L > System.currentTimeMillis()) "🔴 Ліміт/Пауза" else "🟢 Активний"
-            sb.append("Ключ ${index + 1}: $count / 1500 ($status)\n")
+            val status = when {
+                count >= DAILY_LIMIT -> "🔴 Вичерпано (блок)"
+                keyCooldowns[key] ?: 0L > System.currentTimeMillis() -> "🟡 Пауза (ліміт RPM)"
+                else -> "🟢 Активний"
+            }
+            sb.append("Ключ ${index + 1}: $count / $DAILY_LIMIT ($status)\n")
         }
         return sb.toString().trim()
     }
@@ -88,7 +96,7 @@ object AiRewriter {
             val now = System.currentTimeMillis()
             val timeSinceLastRequest = now - lastRequestTimestamp
             if (timeSinceLastRequest < 4_000) {
-                delay(4_000 - timeSinceLastRequest) // 15 RPM = 1 запит на 4 секунди
+                delay(4_000 - timeSinceLastRequest)
             }
             lastRequestTimestamp = System.currentTimeMillis()
         }
@@ -98,9 +106,21 @@ object AiRewriter {
         val keys = apiKeys
         if (keys.isEmpty()) return null
         val now = System.currentTimeMillis()
+        
         for (i in keys.indices) {
             val index = (currentKeyIndex + i) % keys.size
             val key = keys[index]
+            val usageCount = if (isInitialized) prefs.getInt("key_count_$index", 0) else 0
+
+            // Жорсткий блок на рівні коду, якщо досягнуто 1450 запитів
+            if (usageCount >= DAILY_LIMIT) {
+                if ((keyCooldowns[key] ?: 0L) < getNextQuotaResetTime()) {
+                    LogManager.log("AI_LIMIT", "Ключ №${index + 1} вичерпав ліміт ($DAILY_LIMIT). Блок до 10:00.")
+                    keyCooldowns[key] = getNextQuotaResetTime()
+                }
+                continue // Шукаємо наступний ключ
+            }
+
             if (now > (keyCooldowns[key] ?: 0L)) {
                 currentKeyIndex = index
                 return Pair(key, index)
@@ -180,7 +200,7 @@ object AiRewriter {
                     while (translatedText == null && attempts < 3) {
                         if (getActiveKey() == null) { 
                             if (isGloballyBlocked() && keyCooldowns.values.any { it > System.currentTimeMillis() + 3600000L }) {
-                                LogManager.log("AI_ERR", "Денні ліміти вичерпано.")
+                                LogManager.log("AI_ERR", "Денні ліміти вичерпано. Чекаємо розблокування.")
                                 isQueueStopped = true
                                 break
                             }
@@ -221,7 +241,7 @@ object AiRewriter {
         val active = getActiveKey() ?: return null
         
         val apiKey = active.first
-        val keyIndex = active.second // 0-based
+        val keyIndex = active.second 
 
         incrementKeyUsage(keyIndex)
 
@@ -260,7 +280,7 @@ object AiRewriter {
                     keyCooldowns[apiKey] = System.currentTimeMillis() + (24 * 60 * 60 * 1000L)
                 } else if (response.status.value == 429) {
                     if (errBody.contains("quota") || errBody.contains("per day")) {
-                        LogManager.log("AI_ERR", "Ключ №${keyIndex + 1}: Денний ліміт. Блок до 10:00.")
+                        LogManager.log("AI_ERR", "Ключ №${keyIndex + 1}: Денний ліміт від API. Блок до 10:00.")
                         keyCooldowns[apiKey] = getNextQuotaResetTime()
                     } else {
                         LogManager.log("AI_WARN", "Ключ №${keyIndex + 1}: ліміт RPM. Пауза 2 хв.")
