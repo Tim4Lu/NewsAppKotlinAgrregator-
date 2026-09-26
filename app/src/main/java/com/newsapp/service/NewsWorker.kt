@@ -40,15 +40,15 @@ class NewsWorker(
     private val cacheManager = NewsCacheManager(appContext)
 
     private val rssUrls = listOf(
-        "https://www.nasa.gov/feed/",
-        "https://science.nasa.gov/feed/",
+        "https://www.nasa.gov/feed",
+        "https://science.nasa.gov/feed",
         "https://www.esa.int/rssfeed/TopNews",
         "https://www.esa.int/rssfeed/Our_Activities/Space_Science",
-        "https://www.space.com/feeds/all",
-        "https://www.nature.com/subjects/astronomy-and-planetary-science.rss",
+        "https://www.nature.com/nature.rss",
         "https://www.universetoday.com/feed",
         "https://www.spacedaily.com/spacedaily.xml",
-        "https://phys.org/rss-feed/space-news"
+        "https://phys.org/rss-feed/space-news",
+        "https://www.space.com/feeds/all"
     )
 
     private fun String.normalizeUrl() = this.lowercase().replace(Regex("^https?://"), "").replace(Regex("^www\\."), "").split("?")[0].trimEnd('/')
@@ -117,7 +117,7 @@ class NewsWorker(
                     }
                     if (response.status.value in 200..299) {
                         val xml = response.bodyAsText()
-                        if (xml.contains("<rss") || xml.contains("<feed") || xml.contains("<?xml")) {
+                        if (xml.contains("<rss") || xml.contains("<feed") || xml.contains("<?xml") || xml.contains("rdf:RDF")) {
                             fetchedItems = parser.parse(xml)
                         }
                     }
@@ -130,7 +130,7 @@ class NewsWorker(
                         if (response.status.value in 200..299) {
                             val json = JSONObject(response.bodyAsText())
                             val xml = json.optString("contents", "")
-                            if (xml.contains("<rss") || xml.contains("<feed") || xml.contains("<?xml")) {
+                            if (xml.contains("<rss") || xml.contains("<feed") || xml.contains("<?xml") || xml.contains("rdf:RDF")) {
                                 fetchedItems = parser.parse(xml)
                             }
                         }
