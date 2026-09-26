@@ -45,7 +45,6 @@ object AiRewriter {
     private lateinit var prefs: SharedPreferences
     private var isInitialized = false
 
-    // Ліміт безкоштовної версії 1500. Ставимо 1450, щоб не ловити хард-блок від Google.
     private const val DAILY_LIMIT = 1450 
 
     fun init(context: Context? = null) {
@@ -76,7 +75,7 @@ object AiRewriter {
             val count = prefs.getInt("key_count_$index", 0)
             val status = when {
                 count >= DAILY_LIMIT -> "🔴 Вичерпано (блок)"
-                keyCooldowns[key] ?: 0L > System.currentTimeMillis() -> "🟡 Пауза (ліміт RPM)"
+                keyCooldowns[key] ?: 0L > System.currentTimeMillis() -> "🟡 Пауза (ліміт/помилка)"
                 else -> "🟢 Активний"
             }
             sb.append("Ключ ${index + 1}: $count / $DAILY_LIMIT ($status)\n")
@@ -112,13 +111,12 @@ object AiRewriter {
             val key = keys[index]
             val usageCount = if (isInitialized) prefs.getInt("key_count_$index", 0) else 0
 
-            // Жорсткий блок на рівні коду, якщо досягнуто 1450 запитів
             if (usageCount >= DAILY_LIMIT) {
                 if ((keyCooldowns[key] ?: 0L) < getNextQuotaResetTime()) {
                     LogManager.log("AI_LIMIT", "Ключ №${index + 1} вичерпав ліміт ($DAILY_LIMIT). Блок до 10:00.")
                     keyCooldowns[key] = getNextQuotaResetTime()
                 }
-                continue // Шукаємо наступний ключ
+                continue 
             }
 
             if (now > (keyCooldowns[key] ?: 0L)) {
@@ -170,7 +168,7 @@ object AiRewriter {
         while (translatedText == null && attempts < apiKeys.size) {
             if (getActiveKey() == null) { delay(10000); continue }
             translatedText = callGeminiApi(prompt, "gemini-3.6-flash")
-            if (translatedText == "[SAFETY_BLOCK]") return "Текст заблоковано фільтрами безпеки Gemini (Google вважає текст небезпечним)."
+            if (translatedText == "[SAFETY_BLOCK]") return "Текст заблоковано фільтрами безпеки Gemini."
             if (translatedText == null) attempts++
         }
         return translatedText
@@ -198,15 +196,23 @@ object AiRewriter {
                     var attempts = 0
 
                     while (translatedText == null && attempts < 3) {
+                        LogManager.log("AI_PROCESS", "Спроба ${attempts + 1} для новини: '${item.title.take(20)}...'")
+                        
                         if (getActiveKey() == null) { 
-                            if (isGloballyBlocked() && keyCooldowns.values.any { it > System.currentTimeMillis() + 3600000L }) {
-                                LogManager.log("AI_ERR", "Денні ліміти вичерпано. Чекаємо розблокування.")
+                            val allKeysExhausted = apiKeys.isNotEmpty() && apiKeys.all { key ->
+                                (keyCooldowns[key] ?: 0L) > System.currentTimeMillis() + 3600000L
+                            }
+                            
+                            if (isGloballyBlocked() && allKeysExhausted) {
+                                LogManager.log("AI_ERR", "УСІ ключі вичерпали ліміти. Чергу зупинено до 10:00.")
                                 isQueueStopped = true
                                 break
                             }
-                            delay(15000)
+                            LogManager.log("AI_WAIT", "Немає активних ключів, чекаємо 15 сек...")
+                            delay(15000) 
                             continue
                         }
+                        
                         translatedText = callGeminiApi(prompt, "gemini-3.6-flash")
                         if (translatedText == "[SAFETY_BLOCK]") break
                         if (translatedText == null) attempts++
@@ -222,12 +228,13 @@ object AiRewriter {
                         val sourceLinkHtml = if (item.link.isNotEmpty()) "• <b>Джерело:</b> <a href=\"${item.link}\">${item.source}</a>" else "• <b>Джерело:</b> ${item.source}"
                         item.copy(title = rawTitle, description = "$newDesc\n\n• Джерело: ${item.source}", telegramCaption = "🚀 <b>$rawTitle</b> 🚀\n\n$newDesc\n\n$sourceLinkHtml", status = "Готово")
                     } else {
-                        if (translatedText == "[SAFETY_BLOCK]") LogManager.log("AI_WARN", "Пропущено (Safety): '${item.title}'")
+                        if (translatedText == "[SAFETY_BLOCK]") LogManager.log("AI_WARN", "Пропущено (Safety): '${item.title.take(20)}...'")
                         val cleanOrigTitle = item.title.replace("🚀", "").trim()
                         item.copy(title = cleanOrigTitle, description = "${item.description}\n\n• Джерело: ${item.source}", status = "Не перекладено")
                     }
                     onItemProcessed(finalItem)
                 } catch (e: Exception) {
+                    LogManager.log("AI_ITEM_ERR", "Помилка обробки новини: ${e.message}")
                     onItemProcessed(item.copy(status = "Не перекладено"))
                 } finally {
                     processingNewsIds.remove(item.id)
@@ -238,12 +245,18 @@ object AiRewriter {
 
     suspend fun callGeminiApi(prompt: String, modelName: String = "gemini-3.6-flash"): String? {
         enforceRateLimit()
-        val active = getActiveKey() ?: return null
+        val active = getActiveKey()
+        
+        if (active == null) {
+            LogManager.log("AI_REQ", "❌ Немає доступних ключів для виклику API.")
+            return null
+        }
         
         val apiKey = active.first
         val keyIndex = active.second 
 
         incrementKeyUsage(keyIndex)
+        LogManager.log("AI_REQ", "🔄 Відправка (Ключ №${keyIndex + 1}, Модель: $modelName)...")
 
         return try {
             val response = client.post("https://generativelanguage.googleapis.com/v1beta/models/$modelName:generateContent?key=$apiKey") {
@@ -259,6 +272,11 @@ object AiRewriter {
             }
 
             val respBody = response.bodyAsText()
+            LogManager.log("AI_RES", "📥 Отримано статус: ${response.status.value} (Ключ №${keyIndex + 1})")
+            
+            // Логуємо перші 250 символів відповіді, щоб не забивати оперативку, але бачити суть
+            val cleanBodyLog = respBody.replace("\n", " ").let { if (it.length > 250) it.take(250) + "..." else it }
+            LogManager.log("AI_RES_BODY", "Тіло: $cleanBodyLog")
             
             if (response.status.value == 200) {
                 val json = JSONObject(respBody)
@@ -266,36 +284,41 @@ object AiRewriter {
                 val text = candidates?.optJSONObject(0)?.optJSONObject("content")?.optJSONArray("parts")?.optJSONObject(0)?.optString("text")
                 
                 if (text.isNullOrEmpty()) {
-                    if (candidates?.optJSONObject(0)?.optString("finishReason") == "SAFETY") {
-                        LogManager.log("AI_WARN", "Ключ №${keyIndex + 1}: Текст заблоковано фільтром безпеки.")
+                    val finishReason = candidates?.optJSONObject(0)?.optString("finishReason", "UNKNOWN")
+                    if (finishReason == "SAFETY") {
+                        LogManager.log("AI_WARN", "⚠️ Ключ №${keyIndex + 1}: Заблоковано фільтром безпеки.")
                         return "[SAFETY_BLOCK]"
                     }
+                    LogManager.log("AI_WARN", "⚠️ Ключ №${keyIndex + 1}: Порожній текст. Причина: $finishReason")
                     return null
                 }
+                
+                LogManager.log("AI_OK", "✅ Ключ №${keyIndex + 1}: Текст згенеровано (${text.length} симв.)")
                 text
             } else {
                 val errBody = respBody.lowercase()
                 if (response.status.value == 401 || errBody.contains("api_key_invalid")) {
-                    LogManager.log("AI_ERR", "Ключ №${keyIndex + 1} недійсний. Блок 24г.")
+                    LogManager.log("AI_ERR", "🚫 Ключ №${keyIndex + 1} недійсний (401). Блок 24г.")
                     keyCooldowns[apiKey] = System.currentTimeMillis() + (24 * 60 * 60 * 1000L)
                 } else if (response.status.value == 429) {
                     if (errBody.contains("quota") || errBody.contains("per day")) {
-                        LogManager.log("AI_ERR", "Ключ №${keyIndex + 1}: Денний ліміт від API. Блок до 10:00.")
+                        LogManager.log("AI_ERR", "🛑 Ключ №${keyIndex + 1}: Денний ліміт (429). Блок до 10:00.")
                         keyCooldowns[apiKey] = getNextQuotaResetTime()
                     } else {
-                        LogManager.log("AI_WARN", "Ключ №${keyIndex + 1}: ліміт RPM. Пауза 2 хв.")
+                        LogManager.log("AI_WARN", "⏳ Ключ №${keyIndex + 1}: Ліміт RPM (429). Пауза 2 хв.")
                         keyCooldowns[apiKey] = System.currentTimeMillis() + (2 * 60 * 1000L)
                     }
                 } else if (response.status.value == 404) {
-                    LogManager.log("AI_ERR", "Ключ №${keyIndex + 1}: Модель не знайдено (404).")
+                    LogManager.log("AI_ERR", "❌ Ключ №${keyIndex + 1}: Модель $modelName не знайдено (404).")
                     keyCooldowns[apiKey] = System.currentTimeMillis() + 60_000L
                 } else {
-                    LogManager.log("AI_ERR", "Помилка HTTP ${response.status.value}. Пауза 30с.")
+                    LogManager.log("AI_ERR", "⚠️ Помилка HTTP ${response.status.value}. Пауза 30с.")
                     keyCooldowns[apiKey] = System.currentTimeMillis() + 30_000L
                 }
                 null
             }
         } catch (e: Exception) {
+            LogManager.log("AI_CRASH", "💥 Збій запиту до Gemini: ${e.message}")
             keyCooldowns[apiKey] = System.currentTimeMillis() + 15_000L
             null 
         }
