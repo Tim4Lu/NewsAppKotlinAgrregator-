@@ -94,8 +94,9 @@ object AiRewriter {
         geminiMutex.withLock {
             val now = System.currentTimeMillis()
             val timeSinceLastRequest = now - lastRequestTimestamp
-            if (timeSinceLastRequest < 4_000) {
-                delay(4_000 - timeSinceLastRequest)
+            // Трохи збільшуємо буфер між запитами (4200мс), щоб рідше ловити 15 RPM
+            if (timeSinceLastRequest < 4_200) {
+                delay(4_200 - timeSinceLastRequest)
             }
             lastRequestTimestamp = System.currentTimeMillis()
         }
@@ -274,7 +275,6 @@ object AiRewriter {
             val respBody = response.bodyAsText()
             LogManager.log("AI_RES", "📥 Отримано статус: ${response.status.value} (Ключ №${keyIndex + 1})")
             
-            // Логуємо перші 250 символів відповіді, щоб не забивати оперативку, але бачити суть
             val cleanBodyLog = respBody.replace("\n", " ").let { if (it.length > 250) it.take(250) + "..." else it }
             LogManager.log("AI_RES_BODY", "Тіло: $cleanBodyLog")
             
@@ -301,12 +301,14 @@ object AiRewriter {
                     LogManager.log("AI_ERR", "🚫 Ключ №${keyIndex + 1} недійсний (401). Блок 24г.")
                     keyCooldowns[apiKey] = System.currentTimeMillis() + (24 * 60 * 60 * 1000L)
                 } else if (response.status.value == 429) {
-                    if (errBody.contains("quota") || errBody.contains("per day")) {
+                    val usageCount = if (isInitialized) prefs.getInt("key_count_$keyIndex", 0) else 0
+                    // Якщо лічильник малий, це точно RPM/TPM хвилинний ліміт, а не кінець денної квоти
+                    if (usageCount >= 1400) {
                         LogManager.log("AI_ERR", "🛑 Ключ №${keyIndex + 1}: Денний ліміт (429). Блок до 10:00.")
                         keyCooldowns[apiKey] = getNextQuotaResetTime()
                     } else {
-                        LogManager.log("AI_WARN", "⏳ Ключ №${keyIndex + 1}: Ліміт RPM (429). Пауза 2 хв.")
-                        keyCooldowns[apiKey] = System.currentTimeMillis() + (2 * 60 * 1000L)
+                        LogManager.log("AI_WARN", "⏳ Ключ №${keyIndex + 1}: Ліміт RPM/TPM (429). Пауза 60с.")
+                        keyCooldowns[apiKey] = System.currentTimeMillis() + 60_000L
                     }
                 } else if (response.status.value == 404) {
                     LogManager.log("AI_ERR", "❌ Ключ №${keyIndex + 1}: Модель $modelName не знайдено (404).")
