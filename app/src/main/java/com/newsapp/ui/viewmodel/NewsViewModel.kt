@@ -46,7 +46,6 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
         "https://science.nasa.gov/feed/",
         "https://www.esa.int/rssfeed/TopNews",
         "https://www.esa.int/rssfeed/Our_Activities/Space_Science",
-        "https://www.space.com/feeds/all",
         "https://www.nature.com/subjects/astronomy-and-planetary-science.rss",
         "https://www.universetoday.com/feed",
         "https://www.spacedaily.com/spacedaily.xml",
@@ -136,7 +135,6 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
                                     val sourceName = when {
                                         url.contains("nasa.gov") -> "NASA"
                                         url.contains("esa.int") -> "ESA"
-                                        url.contains("space.com") -> "Space.com"
                                         url.contains("spacedaily") -> "Space Daily"
                                         url.contains("universetoday") -> "Universe Today"
                                         url.contains("phys.org") -> "Phys.org"

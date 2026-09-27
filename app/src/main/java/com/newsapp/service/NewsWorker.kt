@@ -48,7 +48,6 @@ class NewsWorker(
         "https://www.universetoday.com/feed",
         "https://www.spacedaily.com/spacedaily.xml",
         "https://phys.org/rss-feed/space-news",
-        "https://www.space.com/feeds/all"
     )
 
     private fun String.normalizeUrl() = this.lowercase().replace(Regex("^https?://"), "").replace(Regex("^www\\."), "").split("?")[0].trimEnd('/')
@@ -149,7 +148,6 @@ class NewsWorker(
                                 val sourceName = when {
                                     url.contains("nasa.gov") -> "NASA"
                                     url.contains("esa.int") -> "ESA"
-                                    url.contains("space.com") -> "Space.com"
                                     url.contains("spacedaily") -> "Space Daily"
                                     url.contains("universetoday") -> "Universe Today"
                                     url.contains("phys.org") -> "Phys.org"
