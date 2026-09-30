@@ -13,8 +13,6 @@ class NasaParser : BaseRssParser { override fun parse(xml: String) = parseRobust
 class SpaceNewsParser : BaseRssParser { override fun parse(xml: String) = parseRobust(xml, "SpaceNews") }
 class SpaceComParser : BaseRssParser { override fun parse(xml: String) = parseRobust(xml, "Space.com") }
 class SpaceDailyParser : BaseRssParser { override fun parse(xml: String) = parseRobust(xml, "Space Daily") }
-class SpaceComParser : BaseRssParser { override fun parse(xml: String) = parseRobust(xml, "Space.com") }
-class SpaceDailyParser : BaseRssParser { override fun parse(xml: String) = parseRobust(xml, "Space Daily") }
 class UniverseTodayParser : BaseRssParser { override fun parse(xml: String) = parseRobust(xml, "Universe Today") }
 class PhysOrgParser : BaseRssParser { override fun parse(xml: String) = parseRobust(xml, "Phys.org") }
 class NatureParser : BaseRssParser { override fun parse(xml: String) = parseRobust(xml, "Nature") }
@@ -123,8 +121,6 @@ object NewsParserFactory {
             url.contains("nasa.gov") -> NasaParser()
             url.contains("esa.int") -> EsaParser()
             url.contains("spacenews") -> SpaceNewsParser()
-            url.contains("space.com") -> SpaceComParser()
-            url.contains("spacedaily") -> SpaceDailyParser()
             url.contains("space.com") -> SpaceComParser()
             url.contains("spacedaily") -> SpaceDailyParser()
             url.contains("universetoday") -> UniverseTodayParser()
