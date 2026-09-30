@@ -46,7 +46,7 @@ class NewsWorker(
         "https://www.esa.int/rssfeed/Our_Activities/Space_Science",
         "https://www.nature.com/nature.rss",
         "https://www.universetoday.com/feed",
-        "https://www.spacedaily.com/spacedaily.xml",
+        "https://spacenews.com/feed/",
         "https://phys.org/rss-feed/space-news",
     )
 
@@ -148,7 +148,7 @@ class NewsWorker(
                                 val sourceName = when {
                                     url.contains("nasa.gov") -> "NASA"
                                     url.contains("esa.int") -> "ESA"
-                                    url.contains("spacedaily") -> "Space Daily"
+                                    url.contains("spacenews") -> "SpaceNews"
                                     url.contains("universetoday") -> "Universe Today"
                                     url.contains("phys.org") -> "Phys.org"
                                     url.contains("nature.com") -> "Nature"
@@ -192,6 +192,7 @@ class NewsWorker(
             !isTitleDuplicate && !isLinkDuplicate && (item.timestamp > maxAgeMillis)
         }
 
+        // 1. Оновлюємо кеш лише новими статтями
         if (freshNews.isNotEmpty()) {
             val enrichedNews = freshNews.map { item ->
                 val (fullText, scrapedImages, hasVid) = scrapeArticle(item.link)
@@ -203,13 +204,19 @@ class NewsWorker(
                     status = "В черзі"
                 )
             }
-            
             val updatedCache = (enrichedNews + cachedNews).sortedByDescending { it.timestamp }.take(250)
             cacheManager.saveNews(updatedCache)
+        }
 
-            if (!AiRewriter.isGloballyBlocked()) {
-                AiRewriter.processAllNewsWithAi(enrichedNews, appContext) { item ->
-                    CoroutineScope(Dispatchers.IO).launch { updateItemInCacheSafely(item) }
+        // 2. СИСТЕМА АВТОПЕРЕКЛАДУ: Забираємо з кешу ВСІ неперекладені новини
+        val allCached = cacheManager.loadNews()
+        val toProcess = allCached.filter { it.status == "В черзі" || it.status == "Не перекладено" }
+
+        if (toProcess.isNotEmpty() && !AiRewriter.isGloballyBlocked()) {
+            AiRewriter.processAllNewsWithAi(toProcess, appContext) { item ->
+                CoroutineScope(Dispatchers.IO).launch { updateItemInCacheSafely(item) }
+                // Сповіщення надсилаємо лише якщо це свіжа новина, щойно додана
+                if (freshNews.any { it.originalTitle == item.originalTitle }) {
                     showNewsNotification(item)
                 }
             }

@@ -48,7 +48,7 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
         "https://www.esa.int/rssfeed/Our_Activities/Space_Science",
         "https://www.nature.com/subjects/astronomy-and-planetary-science.rss",
         "https://www.universetoday.com/feed",
-        "https://www.spacedaily.com/spacedaily.xml",
+        "https://spacenews.com/feed/",
         "https://phys.org/rss-feed/space-news"
     )
 
@@ -73,7 +73,7 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun checkAndRetryUntranslatedNews() {
-        val untranslated = _newsList.value.filter { it.status == "В черзі" }
+        val untranslated = _newsList.value.filter { it.status == "В черзі" || it.status == "Не перекладено" }
         if (untranslated.isNotEmpty() && !AiRewriter.isGloballyBlocked()) {
             viewModelScope.launch(Dispatchers.IO) { processNewsWithScraperAndAi(untranslated) }
         }
@@ -135,7 +135,7 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
                                     val sourceName = when {
                                         url.contains("nasa.gov") -> "NASA"
                                         url.contains("esa.int") -> "ESA"
-                                        url.contains("spacedaily") -> "Space Daily"
+                                        url.contains("spacenews") -> "SpaceNews"
                                         url.contains("universetoday") -> "Universe Today"
                                         url.contains("phys.org") -> "Phys.org"
                                         url.contains("nature.com") -> "Nature"
