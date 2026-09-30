@@ -3,6 +3,7 @@ package com.newsapp.ui.viewmodel
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.newsapp.BuildConfig
 import com.newsapp.data.LogManager
 import com.newsapp.data.NewsCacheManager
 import com.newsapp.data.NewsParserFactory
@@ -40,7 +41,6 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
     private val telegramBotService = TelegramBotService()
     private val cacheManager = NewsCacheManager(application)
 
-    // Прибрано сліші з кінця URL! Вони викликали помилки 404
     private val rssUrls = listOf(
         "https://www.nasa.gov/feed/",
         "https://science.nasa.gov/feed/",
@@ -49,6 +49,8 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
         "https://www.nature.com/subjects/astronomy-and-planetary-science.rss",
         "https://www.universetoday.com/feed",
         "https://spacenews.com/feed/",
+        "https://www.space.com/feeds/all",
+        "https://www.spacedaily.com/spacedaily.xml",
         "https://phys.org/rss-feed/space-news"
     )
 
@@ -90,82 +92,52 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
                     LogManager.log("FETCH", "Запит: ${url.take(40)}")
                     var fetchedItems = listOf<NewsItem>()
                     val parser = NewsParserFactory.getParser(url)
+                    val isHardBlocked = url.contains("space.com") || url.contains("spacedaily")
 
-                    // Спроба 1: Прямий запит (найшвидший)
-                    try {
-                        val response = client.get(url) {
-                            header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-                            header("Accept", "application/xml, text/xml")
+                    if (isHardBlocked) {
+                        val scraperKey = BuildConfig.SCRAPER_API_KEY
+                        if (scraperKey.isNotEmpty() && scraperKey != "null") {
+                            try {
+                                val proxyUrl = "http://api.scraperapi.com?api_key=$scraperKey&url=${URLEncoder.encode(url, "UTF-8")}"
+                                val response = client.get(proxyUrl)
+                                if (response.status.value in 200..299) {
+                                    fetchedItems = parser.parse(response.bodyAsText())
+                                    if (fetchedItems.isNotEmpty()) LogManager.log("FETCH_OK", "ScraperAPI: ${fetchedItems.size} новин")
+                                }
+                            } catch (e: Exception) { LogManager.log("FETCH_ERR", "ScraperAPI fail: ${e.message}") }
+                        } else {
+                            LogManager.log("FETCH_WARN", "Пропущено $url: Потрібен ключ ScraperAPI")
                         }
-                        if (response.status.value in 200..299) {
-                            val xml = response.bodyAsText()
-                            if (xml.contains("<rss") || xml.contains("<feed") || xml.contains("<?xml")) {
-                                fetchedItems = parser.parse(xml)
-                                if (fetchedItems.isNotEmpty()) LogManager.log("FETCH_OK", "Direct: ${fetchedItems.size} новин")
-                            }
-                        }
-                    } catch (e: Exception) { LogManager.log("FETCH_ERR", "Direct fail: ${e.message}") }
-
-                    // Спроба 2: AllOrigins Proxy (якщо блокує Cloudflare)
-                    if (fetchedItems.isEmpty()) {
+                    } else {
                         try {
-                            val proxyUrl = "https://api.allorigins.win/get?url=${URLEncoder.encode(url, "UTF-8")}"
-                            val response = client.get(proxyUrl)
+                            val response = client.get(url) {
+                                header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+                                header("Accept", "application/xml, text/xml")
+                            }
                             if (response.status.value in 200..299) {
-                                val json = JSONObject(response.bodyAsText())
-                                val xml = json.optString("contents", "")
+                                val xml = response.bodyAsText()
                                 if (xml.contains("<rss") || xml.contains("<feed") || xml.contains("<?xml")) {
                                     fetchedItems = parser.parse(xml)
-                                    if (fetchedItems.isNotEmpty()) LogManager.log("FETCH_OK", "AllOrigins: ${fetchedItems.size} новин")
+                                    if (fetchedItems.isNotEmpty()) LogManager.log("FETCH_OK", "Direct: ${fetchedItems.size} новин")
                                 }
                             }
-                        } catch (e: Exception) { LogManager.log("FETCH_ERR", "AllOrigins fail: ${e.message}") }
-                    }
+                        } catch (e: Exception) {}
 
-                    // Спроба 3: Rss2Json (якщо навіть AllOrigins видає капчу)
-                    if (fetchedItems.isEmpty()) {
-                        try {
-                            val r2jUrl = "https://api.rss2json.com/v1/api.json?rss_url=${URLEncoder.encode(url, "UTF-8")}"
-                            val response = client.get(r2jUrl)
-                            if (response.status.value in 200..299) {
-                                val json = JSONObject(response.bodyAsText())
-                                if (json.optString("status") == "ok") {
-                                    val itemsArray = json.optJSONArray("items")
-                                    val fallbackItems = mutableListOf<NewsItem>()
-                                    val sourceName = when {
-                                        url.contains("nasa.gov") -> "NASA"
-                                        url.contains("esa.int") -> "ESA"
-                                        url.contains("spacenews") -> "SpaceNews"
-                                        url.contains("universetoday") -> "Universe Today"
-                                        url.contains("phys.org") -> "Phys.org"
-                                        url.contains("nature.com") -> "Nature"
-                                        else -> "Новина"
+                        if (fetchedItems.isEmpty()) {
+                            try {
+                                val proxyUrl = "https://api.allorigins.win/get?url=${URLEncoder.encode(url, "UTF-8")}"
+                                val response = client.get(proxyUrl)
+                                if (response.status.value in 200..299) {
+                                    val json = JSONObject(response.bodyAsText())
+                                    val xml = json.optString("contents", "")
+                                    if (xml.contains("<rss") || xml.contains("<feed") || xml.contains("<?xml")) {
+                                        fetchedItems = parser.parse(xml)
+                                        if (fetchedItems.isNotEmpty()) LogManager.log("FETCH_OK", "AllOrigins: ${fetchedItems.size} новин")
                                     }
-                                    for (i in 0 until (itemsArray?.length() ?: 0)) {
-                                        val obj = itemsArray!!.getJSONObject(i)
-                                        var rawTitle = obj.optString("title").replace("(?i)APOD:\\s*(-\\s*)?".toRegex(), "").trim()
-                                        var rawDesc = obj.optString("description", "").replace(Regex("<[^>]*>"), "").trim()
-                                        if (rawDesc.length > 300) rawDesc = rawDesc.take(300) + "..."
-                                        var img = obj.optString("thumbnail", "")
-                                        if (img.isEmpty()) img = obj.optJSONObject("enclosure")?.optString("link", "") ?: ""
-                                        var ts = System.currentTimeMillis()
-                                        val pubDate = obj.optString("pubDate", "")
-                                        if (pubDate.isNotEmpty()) {
-                                            try { ts = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.ENGLISH).parse(pubDate)?.time ?: ts } catch(e: Exception) {}
-                                        }
-                                        fallbackItems.add(NewsItem(title = rawTitle, originalTitle = obj.optString("title"), link = obj.optString("link").split(" ")[0], description = rawDesc, source = sourceName, image = img, timestamp = ts))
-                                    }
-                                    fetchedItems = fallbackItems
-                                    if (fetchedItems.isNotEmpty()) LogManager.log("FETCH_OK", "Rss2Json: ${fetchedItems.size} новин")
                                 }
-                            }
-                        } catch (e: Exception) { LogManager.log("FETCH_ERR", "Rss2Json fail: ${e.message}") }
+                            } catch (e: Exception) {}
+                        }
                     }
-
-                    if (fetchedItems.isEmpty()) {
-                        LogManager.log("FETCH_FAIL", "Всі 3 методи провалилися для ${url.take(30)}")
-                    }
-
                     rawNews.addAll(fetchedItems)
                 } catch (e: Exception) {
                     LogManager.log("FETCH_FATAL", "Збій ${url.take(30)}: ${e.message}")
@@ -205,7 +177,13 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
     private suspend fun scrapeArticle(url: String): Triple<String, List<String>, Boolean> {
         try {
             if (url.isEmpty()) return Triple("", emptyList(), false)
-            val response = client.get(url) { header("User-Agent", "Mozilla/5.0") }
+            
+            val scraperKey = BuildConfig.SCRAPER_API_KEY
+            val finalUrl = if ((url.contains("space.com") || url.contains("spacedaily")) && scraperKey.isNotEmpty() && scraperKey != "null") {
+                "http://api.scraperapi.com?api_key=$scraperKey&url=${URLEncoder.encode(url, "UTF-8")}"
+            } else { url }
+
+            val response = client.get(finalUrl) { header("User-Agent", "Mozilla/5.0") }
             val html = response.bodyAsText()
             val imageList = mutableListOf<String>()
 
