@@ -23,8 +23,8 @@ android {
         applicationId = "com.newsapp"
         minSdk = 24
         targetSdk = 34
-        versionCode = 401
-        versionName = "1.0.401"
+        versionCode = 402
+        versionName = "1.0.402"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -33,8 +33,7 @@ android {
 
         buildConfigField("String", "TELEGRAM_BOT_TOKEN", "\"${getSecret("TELEGRAM_BOT_TOKEN")}\"")
         buildConfigField("String", "GEMINI_KEYS", "\"${getSecret("GEMINI_KEYS")}\"")
-        buildConfigField("String", "SCRAPER_API_KEY", ""${getSecret("SCRAPER_API_KEY")}"")
-        buildConfigField("String", "SCRAPER_API_KEY", ""${getSecret("SCRAPER_API_KEY")}"")
+        buildConfigField("String", "SCRAPER_API_KEY", "\"${getSecret("SCRAPER_API_KEY")}\"")
     }
 
     signingConfigs {
