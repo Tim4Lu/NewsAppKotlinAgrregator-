@@ -194,7 +194,7 @@ class NewsWorker(
         }
 
         val allCached = cacheManager.loadNews()
-        val toProcess = allCached.filter { it.status == "В черзі" || it.status == "Не перекладено" }
+        val toProcess = allCached.filter { it.status == "В черзі" }
 
         if (toProcess.isNotEmpty() && !AiRewriter.isGloballyBlocked()) {
             AiRewriter.processAllNewsWithAi(toProcess, appContext) { item ->

@@ -121,7 +121,7 @@ object AiRewriter {
             }
 
             if (now > (keyCooldowns[key] ?: 0L)) {
-                currentKeyIndex = index
+                currentKeyIndex = (index + 1) % keys.size
                 return Pair(key, index)
             }
         }
@@ -168,7 +168,7 @@ object AiRewriter {
         var attempts = 0
         while (translatedText == null && attempts < apiKeys.size) {
             if (getActiveKey() == null) { delay(10000); continue }
-            translatedText = callGeminiApi(prompt, "gemini-3.6-flash")
+            translatedText = callGeminiApi(prompt, "gemini-3.8-flash")
             if (translatedText == "[SAFETY_BLOCK]") return "Текст заблоковано фільтрами безпеки Gemini."
             if (translatedText == null) attempts++
         }
@@ -214,7 +214,7 @@ object AiRewriter {
                             continue
                         }
                         
-                        translatedText = callGeminiApi(prompt, "gemini-3.6-flash")
+                        translatedText = callGeminiApi(prompt, "gemini-3.8-flash")
                         if (translatedText == "[SAFETY_BLOCK]") break
                         if (translatedText == null) attempts++
                     }
@@ -244,7 +244,7 @@ object AiRewriter {
         } finally { context?.let { NewsProcessingService.stop(it) } }
     }
 
-    suspend fun callGeminiApi(prompt: String, modelName: String = "gemini-3.6-flash"): String? {
+    suspend fun callGeminiApi(prompt: String, modelName: String = "gemini-3.8-flash"): String? {
         enforceRateLimit()
         val active = getActiveKey()
         
@@ -303,7 +303,7 @@ object AiRewriter {
                 } else if (response.status.value == 429) {
                     val usageCount = if (isInitialized) prefs.getInt("key_count_$keyIndex", 0) else 0
                     // Якщо лічильник малий, це точно RPM/TPM хвилинний ліміт, а не кінець денної квоти
-                    if (usageCount >= 1400) {
+                    if (usageCount >= 1400 || errBody.contains("billing") || errBody.contains("quota")) {
                         LogManager.log("AI_ERR", "🛑 Ключ №${keyIndex + 1}: Денний ліміт (429). Блок до 10:00.")
                         keyCooldowns[apiKey] = getNextQuotaResetTime()
                     } else {

@@ -75,7 +75,7 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun checkAndRetryUntranslatedNews() {
-        val untranslated = _newsList.value.filter { it.status == "В черзі" || it.status == "Не перекладено" }
+        val untranslated = _newsList.value.filter { it.status == "В черзі" }
         if (untranslated.isNotEmpty() && !AiRewriter.isGloballyBlocked()) {
             viewModelScope.launch(Dispatchers.IO) { processNewsWithScraperAndAi(untranslated) }
         }
