@@ -167,7 +167,7 @@ object AiRewriter {
         var translatedText: String? = null
         var attempts = 0
         while (translatedText == null && attempts < apiKeys.size) {
-            if (getActiveKey() == null) { delay(10000); continue }
+            if (getActiveKey() == null) { delay(10000); attempts++; continue }
             translatedText = callGeminiApi(prompt, "gemini-3.8-flash")
             if (translatedText == "[SAFETY_BLOCK]") return "Текст заблоковано фільтрами безпеки Gemini."
             if (translatedText == null) attempts++
@@ -210,7 +210,8 @@ object AiRewriter {
                                 break
                             }
                             LogManager.log("AI_WAIT", "Немає активних ключів, чекаємо 15 сек...")
-                            delay(15000) 
+                            delay(15000)
+                            attempts++ 
                             continue
                         }
                         
