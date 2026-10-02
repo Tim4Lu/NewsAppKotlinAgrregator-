@@ -190,7 +190,7 @@ object AiRewriter {
             var isQueueStopped = false
 
             for (item in newsToProcess) {
-                if (isQueueStopped) { processingNewsIds.remove(item.id); continue }
+                if (isQueueStopped) { onItemProcessed(item.copy(status = "Ліміт AI")); processingNewsIds.remove(item.id); continue }
                 try {
                     val prompt = "Зроби пост для Telegram українською. СТИСЛО!\n1. Яскравий заголовок.\n2. 2 речення суті.\n3. 3 головні факти булітами (•).\nБез вступів, без \"Ось переклад\", без **. Джерело не пиши.\n\nЗаголовок: ${item.title.replace("\"", "'").replace("\n", " ").replace("🚀", "")}\nТекст: ${item.description.replace("\"", "'").replace("\n", " ")}"
                     var translatedText: String? = null
@@ -306,7 +306,7 @@ object AiRewriter {
                     // Якщо лічильник малий, це точно RPM/TPM хвилинний ліміт, а не кінець денної квоти
                     if (usageCount >= 1400 || errBody.contains("billing") || errBody.contains("quota")) {
                         LogManager.log("AI_ERR", "🛑 Ключ №${keyIndex + 1}: Денний ліміт (429). Блок до 10:00.")
-                        keyCooldowns[apiKey] = getNextQuotaResetTime()
+                        keyCooldowns[apiKey] = getNextQuotaResetTime(); prefs.edit().putInt("key_count_$keyIndex", 1500).apply()
                     } else {
                         LogManager.log("AI_WARN", "⏳ Ключ №${keyIndex + 1}: Ліміт RPM/TPM (429). Пауза 60с.")
                         keyCooldowns[apiKey] = System.currentTimeMillis() + 60_000L
