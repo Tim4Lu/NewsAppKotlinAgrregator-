@@ -102,7 +102,7 @@ object AiRewriter {
         }
     }
 
-    private fun getActiveKey(): Pair<String, Int>? {
+    private fun getActiveKey(): Pair<String, Int>? { checkAndResetDailyCounters()
         val keys = apiKeys
         if (keys.isEmpty()) return null
         val now = System.currentTimeMillis()
