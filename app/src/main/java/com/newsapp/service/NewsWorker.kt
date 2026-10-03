@@ -147,7 +147,7 @@ class NewsWorker(
 
                     if (fetchedItems.isEmpty()) {
                         try {
-                            val proxyUrl = "https://api.allorigins.win/get?url=${URLEncoder.encode(url, "UTF-8")}"
+                            val proxyUrl = "https://api.allorigins.win/get?disableCache=true&url=${URLEncoder.encode(url, "UTF-8")}"
                             val response = client.get(proxyUrl)
                             if (response.status.value in 200..299) {
                                 val json = JSONObject(response.bodyAsText())
