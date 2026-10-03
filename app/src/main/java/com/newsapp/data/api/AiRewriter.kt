@@ -57,11 +57,11 @@ object AiRewriter {
 
     private fun checkAndResetDailyCounters() {
         if (!isInitialized) return
-        val lastReset = prefs.getLong("last_reset_day", 0L)
+        val lastReset = prefs.getLong("last_reset_day_v2", 0L)
         val cal = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("Europe/Kiev"))
-        val currentDay = cal.get(java.util.Calendar.DAY_OF_YEAR)
+        cal.add(java.util.Calendar.HOUR_OF_DAY, -10); val currentDay = cal.get(java.util.Calendar.DAY_OF_YEAR)
         if (lastReset != currentDay.toLong()) {
-            prefs.edit().clear().putLong("last_reset_day", currentDay.toLong()).apply()
+            prefs.edit().clear().putLong("last_reset_day_v2", currentDay.toLong()).apply()
             keyCooldowns.clear()
         }
     }
