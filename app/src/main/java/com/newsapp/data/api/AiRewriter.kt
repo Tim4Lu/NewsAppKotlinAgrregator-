@@ -57,11 +57,11 @@ object AiRewriter {
 
     private fun checkAndResetDailyCounters() {
         if (!isInitialized) return
-        val lastReset = prefs.getLong("last_reset_day_v2", 0L)
+        val lastReset = prefs.getLong("last_reset_day_v3", 0L)
         val cal = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("Europe/Kiev"))
         cal.add(java.util.Calendar.HOUR_OF_DAY, -10); val currentDay = cal.get(java.util.Calendar.DAY_OF_YEAR)
         if (lastReset != currentDay.toLong()) {
-            prefs.edit().clear().putLong("last_reset_day_v2", currentDay.toLong()).apply()
+            prefs.edit().clear().putLong("last_reset_day_v3", currentDay.toLong()).apply()
             keyCooldowns.clear()
         }
     }
@@ -300,13 +300,13 @@ object AiRewriter {
                 val errBody = respBody.lowercase()
                 if (response.status.value == 401 || errBody.contains("api_key_invalid")) {
                     LogManager.log("AI_ERR", "🚫 Ключ №${keyIndex + 1} недійсний (401). Блок 24г.")
-                    keyCooldowns[apiKey] = System.currentTimeMillis() + (24 * 60 * 60 * 1000L)
+                    keyCooldowns[apiKey] = System.currentTimeMillis() + 60_000L
                 } else if (response.status.value == 429) {
                     val usageCount = if (isInitialized) prefs.getInt("key_count_$keyIndex", 0) else 0
                     // Якщо лічильник малий, це точно RPM/TPM хвилинний ліміт, а не кінець денної квоти
                     if (usageCount >= 1400 || errBody.contains("billing") || errBody.contains("quota")) {
-                        LogManager.log("AI_ERR", "🛑 Ключ №${keyIndex + 1}: Денний ліміт (429). Блок до 10:00.")
-                        keyCooldowns[apiKey] = getNextQuotaResetTime(); prefs.edit().putInt("key_count_$keyIndex", 1500).apply()
+                        LogManager.log("AI_ERR", "🛑 Ключ №${keyIndex + 1}: Ліміт API (429). Пауза 60с.")
+                        keyCooldowns[apiKey] = System.currentTimeMillis() + 60_000L
                     } else {
                         LogManager.log("AI_WARN", "⏳ Ключ №${keyIndex + 1}: Ліміт RPM/TPM (429). Пауза 60с.")
                         keyCooldowns[apiKey] = System.currentTimeMillis() + 60_000L
