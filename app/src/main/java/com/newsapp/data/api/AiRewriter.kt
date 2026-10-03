@@ -95,8 +95,8 @@ object AiRewriter {
             val now = System.currentTimeMillis()
             val timeSinceLastRequest = now - lastRequestTimestamp
             // Трохи збільшуємо буфер між запитами (4200мс), щоб рідше ловити 15 RPM
-            if (timeSinceLastRequest < 4_200) {
-                delay(4_200 - timeSinceLastRequest)
+            if (timeSinceLastRequest < 16_000) {
+                delay(16_000 - timeSinceLastRequest)
             }
             lastRequestTimestamp = System.currentTimeMillis()
         }
@@ -196,7 +196,7 @@ object AiRewriter {
                     var translatedText: String? = null
                     var attempts = 0
 
-                    while (translatedText == null && attempts < 3) {
+                    while (translatedText == null && attempts < (apiKeys.size * 2)) {
                         LogManager.log("AI_PROCESS", "Спроба ${attempts + 1} для новини: '${item.title.take(20)}...'")
                         
                         if (getActiveKey() == null) { 
