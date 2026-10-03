@@ -168,7 +168,7 @@ object AiRewriter {
         var attempts = 0
         while (translatedText == null && attempts < apiKeys.size) {
             if (getActiveKey() == null) { delay(10000); attempts++; continue }
-            translatedText = callGeminiApi(prompt, "gemini-3.8-flash")
+            val models = listOf("gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash"); translatedText = callGeminiApi(prompt, models[attempts % 3])
             if (translatedText == "[SAFETY_BLOCK]") return "Текст заблоковано фільтрами безпеки Gemini."
             if (translatedText == null) attempts++
         }
@@ -215,7 +215,7 @@ object AiRewriter {
                             continue
                         }
                         
-                        translatedText = callGeminiApi(prompt, "gemini-3.8-flash")
+                        val models = listOf("gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash"); translatedText = callGeminiApi(prompt, models[attempts % 3])
                         if (translatedText == "[SAFETY_BLOCK]") break
                         if (translatedText == null) attempts++
                     }

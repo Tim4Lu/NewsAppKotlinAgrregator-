@@ -111,7 +111,7 @@ object ScriptGenerator {
                 com.newsapp.data.LogManager.log("AI_ERR", "Ліміти вичерпано! Дочекайтесь ${AiRewriter.getBlockTimeFormatted()}")
                 break
             }
-            result = AiRewriter.callGeminiApi(prompt)
+            val models = listOf("gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash"); result = AiRewriter.callGeminiApi(prompt, models[attempts % 3])
             if (result == null) {
                 attempts++
                 kotlinx.coroutines.delay(2000)
