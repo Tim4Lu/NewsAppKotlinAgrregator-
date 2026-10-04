@@ -98,7 +98,7 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
                         val scraperKey = BuildConfig.SCRAPER_API_KEY
                         if (scraperKey.isNotEmpty() && scraperKey != "null") {
                             try {
-                                val proxyUrl = "https://api.scraperapi.com?api_key=$scraperKey&url=${URLEncoder.encode(url, "UTF-8")}"
+                                val proxyUrl = "https://api.scraperapi.com?api_key=$scraperKey&render=true&url=${URLEncoder.encode(url, "UTF-8")}"
                                 val response = client.get(proxyUrl)
                                 if (response.status.value in 200..299) {
                                     fetchedItems = parser.parse(response.bodyAsText())
@@ -180,7 +180,7 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
             
             val scraperKey = BuildConfig.SCRAPER_API_KEY
             val finalUrl = if ((url.contains("space.com") || url.contains("spacedaily")) && scraperKey.isNotEmpty() && scraperKey != "null") {
-                "https://api.scraperapi.com?api_key=$scraperKey&url=${URLEncoder.encode(url, "UTF-8")}"
+                "https://api.scraperapi.com?api_key=$scraperKey&render=true&url=${URLEncoder.encode(url, "UTF-8")}"
             } else { url }
 
             val response = client.get(finalUrl) { header("User-Agent", "Mozilla/5.0") }
