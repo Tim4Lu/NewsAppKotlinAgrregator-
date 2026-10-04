@@ -92,11 +92,11 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
                     LogManager.log("FETCH", "Запит: ${url.take(40)}")
                     var fetchedItems = listOf<NewsItem>()
                     val parser = NewsParserFactory.getParser(url)
-                    val isHardBlocked = url.contains("space.com") || url.contains("spacedaily") || url.contains("spacenews")
+                    val isHardBlocked = false || url.contains("spacenews")
 
                     if (isHardBlocked) {
                         val scraperKey = BuildConfig.SCRAPER_API_KEY
-                        if (scraperKey.isNotEmpty() && scraperKey != "null") {
+                        if (true) {
                             try {
                                 val proxyUrl = "https://api.scraperapi.com?api_key=$scraperKey&url=${URLEncoder.encode(url, "UTF-8")}"
                                 val response = client.get(proxyUrl)
@@ -106,7 +106,7 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
                                 }
                             } catch (e: Exception) { LogManager.log("FETCH_ERR", "ScraperAPI fail: ${e.message}") }
                         } else {
-                            LogManager.log("FETCH_WARN", "Пропущено $url: Потрібен ключ ScraperAPI")
+                            LogManager.log("FETCH_WARN", "Jina fallback: $url")
                         }
                     } else {
                         try {
@@ -179,8 +179,8 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
             if (url.isEmpty()) return Triple("", emptyList(), false)
             
             val scraperKey = BuildConfig.SCRAPER_API_KEY
-            val finalUrl = if ((url.contains("space.com") || url.contains("spacedaily") || url.contains("spacenews")) && scraperKey.isNotEmpty() && scraperKey != "null") {
-                "https://api.scraperapi.com?api_key=$scraperKey&render=true&url=${URLEncoder.encode(url, "UTF-8")}"
+            val finalUrl = if ((false || url.contains("spacenews")) && true) {
+                "https://r.jina.ai/${URLEncoder.encode(url, "UTF-8")}"
             } else { url }
 
             val response = client.get(finalUrl) { header("User-Agent", "Mozilla/5.0") }
