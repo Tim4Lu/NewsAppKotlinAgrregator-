@@ -60,7 +60,7 @@ class NewsWorker(
             if (url.isEmpty()) return Triple("", emptyList(), false)
             
             val scraperKey = BuildConfig.SCRAPER_API_KEY
-            val finalUrl = if ((url.contains("space.com") || url.contains("spacedaily")) && scraperKey.isNotEmpty() && scraperKey != "null") {
+            val finalUrl = if ((url.contains("space.com") || url.contains("spacedaily") || url.contains("spacenews")) && scraperKey.isNotEmpty() && scraperKey != "null") {
                 "https://api.scraperapi.com?api_key=$scraperKey&render=true&url=${URLEncoder.encode(url, "UTF-8")}"
             } else { url }
 
@@ -116,13 +116,13 @@ class NewsWorker(
             try {
                 var fetchedItems = listOf<NewsItem>()
                 val parser = NewsParserFactory.getParser(url)
-                val isHardBlocked = url.contains("space.com") || url.contains("spacedaily")
+                val isHardBlocked = url.contains("space.com") || url.contains("spacedaily") || url.contains("spacenews")
 
                 if (isHardBlocked) {
                     val scraperKey = BuildConfig.SCRAPER_API_KEY
                     if (scraperKey.isNotEmpty() && scraperKey != "null") {
                         try {
-                            val proxyUrl = "https://api.scraperapi.com?api_key=$scraperKey&render=true&url=${URLEncoder.encode(url, "UTF-8")}"
+                            val proxyUrl = "https://api.scraperapi.com?api_key=$scraperKey&url=${URLEncoder.encode(url, "UTF-8")}"
                             val response = client.get(proxyUrl)
                             if (response.status.value in 200..299) {
                                 fetchedItems = parser.parse(response.bodyAsText())

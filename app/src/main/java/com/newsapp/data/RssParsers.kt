@@ -95,7 +95,7 @@ private fun parseRobust(xml: String, sourceName: String): List<NewsItem> {
             val dateMatch = Regex("(?i)<(?:pubDate|published|dc:date)[^>]*>(.*?)</(?:pubDate|published|dc:date)>").find(block)
             if (dateMatch != null) {
                 val dateStr = dateMatch.groupValues[1].replace(Regex("<[^>]*>"), "").trim()
-                val formats = listOf("EEE, dd MMM yyyy HH:mm:ss Z", "yyyy-MM-dd'T'HH:mm:ss'Z'", "yyyy-MM-dd HH:mm:ss")
+                val formats = listOf("EEE, dd MMM yyyy HH:mm:ss Z", "EEE, dd MMM yyyy HH:mm:ss zzz", "EEE, dd MMM yyyy", "yyyy-MM-dd'T'HH:mm:ss'Z'", "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", "yyyy-MM-dd HH:mm:ss")
                 for (format in formats) {
                     try {
                         val sdf = SimpleDateFormat(format, Locale.ENGLISH)
