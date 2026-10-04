@@ -50,8 +50,12 @@ private fun parseRobust(xml: String, sourceName: String): List<NewsItem> {
     try {
         LogManager.log("PARSER", "Парсинг $sourceName. Отримано текст: ${xml.length} символів")
         
+        var cleanXml = xml
+        if (cleanXml.contains("&lt;item&gt;") || cleanXml.contains("&lt;rss")) {
+            cleanXml = cleanXml.replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", "\"").replace("&amp;", "&")
+        }
         val itemRegex = Regex("(?s)(?i)<(?:item|entry)[^>]*>(.*?)</(?:item|entry)>")
-        val matches = itemRegex.findAll(xml).toList()
+        val matches = itemRegex.findAll(cleanXml).toList()
         
         LogManager.log("PARSER", "[$sourceName] Знайдено блоків <item>: ${matches.size}")
 

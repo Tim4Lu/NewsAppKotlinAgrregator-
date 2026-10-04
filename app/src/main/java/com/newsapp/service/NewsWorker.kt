@@ -122,7 +122,7 @@ class NewsWorker(
                     val scraperKey = BuildConfig.SCRAPER_API_KEY
                     if (scraperKey.isNotEmpty() && scraperKey != "null") {
                         try {
-                            val proxyUrl = "https://api.scraperapi.com?api_key=$scraperKey&url=${URLEncoder.encode(url, "UTF-8")}"
+                            val proxyUrl = "https://api.scraperapi.com?api_key=$scraperKey&premium=true" + (if(url.contains("space.com")) "&render=true" else "") + "&url=${URLEncoder.encode(url, \"UTF-8\")}"
                             val response = client.get(proxyUrl)
                             if (response.status.value in 200..299) {
                                 fetchedItems = parser.parse(response.bodyAsText())

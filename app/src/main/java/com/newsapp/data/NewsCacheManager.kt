@@ -26,7 +26,7 @@ class NewsCacheManager(context: Context) {
                 val cached = mutableListOf<NewsItem>()
                 for (i in 0 until jsonArray.length()) {
                     val obj = jsonArray.getJSONObject(i)
-                    cached.add(
+                    if (obj.optLong("timestamp", System.currentTimeMillis()) > 1000000000000L) cached.add(
                         NewsItem(
                             id = obj.optString("id"),
                             title = obj.optString("title"),

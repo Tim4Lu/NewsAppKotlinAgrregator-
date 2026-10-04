@@ -98,7 +98,7 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
                         val scraperKey = BuildConfig.SCRAPER_API_KEY
                         if (scraperKey.isNotEmpty() && scraperKey != "null") {
                             try {
-                                val proxyUrl = "https://api.scraperapi.com?api_key=$scraperKey&url=${URLEncoder.encode(url, "UTF-8")}"
+                                val proxyUrl = "https://api.scraperapi.com?api_key=$scraperKey&premium=true" + (if(url.contains("space.com")) "&render=true" else "") + "&url=${URLEncoder.encode(url, \"UTF-8\")}"
                                 val response = client.get(proxyUrl)
                                 if (response.status.value in 200..299) {
                                     fetchedItems = parser.parse(response.bodyAsText())
@@ -164,7 +164,7 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
                 }
 
                 if (freshNews.isNotEmpty()) {
-                    val freshInitial = freshNews.map { it.copy(status = "В черзі", telegramCaption = "Обробка...") }
+                    val freshInitial = freshNews.map { it.copy(status = "В черзі", telegramCaption = "Обробка...", timestamp = System.currentTimeMillis()) }
                     _newsList.value = (freshInitial + _newsList.value).sortedByDescending { it.timestamp }.take(250)
                     cacheManager.saveNews(_newsList.value)
                 }
