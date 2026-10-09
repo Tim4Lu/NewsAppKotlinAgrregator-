@@ -216,7 +216,7 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
             _newsList.value = _newsList.value.map { current ->
                 if (current.id == finishedItem.id || current.title == finishedItem.title) finishedItem else current
             }
-            viewModelScope.launch { cacheManager.saveNews(_newsList.value) }
+            cacheManager.saveNews(_newsList.value)
         }
     }
 
@@ -225,7 +225,7 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
             _newsList.value = _newsList.value.map { if (it.id == newsItem.id) it.copy(status = "Переклад...", telegramCaption = "Обробка AI...") else it }
             AiRewriter.processAllNewsWithAi(listOf(newsItem), getApplication()) { finishedItem ->
                 _newsList.value = _newsList.value.map { if (it.id == newsItem.id) finishedItem else it }
-                viewModelScope.launch { cacheManager.saveNews(_newsList.value) }
+                cacheManager.saveNews(_newsList.value)
             }
         }
     }
@@ -244,7 +244,7 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
                 it.copy(description = cleanDesc, telegramCaption = "🚀 <b>$cleanTitle</b> 🚀\n\n$cleanDesc\n\n• <b>Джерело:</b> ${it.source}")
             } else it
         }
-        viewModelScope.launch { cacheManager.saveNews(_newsList.value) }
+        cacheManager.saveNews(_newsList.value)
     }
 
     fun sendNews(newsItem: NewsItem, selectedImages: List<String> = emptyList()) {

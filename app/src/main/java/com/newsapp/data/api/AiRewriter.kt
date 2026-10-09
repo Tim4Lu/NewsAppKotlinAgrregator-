@@ -175,8 +175,8 @@ object AiRewriter {
         return translatedText
     }
 
-    suspend fun processAllNewsWithAi(newsList: List<NewsItem>, context: Context? = null, onItemProcessed: (NewsItem) -> Unit) {
-        context?.let { NewsProcessingService.start(it) }
+    suspend fun processAllNewsWithAi(newsList: List<NewsItem>, context: Context? = null, onItemProcessed: suspend (NewsItem) -> Unit) {
+        // context?.let { NewsProcessingService.start(it) } // Вимкнено для WorkManager
         try {
             val newsToProcess = mutableListOf<NewsItem>()
             for (item in newsList) {
@@ -236,13 +236,14 @@ object AiRewriter {
                     }
                     onItemProcessed(finalItem)
                 } catch (e: Exception) {
+                    if (e is kotlinx.coroutines.CancellationException) throw e
                     LogManager.log("AI_ITEM_ERR", "Помилка обробки новини: ${e.message}")
                     onItemProcessed(item.copy(status = "Не перекладено"))
                 } finally {
                     processingNewsIds.remove(item.id)
                 }
             }
-        } finally { context?.let { NewsProcessingService.stop(it) } }
+        } finally { /* context?.let { NewsProcessingService.stop(it) } */ }
     }
 
     suspend fun callGeminiApi(prompt: String, modelName: String = "gemini-3.8-flash"): String? {

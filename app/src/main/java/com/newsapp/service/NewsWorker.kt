@@ -198,7 +198,7 @@ class NewsWorker(
 
         if (toProcess.isNotEmpty() && !AiRewriter.isGloballyBlocked()) {
             AiRewriter.processAllNewsWithAi(toProcess, appContext) { item ->
-                CoroutineScope(Dispatchers.IO).launch { updateItemInCacheSafely(item) }
+                updateItemInCacheSafely(item)
                 if (freshNews.any { it.originalTitle == item.originalTitle }) {
                     showNewsNotification(item)
                 }
