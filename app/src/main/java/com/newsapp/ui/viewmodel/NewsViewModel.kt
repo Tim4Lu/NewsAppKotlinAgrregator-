@@ -244,7 +244,7 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
                 it.copy(description = cleanDesc, telegramCaption = "🚀 <b>$cleanTitle</b> 🚀\n\n$cleanDesc\n\n• <b>Джерело:</b> ${it.source}")
             } else it
         }
-        cacheManager.saveNews(_newsList.value)
+        viewModelScope.launch { cacheManager.saveNews(_newsList.value) }
     }
 
     fun sendNews(newsItem: NewsItem, selectedImages: List<String> = emptyList()) {
