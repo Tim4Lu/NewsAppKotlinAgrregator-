@@ -103,7 +103,7 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
                                 if (response.status.value in 200..299) {
                                     fetchedItems = parser.parse(response.bodyAsText())
                                     if (fetchedItems.isNotEmpty()) LogManager.log("FETCH_OK", "ScraperAPI: ${fetchedItems.size} новин")
-                                }
+                                } else { LogManager.log("FETCH_ERR", "ScraperAPI відхилив запит HTTP ${response.status.value}. Перевір ключ!") }
                             } catch (e: Exception) { LogManager.log("FETCH_ERR", "ScraperAPI fail: ${e.message}") }
                         } else {
                             LogManager.log("FETCH_WARN", "Jina fallback: $url")

@@ -126,7 +126,7 @@ class NewsWorker(
                             val response = client.get(proxyUrl)
                             if (response.status.value in 200..299) {
                                 fetchedItems = parser.parse(response.bodyAsText())
-                            }
+                            } else { LogManager.log("FETCH_ERR", "ScraperAPI відхилив запит HTTP ${response.status.value}. Перевір ключ!") }
                         } catch (e: Exception) {}
                     } else {
                         LogManager.log("FETCH_WARN", "Пропущено $url: Немає SCRAPER_API_KEY")
