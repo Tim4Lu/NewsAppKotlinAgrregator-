@@ -31,7 +31,7 @@ object AiRewriter {
         expectSuccess = false
         engine { 
             requestTimeout = 60_000 
-            endpoint { connectTimeout = 60_000; socketTimeout = 60_000 } 
+            endpoint { connectTimeout = 30_000; socketTimeout = 90_000 } 
         }
     }
 
@@ -206,7 +206,8 @@ object AiRewriter {
                     var translatedText: String? = null
                     var attempts = 0
 
-                    while (translatedText == null && attempts < (apiKeys.size * 2)) {
+                    var consecutiveCrashes = 0
+                    while (translatedText == null && attempts < (apiKeys.size * 2) && consecutiveCrashes < 3) {
                         LogManager.log("AI_PROCESS", "Спроба ${attempts + 1} для новини: '${item.title.take(20)}...'")
                         
                         if (getActiveKey() == null) { 
@@ -227,7 +228,7 @@ object AiRewriter {
                         
                         val models = listOf("gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash"); translatedText = callGeminiApi(prompt, models[attempts % 3])
                         if (translatedText == "[SAFETY_BLOCK]") break
-                        if (translatedText == null) attempts++
+                        if (translatedText == null) { attempts++; consecutiveCrashes++ } else { consecutiveCrashes = 0 }
                     }
 
                     val finalItem = if (!translatedText.isNullOrEmpty() && translatedText != "[SAFETY_BLOCK]") {
@@ -336,6 +337,14 @@ object AiRewriter {
                 }
                 null
             }
+        } catch (e: java.nio.channels.UnresolvedAddressException) {
+            LogManager.log("AI_NET", "[NET] DNS fail — network issue, not key. Retry in 3s")
+            kotlinx.coroutines.delay(3000)
+            null
+        } catch (e: java.io.EOFException) {
+            LogManager.log("AI_CRASH", "[CRASH] EOF from poisoned pool — reset client")
+            resetClient()
+            null
         } catch (e: Exception) {
             val cls = e.javaClass.simpleName
             val cause = e.cause?.javaClass?.simpleName ?: "-"
