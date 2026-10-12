@@ -122,11 +122,11 @@ class NewsWorker(
                     val scraperKey = BuildConfig.SCRAPER_API_KEY
                     if (true) {
                         try {
-                            val proxyUrl = "https://api.allorigins.win/raw?url=${URLEncoder.encode(url, "UTF-8")}"
+                            val proxyUrl = "https://script.google.com/macros/s/AKfycbyPXHUAKXY3Cf3UKFumrDfF_LjhTRi5gK6-YGgsnrOgbYmFVn59GbWl860qyEHvtuam/exec?url=${URLEncoder.encode(url, "UTF-8")}"
                             val response = client.get(proxyUrl)
                             if (response.status.value in 200..299) {
                                 fetchedItems = parser.parse(response.bodyAsText())
-                            } else { LogManager.log("FETCH_ERR", "FreeProxy відхилив запит HTTP ${response.status.value}") }
+                            } else { LogManager.log("FETCH_ERR", "GoogleProxy відхилив запит HTTP ${response.status.value}") }
                         } catch (e: Exception) {}
                     } else {
                         LogManager.log("FETCH_WARN", "Пропущено $url: Немає SCRAPER_API_KEY")
