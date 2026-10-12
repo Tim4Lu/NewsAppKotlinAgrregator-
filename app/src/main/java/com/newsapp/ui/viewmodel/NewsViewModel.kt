@@ -6,7 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.newsapp.BuildConfig
 import com.newsapp.data.LogManager
 import com.newsapp.data.NewsCacheManager
-import com.newsapp.data.Rss2JsonParser
+import com.newsapp.data.SnapiParser
 import com.newsapp.data.NewsParserFactory
 import com.newsapp.data.api.TelegramBotService
 import com.newsapp.data.api.AiRewriter
@@ -144,15 +144,10 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
             }
 
             // SNAPI — окремі джерела, які не можна отримати через RSS
-            // rss2json для Cloudflare-захищених джерел
-            val rss2jsonFeeds = mapOf(
-                "https://spacenews.com/feed/" to "SpaceNews",
-                "https://www.space.com/feeds/all" to "Space.com",
-                "https://www.spacedaily.com/spacedaily.xml" to "Space Daily"
-            )
-            for ((url, name) in rss2jsonFeeds) {
-                rawNews.addAll(Rss2JsonParser.fetch(url, name))
-            }
+        // SNAPI — окремий API, не блокується Cloudflare
+        for (site in listOf("SpaceNews", "Space.com")) {
+            rawNews.addAll(SnapiParser.fetch(site, 15))
+        }
 
             if (rawNews.isNotEmpty()) {
                 val existingTitles = _newsList.value.flatMap { listOf(it.title.trim().lowercase(), it.originalTitle.trim().lowercase()) }.filter { it.isNotEmpty() }.toSet()

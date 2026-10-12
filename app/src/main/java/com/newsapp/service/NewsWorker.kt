@@ -12,7 +12,7 @@ import androidx.work.WorkerParameters
 import com.newsapp.BuildConfig
 import com.newsapp.data.LogManager
 import com.newsapp.data.NewsCacheManager
-import com.newsapp.data.Rss2JsonParser
+import com.newsapp.data.SnapiParser
 import com.newsapp.data.NewsParserFactory
 import com.newsapp.data.api.AiRewriter
 import com.newsapp.model.NewsItem
