@@ -26,9 +26,11 @@ class NewsCacheManager(context: Context) {
                 val cached = mutableListOf<NewsItem>()
                 for (i in 0 until jsonArray.length()) {
                     val obj = jsonArray.getJSONObject(i)
+                    val rawId = obj.optString("id")
+                    val fallbackId = (obj.optString("link") + "|" + obj.optString("title")).hashCode().toString()
                     cached.add(
                         NewsItem(
-                            id = obj.optString("id"),
+                            id = rawId.ifEmpty { fallbackId },
                             title = obj.optString("title"),
                             originalTitle = obj.optString("originalTitle"),
                             link = obj.optString("link"),

@@ -41,6 +41,10 @@ fun NewsScreen(viewModel: NewsViewModel) {
             src.equals(selectedSource, ignoreCase = true) || src.contains(selectedSource, ignoreCase = true)
         }
     }
+    
+    LaunchedEffect(newsList.size, filteredNews.size, selectedSource) {
+        com.newsapp.data.LogManager.log("UI", "newsList=${newsList.size}, filtered=${filteredNews.size}, source=$selectedSource")
+    }
 
     Scaffold(
         containerColor = Color(0xFF0F172A),
