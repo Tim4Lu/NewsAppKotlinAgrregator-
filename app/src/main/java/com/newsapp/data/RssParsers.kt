@@ -51,7 +51,7 @@ private fun parseRobust(xml: String, sourceName: String): List<NewsItem> {
         LogManager.log("PARSER", "Парсинг $sourceName. Отримано текст: ${xml.length} символів")
         
         val itemRegex = Regex("(?s)(?i)<(?:item|entry)[^>]*>(.*?)</(?:item|entry)>")
-        val matches = itemRegex.findAll(xml).toList()
+        val matches = itemRegex.findAll(xml)
         
         LogManager.log("PARSER", "[$sourceName] Знайдено блоків <item>: ${matches.size}")
 
@@ -111,7 +111,7 @@ private fun parseRobust(xml: String, sourceName: String): List<NewsItem> {
                 items.add(NewsItem(title = rawTitle, originalTitle = rawTitle, link = rawLink, description = cleanDesc, source = sourceName, image = img ?: "", timestamp = timestamp))
             }
         }
-    } catch (e: Exception) { LogManager.log("PARSER_ERR", "Крах парсера $sourceName: ${e.message}") }
+    } catch (e: Throwable) { LogManager.log("PARSER_ERR", "Крах парсера $sourceName: ${e.message}") }
     return items
 }
 

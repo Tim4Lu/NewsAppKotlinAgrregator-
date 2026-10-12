@@ -60,7 +60,7 @@ class NewsWorker(
             if (url.isEmpty()) return Triple("", emptyList(), false)
             
             val scraperKey = BuildConfig.SCRAPER_API_KEY
-            val finalUrl = if ((false || url.contains("spacenews")) && true) {
+            val finalUrl = if (url.contains("spacenews") || url.contains("space.com") || url.contains("spacedaily") || url.contains("phys.org") || url.contains("universetoday")) {
                 "https://r.jina.ai/${URLEncoder.encode(url, "UTF-8")}"
             } else { url }
 
@@ -116,7 +116,7 @@ class NewsWorker(
             try {
                 var fetchedItems = listOf<NewsItem>()
                 val parser = NewsParserFactory.getParser(url)
-                val isHardBlocked = false || url.contains("spacenews")
+                val isHardBlocked = url.contains("spacenews") || url.contains("space.com") || url.contains("spacedaily") || url.contains("phys.org") || url.contains("universetoday")
 
                 if (isHardBlocked) {
                     val scraperKey = BuildConfig.SCRAPER_API_KEY
