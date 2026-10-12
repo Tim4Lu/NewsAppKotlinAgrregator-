@@ -53,7 +53,7 @@ private fun parseRobust(xml: String, sourceName: String): List<NewsItem> {
         val itemRegex = Regex("(?s)(?i)<(?:item|entry)[^>]*>(.*?)</(?:item|entry)>")
         val matches = itemRegex.findAll(xml)
         
-        LogManager.log("PARSER", "[$sourceName] Знайдено блоків <item>: ${matches.size}")
+        LogManager.log("PARSER", "[$sourceName] Початок обробки блоків <item>")
 
         for (match in matches) {
             val block = match.groupValues[1]
