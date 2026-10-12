@@ -12,6 +12,7 @@ import androidx.work.WorkerParameters
 import com.newsapp.BuildConfig
 import com.newsapp.data.LogManager
 import com.newsapp.data.NewsCacheManager
+import com.newsapp.data.Rss2JsonParser
 import com.newsapp.data.NewsParserFactory
 import com.newsapp.data.api.AiRewriter
 import com.newsapp.model.NewsItem
@@ -161,9 +162,14 @@ class NewsWorker(
             } catch (e: Exception) {}
         }
 
-        // SNAPI — окремі джерела
-        for (site in listOf("SpaceNews", "Space.com")) {
-            rawNews.addAll(SnapiParser.fetch(site, 15))
+        // rss2json для Cloudflare-захищених джерел
+        val rss2jsonFeeds = mapOf(
+            "https://spacenews.com/feed/" to "SpaceNews",
+            "https://www.space.com/feeds/all" to "Space.com",
+            "https://www.spacedaily.com/spacedaily.xml" to "Space Daily"
+        )
+        for ((url, name) in rss2jsonFeeds) {
+            rawNews.addAll(Rss2JsonParser.fetch(url, name))
         }
 
         val uniqueRawNews = rawNews.distinctBy { 
