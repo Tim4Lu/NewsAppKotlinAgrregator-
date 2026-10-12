@@ -47,8 +47,6 @@ class NewsWorker(
         "https://www.esa.int/rssfeed/Our_Activities/Space_Science",
         "https://www.nature.com/nature.rss",
         "https://www.universetoday.com/feed",
-        "https://spacenews.com/feed/",
-        "https://www.space.com/feeds/all",
         "https://www.spacedaily.com/spacedaily.xml",
         "https://phys.org/rss-feed/space-news"
     )
@@ -161,6 +159,11 @@ class NewsWorker(
                 }
                 rawNews.addAll(fetchedItems)
             } catch (e: Exception) {}
+        }
+
+        // SNAPI — окремі джерела
+        for (site in listOf("SpaceNews", "Space.com")) {
+            rawNews.addAll(SnapiParser.fetch(site, 15))
         }
 
         val uniqueRawNews = rawNews.distinctBy { 

@@ -48,8 +48,6 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
         "https://www.esa.int/rssfeed/Our_Activities/Space_Science",
         "https://www.nature.com/subjects/astronomy-and-planetary-science.rss",
         "https://www.universetoday.com/feed",
-        "https://spacenews.com/feed/",
-        "https://www.space.com/feeds/all",
         "https://www.spacedaily.com/spacedaily.xml",
         "https://phys.org/rss-feed/space-news"
     )
@@ -142,6 +140,11 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
                 } catch (e: Exception) {
                     LogManager.log("FETCH_FATAL", "Збій ${url.take(30)}: ${e.message}")
                 }
+            }
+
+            // SNAPI — окремі джерела, які не можна отримати через RSS
+            for (site in listOf("SpaceNews", "Space.com")) {
+                rawNews.addAll(SnapiParser.fetch(site, 15))
             }
 
             if (rawNews.isNotEmpty()) {
