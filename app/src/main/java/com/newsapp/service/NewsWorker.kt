@@ -162,14 +162,9 @@ class NewsWorker(
             } catch (e: Exception) {}
         }
 
-        // rss2json для Cloudflare-захищених джерел
-        val rss2jsonFeeds = mapOf(
-            "https://spacenews.com/feed/" to "SpaceNews",
-            "https://www.space.com/feeds/all" to "Space.com",
-            "https://www.spacedaily.com/spacedaily.xml" to "Space Daily"
-        )
-        for ((url, name) in rss2jsonFeeds) {
-            rawNews.addAll(Rss2JsonParser.fetch(url, name))
+        // SNAPI — окремий API, не блокується Cloudflare
+        for (site in listOf("SpaceNews", "Space.com")) {
+            rawNews.addAll(SnapiParser.fetch(site, 15))
         }
 
         val uniqueRawNews = rawNews.distinctBy { 
