@@ -288,11 +288,16 @@ object AiRewriter {
                     put("model", modelName)
                     put("messages", JSONArray().apply {
                         put(JSONObject().apply {
+                            put("role", "system")
+                            put("content", "You write Telegram posts in Ukrainian. Rules: 1) Plain text ONLY. 2) NO Markdown (no **, no __, no *, no #, no bullets, no quotes). 3) No preamble like 'Sure' or 'Ось переклад'. 4) No English text except proper nouns. 5) Keep it factual and concise. Output only the final Ukrainian text.")
+                        })
+                        put(JSONObject().apply {
                             put("role", "user")
                             put("content", prompt)
                         })
                     })
-                    put("temperature", 0.7)
+                    put("temperature", 0.3)
+                    put("reasoning_effort", "low")
                 }.toString())
             }
             val respBody = response.bodyAsText()
