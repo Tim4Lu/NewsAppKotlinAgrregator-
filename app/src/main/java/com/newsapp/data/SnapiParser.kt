@@ -6,16 +6,14 @@ import io.ktor.client.engine.cio.CIO
 import io.ktor.client.request.get
 import io.ktor.client.statement.bodyAsText
 import org.json.JSONObject
-import java.text.SimpleDateFormat
-import java.util.Locale
-import java.util.TimeZone
+import java.time.Instant
+import java.time.format.DateTimeFormatter
 
 object SnapiParser {
     private val client = HttpClient(CIO) { expectSuccess = false }
 
-    private val dateFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.ENGLISH).apply {
-        timeZone = TimeZone.getTimeZone("UTC")
-    }
+    // ISO 8601 з мікросекундами: 2026-10-08T13:57:38.112233Z
+    private val dateFormat = DateTimeFormatter.ISO_INSTANT
 
     suspend fun fetch(newsSite: String, limit: Int = 15): List<NewsItem> {
         return try {
@@ -38,7 +36,11 @@ object SnapiParser {
                 val image = obj.optString("image_url", "")
                 val publishedAt = obj.optString("published_at", "")
                 var timestamp = System.currentTimeMillis()
-                try { dateFormat.parse(publishedAt)?.let { timestamp = it.time } } catch (_: Exception) {}
+                try {
+                    timestamp = Instant.parse(publishedAt).toEpochMilli()
+                } catch (e: Exception) {
+                    LogManager.log("SNAPI_DATE_ERR", "$newsSite: не вдалось розпарсити '$publishedAt': ${e.message}")
+                }
                 if (title.isNotEmpty() && link.isNotEmpty()) {
                     items.add(NewsItem(
                         title = title,
@@ -51,7 +53,16 @@ object SnapiParser {
                     ))
                 }
             }
-            LogManager.log("SNAPI_OK", "$newsSite: ${items.size} новин")
+            val now = System.currentTimeMillis()
+            val ages = items.map { (now - it.timestamp) / (1000L * 60 * 60) }
+            val freshCount = ages.count { it < 72 }
+            val staleCount = ages.count { it >= 72 }
+            LogManager.log("SNAPI_OK", "$newsSite: ${items.size} новин (свіжих<3д: $freshCount, старих: $staleCount)")
+            if (items.isNotEmpty()) {
+                val newest = items.minByOrNull { now - it.timestamp }
+                val oldest = items.maxByOrNull { now - it.timestamp }
+                LogManager.log("SNAPI_DATE", "$newsSite: найновіша ${(now - (newest?.timestamp ?: now)) / 3600000}год тому, найстаріша ${(now - (oldest?.timestamp ?: now)) / 3600000}год тому")
+            }
             items
         } catch (e: Exception) {
             LogManager.log("SNAPI_ERR", "$newsSite: ${e.message}")

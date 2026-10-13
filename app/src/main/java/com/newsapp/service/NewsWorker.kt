@@ -172,7 +172,7 @@ class NewsWorker(
             if (norm.isNotEmpty()) norm else it.originalTitle.trim().lowercase()
         }
 
-        val maxAgeMillis = System.currentTimeMillis() - (3L * 24 * 60 * 60 * 1000)
+        val maxAgeMillis = System.currentTimeMillis() - (7L * 24 * 60 * 60 * 1000)
         val freshNews = uniqueRawNews.filter { item ->
             val normTitle = item.title.trim().lowercase()
             val origTitle = item.originalTitle.trim().lowercase()

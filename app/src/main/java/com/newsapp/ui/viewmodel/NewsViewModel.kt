@@ -63,7 +63,7 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
     private suspend fun loadCachedNews() {
         val cached = cacheManager.loadNews()
         if (cached.isNotEmpty()) {
-            val threeDaysAgo = System.currentTimeMillis() - (3L * 24 * 60 * 60 * 1000)
+            val threeDaysAgo = System.currentTimeMillis() - (7L * 24 * 60 * 60 * 1000)
             val uniqueCached = cached.distinctBy {
                 val normLink = it.link.normalizeUrl()
                 if (normLink.isNotEmpty()) normLink else it.originalTitle.ifEmpty { it.title }
@@ -158,7 +158,7 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
                     if (norm.isNotEmpty()) norm else it.originalTitle.trim().lowercase()
                 }
 
-                val maxAgeMillis = System.currentTimeMillis() - (3L * 24 * 60 * 60 * 1000)
+                val maxAgeMillis = System.currentTimeMillis() - (7L * 24 * 60 * 60 * 1000)
                 val freshNews = uniqueRawNews.filter { item ->
                     val normTitle = item.title.trim().lowercase()
                     val origTitle = item.originalTitle.trim().lowercase()
