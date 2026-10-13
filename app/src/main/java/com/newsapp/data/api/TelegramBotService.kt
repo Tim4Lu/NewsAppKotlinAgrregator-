@@ -33,7 +33,15 @@ class TelegramBotService {
     }
     private val channelId = "@pronaukyonline"
 
-    private fun sanitizeHtml(text: String): String = text.replace(Regex("&(?!(amp|lt|gt|quot|apos);)"), "&amp;")
+    private fun sanitizeHtml(text: String): String = text
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace("&amp;amp;", "&amp;")
+        .replace("&amp;lt;", "&lt;")
+        .replace("&amp;gt;", "&gt;")
+        .replace("&amp;quot;", "&quot;")
+        .replace("&amp;apos;", "&apos;")
 
     private fun calculateInSampleSize(options: BitmapFactory.Options, reqWidth: Int, reqHeight: Int): Int {
         val (height: Int, width: Int) = options.outHeight to options.outWidth
@@ -89,7 +97,7 @@ class TelegramBotService {
 
             if (validUrls.size > 1) {
                 val bytesList = validUrls.mapNotNull { getJpegBytesFromUrl(it) }
-                if (bytesList.isNotEmpty()) {
+                if (bytesList.size >= 2) {
                     val response = client.post("https://api.telegram.org/bot$token/sendMediaGroup") {
                         setBody(MultiPartFormDataContent(formData {
                             append("chat_id", channelId)
@@ -115,6 +123,24 @@ class TelegramBotService {
                     }
                     mediaSentOk = JSONObject(response.bodyAsText()).optBoolean("ok", false)
                     if (!mediaSentOk) LogManager.log("TG_ERR", "Помилка галереї: ${response.bodyAsText()}")
+                } else if (bytesList.size == 1) {
+                    LogManager.log("TG_WARN", "З багатьох фото вижило 1 - надсилаємо як sendPhoto")
+                    val jpegBytes = bytesList.first()
+                    val response = client.post("https://api.telegram.org/bot$token/sendPhoto") {
+                        setBody(MultiPartFormDataContent(formData {
+                            append("chat_id", channelId)
+                            if (captionForMedia.isNotEmpty()) {
+                                append("caption", captionForMedia)
+                                append("parse_mode", "HTML")
+                            }
+                            append("photo", jpegBytes, Headers.build {
+                                append(HttpHeaders.ContentType, "image/jpeg")
+                                append(HttpHeaders.ContentDisposition, "filename=\"image.jpg\"")
+                            })
+                        }))
+                    }
+                    mediaSentOk = JSONObject(response.bodyAsText()).optBoolean("ok", false)
+                    if (!mediaSentOk) LogManager.log("TG_ERR", "Помилка sendPhoto fallback: ${response.bodyAsText()}")
                 }
             } else if (validUrls.size == 1) {
                 val jpegBytes = getJpegBytesFromUrl(validUrls.first())

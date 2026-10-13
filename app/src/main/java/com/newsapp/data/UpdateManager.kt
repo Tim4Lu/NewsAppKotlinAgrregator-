@@ -43,16 +43,21 @@ class UpdateManager(private val context: Context) {
 
                 LogManager.log("UPDATE_CHECK", "GitHub: $tagName (build: $remoteBuild), Поточна: $currentBuildNumber, Last: $lastInstalledTag")
 
-                // Захист від циклу: якщо цей самий тег вже намагалися встановити — пропускаємо
-                if (tagName == lastInstalledTag) {
-                    LogManager.log("UPDATE_CHECK", "Тег $tagName вже встановлювався. Пропускаємо.")
+                // Самокорекція: якщо ми вже на цій або новішій версії — синхронізуємо тег і виходимо
+                if (currentBuildNumber >= remoteBuild) {
+                    if (lastInstalledTag != tagName) {
+                        prefs.edit().putString("last_installed_tag", tagName).apply()
+                        LogManager.log("UPDATE_SYNC", "Синхронізовано last_installed_tag=$tagName (поточна $currentBuildNumber >= remote $remoteBuild)")
+                    }
                     return@withContext null
                 }
 
+                // Ми на старій версії — показуємо оновлення незалежно від last_installed_tag
                 if (remoteBuild > currentBuildNumber) {
                     val assets = json.getJSONArray("assets")
                     if (assets.length() > 0) {
                         val downloadUrl = assets.getJSONObject(0).getString("browser_download_url")
+                        LogManager.log("UPDATE_FOUND", "Пропонуємо $tagName (поточна $currentBuildNumber < remote $remoteBuild)")
                         return@withContext UpdateInfo(tagName, downloadUrl, remoteBuild)
                     }
                 }
@@ -101,10 +106,7 @@ class UpdateManager(private val context: Context) {
                 }
             }
 
-            // Захист від циклу: запам'ятовуємо тег ПЕРЕД встановленням
-            val tagFromUrl = downloadUrl.substringAfter("/download/").substringBefore("/")
-            prefs.edit().putString("last_installed_tag", tagFromUrl).apply()
-            LogManager.log("UPDATE_OK", "APK завантажено. Запуск встановлення... (tag=$tagFromUrl)")
+            LogManager.log("UPDATE_OK", "APK завантажено. Запуск встановлення...")
 
             installApk(apkFile)
 

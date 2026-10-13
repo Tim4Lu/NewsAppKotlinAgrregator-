@@ -55,7 +55,8 @@ object AiRewriter {
     private lateinit var prefs: SharedPreferences
     private var isInitialized = false
 
-    private const val DAILY_LIMIT = 1450
+    private const val DAILY_LIMIT = 20
+    private val GEMINI_MODELS = listOf("gemini-3.1-flash-lite", "gemini-3.5-flash-lite", "gemini-3.8-flash")
     private const val GROQ_DAILY_LIMIT = 1000 
 
     fun init(context: Context? = null) {
@@ -81,15 +82,18 @@ object AiRewriter {
         if (!isInitialized) return "Статистика завантажується..."
         checkAndResetDailyCounters()
         val keys = apiKeys
-        val sb = StringBuilder("📊 Запитів до Gemini сьогодні:\n")
+        val sb = StringBuilder("📊 Gemini (квота $DAILY_LIMIT/модель):\n")
+        val now = System.currentTimeMillis()
         keys.forEachIndexed { index, key ->
-            val count = prefs.getInt("key_count_$index", 0)
+            val counts = GEMINI_MODELS.map { m -> prefs.getInt("key_count_${index}_${m}", 0) }
+            val exhausted = counts.all { it >= DAILY_LIMIT }
+            val cooling = GEMINI_MODELS.any { m -> (keyCooldowns["${key}|${m}"] ?: 0L) > now }
             val status = when {
-                count >= DAILY_LIMIT -> "🔴 Вичерпано (блок)"
-                keyCooldowns[key] ?: 0L > System.currentTimeMillis() -> "🟡 Пауза (ліміт/помилка)"
-                else -> "🟢 Активний"
+                exhausted -> "🔴 вичерпано"
+                cooling -> "🟡 пауза"
+                else -> "🟢 активний"
             }
-            sb.append("Ключ ${index + 1}: $count / $DAILY_LIMIT ($status)\n")
+            sb.append("Ключ ${index + 1}: [${counts.joinToString(" ")}] $status\n")
         }
         val groqKey = BuildConfig.GROQ_API_KEY.replace("\"", "").trim()
         if (groqKey.isEmpty()) {
@@ -102,10 +106,11 @@ object AiRewriter {
         return sb.toString().trim()
     }
 
-    private fun incrementKeyUsage(keyIndex: Int) {
+    private fun incrementKeyUsage(keyIndex: Int, modelName: String) {
         if (isInitialized) {
-            val current = prefs.getInt("key_count_$keyIndex", 0)
-            prefs.edit().putInt("key_count_$keyIndex", current + 1).apply()
+            val key = "key_count_${keyIndex}_${modelName}"
+            val current = prefs.getInt(key, 0)
+            prefs.edit().putInt(key, current + 1).apply()
         }
     }
 
@@ -128,7 +133,7 @@ object AiRewriter {
         }
     }
 
-    private fun getActiveKey(): Pair<String, Int>? { checkAndResetDailyCounters()
+    private fun getActiveKey(modelName: String): Pair<String, Int>? { checkAndResetDailyCounters()
         val keys = apiKeys
         if (keys.isEmpty()) return null
         val now = System.currentTimeMillis()
@@ -136,22 +141,33 @@ object AiRewriter {
         for (i in keys.indices) {
             val index = (currentKeyIndex + i) % keys.size
             val key = keys[index]
-            val usageCount = if (isInitialized) prefs.getInt("key_count_$index", 0) else 0
+            val usageCount = if (isInitialized) prefs.getInt("key_count_${index}_${modelName}", 0) else 0
 
-            if (usageCount >= DAILY_LIMIT) {
-                if ((keyCooldowns[key] ?: 0L) < getNextQuotaResetTime()) {
-                    LogManager.log("AI_LIMIT", "Ключ №${index + 1} вичерпав ліміт ($DAILY_LIMIT). Блок до 10:00.")
-                    keyCooldowns[key] = getNextQuotaResetTime()
-                }
-                continue 
-            }
+            if (usageCount >= DAILY_LIMIT) continue
 
-            if (now > (keyCooldowns[key] ?: 0L)) {
+            val cooldownKey = "${key}|${modelName}"
+            if (now > (keyCooldowns[cooldownKey] ?: 0L)) {
                 currentKeyIndex = (index + 1) % keys.size
                 return Pair(key, index)
             }
         }
         return null
+    }
+
+    private fun hasAnyAvailableKey(): Boolean {
+        val keys = apiKeys
+        if (keys.isEmpty()) return false
+        val now = System.currentTimeMillis()
+        for (index in keys.indices) {
+            val key = keys[index]
+            for (model in GEMINI_MODELS) {
+                val usage = if (isInitialized) prefs.getInt("key_count_${index}_${model}", 0) else 0
+                if (usage < DAILY_LIMIT && now > (keyCooldowns["${key}|${model}"] ?: 0L)) {
+                    return true
+                }
+            }
+        }
+        return false
     }
 
     private fun getNextQuotaResetTime(): Long {
@@ -164,16 +180,37 @@ object AiRewriter {
     fun isGloballyBlocked(): Boolean {
         val keys = apiKeys
         if (keys.isEmpty()) return false
-        val nextTime = keys.map { keyCooldowns[it] ?: 0L }.minOrNull() ?: 0L
-        return System.currentTimeMillis() < nextTime
+        val now = System.currentTimeMillis()
+        return keys.indices.all { index ->
+            GEMINI_MODELS.all { model ->
+                val usage = if (isInitialized) prefs.getInt("key_count_${index}_${model}", 0) else 0
+                usage >= DAILY_LIMIT || (keyCooldowns["${keys[index]}|${model}"] ?: 0L) > now
+            }
+        }
     }
 
     fun getBlockTimeFormatted(): String {
         val keys = apiKeys
         if (keys.isEmpty()) return ""
-        val nextTime = keys.map { keyCooldowns[it] ?: 0L }.minOrNull() ?: 0L
+        val now = System.currentTimeMillis()
+        val nextTime = keys.flatMap { key -> GEMINI_MODELS.map { m -> keyCooldowns["${key}|${m}"] ?: 0L } }
+            .filter { it > now }.minOrNull() ?: 0L
+        if (nextTime == 0L) return ""
         val sdf = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
         return sdf.format(java.util.Date(nextTime))
+    }
+
+    private fun parseRetryDelayMs(body: String): Long {
+        try {
+            val m = Regex("retry in (?:([0-9]+)h)?(?:([0-9]+)m)?([0-9.]+)s").find(body)
+            if (m != null) {
+                val h = m.groupValues[1].toLongOrNull() ?: 0L
+                val mins = m.groupValues[2].toLongOrNull() ?: 0L
+                val sec = m.groupValues[3].toDoubleOrNull()?.toLong() ?: 0L
+                return (h * 3600L + mins * 60L + sec) * 1000L
+            }
+        } catch (_: Exception) {}
+        return 60_000L
     }
 
     suspend fun translateFullArticle(newsItem: NewsItem): String? {
@@ -226,12 +263,8 @@ object AiRewriter {
                     while (translatedText == null && attempts < 3 && consecutiveCrashes < 3) {
                         LogManager.log("AI_PROCESS", "Спроба ${attempts + 1} для новини: '${item.title.take(20)}...'")
                         
-                        if (getActiveKey() == null) { 
-                            val allKeysExhausted = apiKeys.isNotEmpty() && apiKeys.all { key ->
-                                (keyCooldowns[key] ?: 0L) > System.currentTimeMillis() + 3600000L
-                            }
-                            
-                            if (isGloballyBlocked() && allKeysExhausted) {
+                        if (!hasAnyAvailableKey()) {
+                            if (isGloballyBlocked()) {
                                 LogManager.log("AI_ERR", "УСІ ключі вичерпали ліміти. Чергу зупинено до 10:00.")
                                 isQueueStopped = true
                                 break
@@ -362,7 +395,7 @@ object AiRewriter {
 
     suspend fun callGeminiApi(prompt: String, modelName: String = "gemini-3.8-flash"): String? {
         enforceRateLimit()
-        val active = getActiveKey()
+        val active = getActiveKey(modelName)
         
         if (active == null) {
             LogManager.log("AI_REQ", "❌ Немає доступних ключів для виклику API.")
@@ -408,36 +441,32 @@ object AiRewriter {
                     return null
                 }
                 
-                incrementKeyUsage(keyIndex)
+                incrementKeyUsage(keyIndex, modelName)
                 LogManager.log("AI_OK", "✅ Ключ №${keyIndex + 1}: Текст згенеровано (${text.length} симв.)")
                 text
             } else {
                 val errBody = respBody.lowercase()
                 if (response.status.value == 401 || errBody.contains("api_key_invalid")) {
                     LogManager.log("AI_ERR", "🚫 Ключ №${keyIndex + 1} недійсний (401). Блок 24г.")
-                    keyCooldowns[apiKey] = System.currentTimeMillis() + 60_000L
+                    keyCooldowns["${apiKey}|${modelName}"] = System.currentTimeMillis() + 60_000L
                 } else if (response.status.value == 429) {
                     LogManager.log("AI_QUOTA", "ПОВНЕ 429: ${respBody.take(600)}")
-                    val usageCount = if (isInitialized) prefs.getInt("key_count_$keyIndex", 0) else 0
-                    // Якщо лічильник малий, це точно RPM/TPM хвилинний ліміт, а не кінець денної квоти
-                    if (usageCount >= 1400 || errBody.contains("billing") || errBody.contains("quota")) {
-                        LogManager.log("AI_ERR", "🛑 Ключ №${keyIndex + 1}: Ліміт API (429). Пауза 60с.")
-                        keyCooldowns[apiKey] = System.currentTimeMillis() + 60_000L
-                    } else {
-                        LogManager.log("AI_WARN", "⏳ Ключ №${keyIndex + 1}: Ліміт RPM/TPM (429). Пауза 60с.")
-                        keyCooldowns[apiKey] = System.currentTimeMillis() + 60_000L
-                    }
+                    val retryMs = parseRetryDelayMs(respBody)
+                    keyCooldowns["${apiKey}|${modelName}"] = System.currentTimeMillis() + retryMs
+                    val hh = retryMs / 3600000L
+                    val mm = (retryMs % 3600000L) / 60000L
+                    LogManager.log("AI_ERR", "\uD83D\uDED1 Ключ №${keyIndex + 1} / $modelName: квота вичерпано. Пауза ${hh}г ${mm}хв")
                 } else if (response.status.value == 404) {
                     LogManager.log("AI_ERR", "❌ Ключ №${keyIndex + 1}: Модель $modelName не знайдено (404).")
-                    keyCooldowns[apiKey] = System.currentTimeMillis() + 60_000L
+                    keyCooldowns["${apiKey}|${modelName}"] = System.currentTimeMillis() + 60_000L
                 } else if (response.status.value == 503) {
                     val jitter = (Math.random() * 5000).toLong()
                     val backoff = 15_000L + jitter
                     LogManager.log("AI_WAIT", "503 Google overload. Pause ${backoff}ms.")
-                    keyCooldowns[apiKey] = System.currentTimeMillis() + backoff
+                    keyCooldowns["${apiKey}|${modelName}"] = System.currentTimeMillis() + backoff
                 } else {
                     LogManager.log("AI_ERR", "⚠️ Помилка HTTP ${response.status.value}. Пауза 30с.")
-                    keyCooldowns[apiKey] = System.currentTimeMillis() + 30_000L
+                    keyCooldowns["${apiKey}|${modelName}"] = System.currentTimeMillis() + 30_000L
                 }
                 null
             }
@@ -452,7 +481,7 @@ object AiRewriter {
         } catch (e: io.ktor.client.plugins.HttpRequestTimeoutException) {
             LogManager.log("AI_TIMEOUT", "[TIMEOUT] Request hung 30s — backoff 20s")
             resetClient()
-            keyCooldowns[apiKey] = System.currentTimeMillis() + 20_000L
+            keyCooldowns["${apiKey}|${modelName}"] = System.currentTimeMillis() + 20_000L
             null
         } catch (e: Exception) {
             val cls = e.javaClass.simpleName
@@ -460,7 +489,7 @@ object AiRewriter {
             val msg = e.message ?: "(no message)"
             LogManager.log("AI_CRASH", "[CRASH] $cls / cause=$cause - $msg")
             resetClient()
-            keyCooldowns[apiKey] = System.currentTimeMillis() + 15_000L
+            keyCooldowns["${apiKey}|${modelName}"] = System.currentTimeMillis() + 15_000L
             null
         }
     }
