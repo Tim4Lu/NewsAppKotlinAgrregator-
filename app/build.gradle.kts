@@ -39,17 +39,15 @@ android {
 
     signingConfigs {
         create("release") {
-            val ksFile = file("release.keystore")
+            val envPath = System.getenv("KEYSTORE_PATH")
+            val ksFile = if (!envPath.isNullOrEmpty()) file(envPath) else file("release.keystore")
             if (ksFile.exists()) {
                 storeFile = ksFile
-                storePassword = getSecret("KEYSTORE_PASSWORD").ifEmpty { "mypassword123" }
-                keyAlias = getSecret("KEY_ALIAS").ifEmpty { "newsappkey" }
-                keyPassword = getSecret("KEY_PASSWORD").ifEmpty { "mypassword123" }
+                storePassword = getSecret("KEYSTORE_PASSWORD")
+                keyAlias = getSecret("KEY_ALIAS")
+                keyPassword = getSecret("KEY_PASSWORD")
             } else {
-                storeFile = file("debug.keystore")
-                storePassword = "android"
-                keyAlias = "androiddebugkey"
-                keyPassword = "android"
+                throw GradleException("Release keystore not found. Set KEYSTORE_PATH env or place release.keystore in project root.")
             }
         }
     }
