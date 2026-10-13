@@ -273,7 +273,7 @@ object AiRewriter {
         } finally { /* context?.let { NewsProcessingService.stop(it) } */ }
     }
 
-    suspend fun callGroqApi(prompt: String, modelName: String = "llama-3.3-70b-versatile"): String? {
+    suspend fun callGroqApi(prompt: String, modelName: String = "openai/gpt-oss-120b"): String? {
         val apiKey = BuildConfig.GROQ_API_KEY.replace("\"", "").trim()
         if (apiKey.isEmpty()) {
             LogManager.log("AI_GROQ", "skip: key empty")
