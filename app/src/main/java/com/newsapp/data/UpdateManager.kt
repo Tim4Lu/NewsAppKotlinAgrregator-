@@ -22,6 +22,8 @@ data class UpdateInfo(
 
 class UpdateManager(private val context: Context) {
 
+    private val prefs = context.getSharedPreferences("update_prefs", Context.MODE_PRIVATE)
+
     suspend fun checkForUpdate(currentBuildNumber: Int): UpdateInfo? = withContext(Dispatchers.IO) {
         try {
             val url = URL("https://api.github.com/repos/Tim4Lu/NewsAppKotlinAgrregator-/releases/latest")
@@ -37,7 +39,15 @@ class UpdateManager(private val context: Context) {
                 
                 val remoteBuild = tagName.removePrefix("v").removePrefix("V").trim().toIntOrNull() ?: 0
 
-                LogManager.log("UPDATE_CHECK", "GitHub: $tagName (build: $remoteBuild), Поточна: $currentBuildNumber")
+                val lastInstalledTag = prefs.getString("last_installed_tag", null)
+
+                LogManager.log("UPDATE_CHECK", "GitHub: $tagName (build: $remoteBuild), Поточна: $currentBuildNumber, Last: $lastInstalledTag")
+
+                // Захист від циклу: якщо цей самий тег вже намагалися встановити — пропускаємо
+                if (tagName == lastInstalledTag) {
+                    LogManager.log("UPDATE_CHECK", "Тег $tagName вже встановлювався. Пропускаємо.")
+                    return@withContext null
+                }
 
                 if (remoteBuild > currentBuildNumber) {
                     val assets = json.getJSONArray("assets")
@@ -91,7 +101,11 @@ class UpdateManager(private val context: Context) {
                 }
             }
 
-            LogManager.log("UPDATE_OK", "APK завантажено. Запуск встановлення...")
+            // Захист від циклу: запам'ятовуємо тег ПЕРЕД встановленням
+            val tagFromUrl = downloadUrl.substringAfter("/download/").substringBefore("/")
+            prefs.edit().putString("last_installed_tag", tagFromUrl).apply()
+            LogManager.log("UPDATE_OK", "APK завантажено. Запуск встановлення... (tag=$tagFromUrl)")
+
             installApk(apkFile)
 
         } catch (e: Exception) {
