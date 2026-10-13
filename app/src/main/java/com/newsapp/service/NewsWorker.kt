@@ -49,7 +49,8 @@ class NewsWorker(
         "https://www.nature.com/nature.rss",
         "https://www.universetoday.com/feed",
         "https://www.spacedaily.com/spacedaily.xml",
-        "https://phys.org/rss-feed/space-news"
+        "https://phys.org/rss-feed/space-news",
+        "https://www.space.com/feeds/all"
     )
 
     private fun String.normalizeUrl() = this.lowercase().replace(Regex("^https?://"), "").replace(Regex("^www\\."), "").split("?")[0].trimEnd('/')
@@ -163,7 +164,7 @@ class NewsWorker(
         }
 
         // SNAPI — окремий API, не блокується Cloudflare
-        for (site in listOf("SpaceNews", "Space.com")) {
+        for (site in listOf("SpaceNews")) {
             rawNews.addAll(SnapiParser.fetch(site, 15))
         }
 

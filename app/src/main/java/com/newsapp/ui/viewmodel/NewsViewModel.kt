@@ -50,7 +50,8 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
         "https://www.nature.com/subjects/astronomy-and-planetary-science.rss",
         "https://www.universetoday.com/feed",
         "https://www.spacedaily.com/spacedaily.xml",
-        "https://phys.org/rss-feed/space-news"
+        "https://phys.org/rss-feed/space-news",
+        "https://www.space.com/feeds/all"
     )
 
     init {
@@ -145,7 +146,7 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
 
             // SNAPI — окремі джерела, які не можна отримати через RSS
         // SNAPI — окремий API, не блокується Cloudflare
-        for (site in listOf("SpaceNews", "Space.com")) {
+        for (site in listOf("SpaceNews")) {
             rawNews.addAll(SnapiParser.fetch(site, 15))
         }
 
