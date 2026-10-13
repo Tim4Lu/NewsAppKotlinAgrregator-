@@ -30,8 +30,8 @@ object AiRewriter {
     private fun createClient() = HttpClient(CIO) {
         expectSuccess = false
         engine { 
-            requestTimeout = 60_000 
-            endpoint { connectTimeout = 30_000; socketTimeout = 90_000 } 
+            requestTimeout = 30_000 
+            endpoint { connectTimeout = 15_000; socketTimeout = 45_000 } 
         }
     }
 
@@ -178,7 +178,7 @@ object AiRewriter {
         var attempts = 0
         while (translatedText == null && attempts < apiKeys.size) {
             if (getActiveKey() == null) { delay(10000); attempts++; continue }
-            val models = listOf("gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash"); translatedText = callGeminiApi(prompt, models[attempts % 3])
+            val models = listOf("gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash"); translatedText = generateWithFallback(prompt, models[attempts % 3])
             if (translatedText == "[SAFETY_BLOCK]") return "Текст заблоковано фільтрами безпеки Gemini."
             if (translatedText == null) attempts++
         }
@@ -207,7 +207,7 @@ object AiRewriter {
                     var attempts = 0
 
                     var consecutiveCrashes = 0
-                    while (translatedText == null && attempts < (apiKeys.size * 2) && consecutiveCrashes < 3) {
+                    while (translatedText == null && attempts < 3 && consecutiveCrashes < 3) {
                         LogManager.log("AI_PROCESS", "Спроба ${attempts + 1} для новини: '${item.title.take(20)}...'")
                         
                         if (getActiveKey() == null) { 
@@ -226,7 +226,7 @@ object AiRewriter {
                             continue
                         }
                         
-                        val models = listOf("gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash"); translatedText = callGeminiApi(prompt, models[attempts % 3])
+                        val models = listOf("gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash"); translatedText = generateWithFallback(prompt, models[attempts % 3])
                         if (translatedText == "[SAFETY_BLOCK]") break
                         if (translatedText == null) { attempts++; consecutiveCrashes++ } else { consecutiveCrashes = 0 }
                     }
@@ -255,6 +255,87 @@ object AiRewriter {
                 }
             }
         } finally { /* context?.let { NewsProcessingService.stop(it) } */ }
+    }
+
+    suspend fun callGroqApi(prompt: String, modelName: String = "llama-3.3-70b-versatile"): String? {
+        val apiKey = BuildConfig.GROQ_API_KEY.replace("\"", "").trim()
+        if (apiKey.isEmpty()) {
+            LogManager.log("AI_GROQ", "skip: key empty")
+            return null
+        }
+        LogManager.log("AI_GROQ_REQ", "-> Groq ($modelName)")
+        return try {
+            val response = client.post("https://api.groq.com/openai/v1/chat/completions") {
+                header(io.ktor.http.HttpHeaders.Authorization, "Bearer $apiKey")
+                contentType(ContentType.Application.Json)
+                setBody(JSONObject().apply {
+                    put("model", modelName)
+                    put("messages", JSONArray().apply {
+                        put(JSONObject().apply {
+                            put("role", "user")
+                            put("content", prompt)
+                        })
+                    })
+                    put("temperature", 0.7)
+                }.toString())
+            }
+            val respBody = response.bodyAsText()
+            val cleanLog = respBody.replace("\n", " ").let { if (it.length > 250) it.take(250) + "..." else it }
+            LogManager.log("AI_GROQ_RES", "status=${response.status.value} body=$cleanLog")
+            if (response.status.value == 200) {
+                val json = JSONObject(respBody)
+                val text = json.optJSONArray("choices")
+                    ?.optJSONObject(0)
+                    ?.optJSONObject("message")
+                    ?.optString("content")
+                if (text.isNullOrEmpty()) {
+                    LogManager.log("AI_GROQ_WARN", "empty content")
+                    null
+                } else {
+                    LogManager.log("AI_GROQ_OK", "text len=${text.length}")
+                    text
+                }
+            } else if (response.status.value == 429) {
+                LogManager.log("AI_GROQ_QUOTA", "429: ${respBody.take(400)}")
+                null
+            } else {
+                LogManager.log("AI_GROQ_ERR", "HTTP ${response.status.value}")
+                null
+            }
+        } catch (e: java.io.EOFException) {
+            LogManager.log("AI_GROQ_CRASH", "EOF -> reset")
+            resetClient()
+            null
+        } catch (e: io.ktor.client.plugins.HttpRequestTimeoutException) {
+            LogManager.log("AI_GROQ_TIMEOUT", "timeout 30s")
+            resetClient()
+            null
+        } catch (e: Exception) {
+            val cls = e.javaClass.simpleName
+            val msg = e.message ?: "(no message)"
+            LogManager.log("AI_GROQ_CRASH", "$cls - $msg")
+            resetClient()
+            null
+        }
+    }
+
+    suspend fun generateWithFallback(prompt: String, modelName: String = "gemini-3.8-flash"): String? {
+        val geminiResult = callGeminiApi(prompt, modelName)
+        if (geminiResult != null && geminiResult != "[SAFETY_BLOCK]") {
+            return geminiResult
+        }
+        if (geminiResult == "[SAFETY_BLOCK]") {
+            LogManager.log("AI_FALLBACK", "safety block, skip groq")
+            return geminiResult
+        }
+        LogManager.log("AI_FALLBACK", "gemini null -> groq")
+        val groqResult = callGroqApi(prompt)
+        if (groqResult != null) {
+            LogManager.log("AI_FALLBACK_OK", "groq recovered")
+        } else {
+            LogManager.log("AI_FALLBACK_FAIL", "both failed")
+        }
+        return groqResult
     }
 
     suspend fun callGeminiApi(prompt: String, modelName: String = "gemini-3.8-flash"): String? {
@@ -314,6 +395,7 @@ object AiRewriter {
                     LogManager.log("AI_ERR", "🚫 Ключ №${keyIndex + 1} недійсний (401). Блок 24г.")
                     keyCooldowns[apiKey] = System.currentTimeMillis() + 60_000L
                 } else if (response.status.value == 429) {
+                    LogManager.log("AI_QUOTA", "ПОВНЕ 429: ${respBody.take(600)}")
                     val usageCount = if (isInitialized) prefs.getInt("key_count_$keyIndex", 0) else 0
                     // Якщо лічильник малий, це точно RPM/TPM хвилинний ліміт, а не кінець денної квоти
                     if (usageCount >= 1400 || errBody.contains("billing") || errBody.contains("quota")) {
@@ -344,6 +426,11 @@ object AiRewriter {
         } catch (e: java.io.EOFException) {
             LogManager.log("AI_CRASH", "[CRASH] EOF from poisoned pool — reset client")
             resetClient()
+            null
+        } catch (e: io.ktor.client.plugins.HttpRequestTimeoutException) {
+            LogManager.log("AI_TIMEOUT", "[TIMEOUT] Request hung 30s — backoff 20s")
+            resetClient()
+            keyCooldowns[apiKey] = System.currentTimeMillis() + 20_000L
             null
         } catch (e: Exception) {
             val cls = e.javaClass.simpleName
