@@ -55,7 +55,8 @@ object AiRewriter {
     private lateinit var prefs: SharedPreferences
     private var isInitialized = false
 
-    private const val DAILY_LIMIT = 1450 
+    private const val DAILY_LIMIT = 1450
+    private const val GROQ_DAILY_LIMIT = 1000 
 
     fun init(context: Context? = null) {
         if (context != null && !isInitialized) {
@@ -90,6 +91,14 @@ object AiRewriter {
             }
             sb.append("Ключ ${index + 1}: $count / $DAILY_LIMIT ($status)\n")
         }
+        val groqKey = BuildConfig.GROQ_API_KEY.replace("\"", "").trim()
+        if (groqKey.isEmpty()) {
+            sb.append("\uD83E\uDD16 Groq: \u274C key not set\n")
+        } else {
+            val groqCount = prefs.getInt("groq_count_today", 0)
+            val groqStatus = if (groqCount >= GROQ_DAILY_LIMIT) "\uD83D\uDD34 exhausted" else "\uD83D\uDFE2 active"
+            sb.append("\uD83E\uDD16 Groq: $groqCount / $GROQ_DAILY_LIMIT ($groqStatus)\n")
+        }
         return sb.toString().trim()
     }
 
@@ -97,6 +106,13 @@ object AiRewriter {
         if (isInitialized) {
             val current = prefs.getInt("key_count_$keyIndex", 0)
             prefs.edit().putInt("key_count_$keyIndex", current + 1).apply()
+        }
+    }
+
+    private fun incrementGroqUsage() {
+        if (isInitialized) {
+            val current = prefs.getInt("groq_count_today", 0)
+            prefs.edit().putInt("groq_count_today", current + 1).apply()
         }
     }
 
@@ -293,6 +309,7 @@ object AiRewriter {
                     null
                 } else {
                     LogManager.log("AI_GROQ_OK", "text len=${text.length}")
+                    incrementGroqUsage()
                     text
                 }
             } else if (response.status.value == 429) {
