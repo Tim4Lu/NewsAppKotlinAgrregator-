@@ -79,7 +79,7 @@ class TelegramBotService {
         }
     }
 
-    suspend fun sendToTelegram(caption: String, imageUrls: List<String> = emptyList()): Boolean {
+    suspend fun sendToTelegram(caption: String, imageUrls: List<String> = emptyList(), videoUrl: String = ""): Boolean {
         return try {
             val token = BuildConfig.TELEGRAM_BOT_TOKEN
             if (token.isEmpty() || token.contains("null")) {
@@ -94,6 +94,80 @@ class TelegramBotService {
 
             val validUrls = imageUrls.filter { it.startsWith("http") }.take(10)
             var mediaSentOk = false
+
+            // ВІДЕО: якщо є videoUrl - публікуємо його замість фото
+            if (videoUrl.isNotEmpty()) {
+                val isYouTube = videoUrl.contains("youtube.com") || videoUrl.contains("youtu.be")
+                if (isYouTube) {
+                    val ytMessage = "$safeCaption\n\n$videoUrl"
+                    val ytResponse = client.post("https://api.telegram.org/bot$token/sendMessage") {
+                        contentType(ContentType.Application.Json)
+                        setBody(JSONObject().apply {
+                            put("chat_id", channelId)
+                            put("text", ytMessage)
+                            put("parse_mode", "HTML")
+                            put("disable_web_page_preview", false)
+                        }.toString())
+                    }
+                    val ytOk = JSONObject(ytResponse.bodyAsText()).optBoolean("ok", false)
+                    if (ytOk) {
+                        LogManager.log("TG_OK", "YouTube посилання опубліковано!")
+                        return true
+                    } else {
+                        LogManager.log("TG_ERR", "Помилка YouTube: ${ytResponse.bodyAsText()}")
+                        return false
+                    }
+                } else {
+                    try {
+                        val videoBytes = client.get(videoUrl).readBytes()
+                        if (videoBytes.size > 50 * 1024 * 1024) {
+                            LogManager.log("TG_WARN", "Відео >50MB, fallback на посилання")
+                            val fbResp = client.post("https://api.telegram.org/bot$token/sendMessage") {
+                                contentType(ContentType.Application.Json)
+                                setBody(JSONObject().apply {
+                                    put("chat_id", channelId)
+                                    put("text", "$safeCaption\n\n$videoUrl")
+                                    put("parse_mode", "HTML")
+                                    put("disable_web_page_preview", false)
+                                }.toString())
+                            }
+                            return JSONObject(fbResp.bodyAsText()).optBoolean("ok", false)
+                        }
+                        val videoResp = client.post("https://api.telegram.org/bot$token/sendVideo") {
+                            setBody(MultiPartFormDataContent(formData {
+                                append("chat_id", channelId)
+                                if (captionForMedia.isNotEmpty()) {
+                                    append("caption", captionForMedia)
+                                    append("parse_mode", "HTML")
+                                }
+                                append("video", videoBytes, Headers.build {
+                                    append(HttpHeaders.ContentType, "video/mp4")
+                                    append(HttpHeaders.ContentDisposition, "filename=\"video.mp4\"")
+                                })
+                            }))
+                        }
+                        val videoOk = JSONObject(videoResp.bodyAsText()).optBoolean("ok", false)
+                        if (videoOk) {
+                            LogManager.log("TG_OK", "Відео опубліковано з підписом!")
+                            return true
+                        } else {
+                            LogManager.log("TG_ERR", "Помилка sendVideo: ${videoResp.bodyAsText()}")
+                        }
+                    } catch (e: Throwable) {
+                        LogManager.log("TG_VIDEO_ERR", "Відео не завантажилось: ${e.message}, fallback")
+                        val fbResp = client.post("https://api.telegram.org/bot$token/sendMessage") {
+                            contentType(ContentType.Application.Json)
+                            setBody(JSONObject().apply {
+                                put("chat_id", channelId)
+                                put("text", "$safeCaption\n\n$videoUrl")
+                                put("parse_mode", "HTML")
+                                put("disable_web_page_preview", false)
+                            }.toString())
+                        }
+                        return JSONObject(fbResp.bodyAsText()).optBoolean("ok", false)
+                    }
+                }
+            }
 
             if (validUrls.size > 1) {
                 val bytesList = validUrls.mapNotNull { getJpegBytesFromUrl(it) }

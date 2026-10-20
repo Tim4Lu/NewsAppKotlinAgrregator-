@@ -7,7 +7,12 @@ find . -type f \( -name "*.kt" -o -name "*.xml" -o -name "*.gradle.kts" -o -name
   ! -path "*/build/*" \
   ! -path "*/.git/*" \
   ! -path "*/.gradle/*" \
-  ! -path "*/.idea/*" | while read -r file; do
+  ! -path "*/.idea/*" \
+  ! -path "*/.bak*" \
+  ! -name "local.properties" \
+  ! -name "*.keystore" \
+  ! -name "*.jks" \
+  ! -name "*.apk" | while read -r file; do
     echo -e "\n=== FILE: $file ===" >> "$OUTPUT_FILE"
     cat "$file" >> "$OUTPUT_FILE"
 done

@@ -180,9 +180,11 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private suspend fun scrapeArticle(url: String): Triple<String, List<String>, Boolean> {
+    private data class ScrapeResult(val text: String, val images: List<String>, val hasVideo: Boolean, val videoUrl: String = "")
+
+    private suspend fun scrapeArticle(url: String): ScrapeResult {
         try {
-            if (url.isEmpty()) return Triple("", emptyList(), false)
+            if (url.isEmpty()) return ScrapeResult("", emptyList(), false)
             
             val scraperKey = BuildConfig.SCRAPER_API_KEY
             val finalUrl = if (url.contains("spacenews") || url.contains("space.com") || url.contains("spacedaily") || url.contains("phys.org") || url.contains("universetoday")) {
@@ -200,21 +202,37 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
                 imageList.add(img)
             }
 
+            var videoUrl = ""
+            val ogVideo = Regex("<meta[^>]+(?:property|name)=['\"](?:og:video|og:video:url|twitter:player|twitter:player:stream)['\"][^>]+content=['\"]([^'\"]+)['\"]", RegexOption.IGNORE_CASE).find(html)
+            if (ogVideo != null) { videoUrl = ogVideo.groupValues[1] }
+            if (videoUrl.isEmpty()) {
+                val srcMatch = Regex("<video[^>]*>.*?<source[^>]+src=['\"]([^'\"]+)['\"]", RegexOption.IGNORE_CASE or RegexOption.DOT_MATCHES_ALL).find(html)
+                if (srcMatch != null) videoUrl = srcMatch.groupValues[1]
+            }
+            if (videoUrl.isEmpty()) {
+                val ytMatch = Regex("(?:youtube\\.com/(?:watch\\?v=|embed/|shorts/)|youtu\\.be/)([A-Za-z0-9_-]{11})").find(html)
+                if (ytMatch != null) videoUrl = "https://www.youtube.com/watch?v=${ytMatch.groupValues[1]}"
+            }
+            if (videoUrl.isNotEmpty() && !videoUrl.startsWith("http")) {
+                try { val b = java.net.URL(url); videoUrl = "${b.protocol}://${b.host}$videoUrl" } catch (_: Exception) {}
+            }
+
             val cleanHtml = html.replace(Regex("<(nav|header|footer|script|style|button|aside|noscript)[^>]*>[\\s\\S]*?<\\/\\1>", RegexOption.IGNORE_CASE), "")
             val scrapedText = Regex("<p[^>]*>(.*?)</p>", RegexOption.IGNORE_CASE).findAll(cleanHtml).map { it.groupValues[1].replace(Regex("<[^>]*>"), "").trim() }.filter { it.length > 80 && it.contains(".") }.joinToString("\n\n")
-            val hasVideo = html.contains("<video", ignoreCase=true) || html.contains("<iframe", ignoreCase=true) || html.contains("og:video", ignoreCase=true)
-            return Triple(if (scrapedText.length >= 150) scrapedText else "", imageList, hasVideo)
-        } catch (e: Exception) { return Triple("", emptyList(), false) }
+            val hasVideo = videoUrl.isNotEmpty() || html.contains("<video", ignoreCase=true) || html.contains("<iframe", ignoreCase=true) || html.contains("og:video", ignoreCase=true)
+            return ScrapeResult(if (scrapedText.length >= 150) scrapedText else "", imageList, hasVideo, videoUrl)
+        } catch (e: Exception) { return ScrapeResult("", emptyList(), false) }
     }
 
     private suspend fun processNewsWithScraperAndAi(rawNews: List<NewsItem>) {
         val updatedList = rawNews.map { item ->
-            val (fullText, scrapedImages, hasVid) = scrapeArticle(item.link)
+            val r = scrapeArticle(item.link)
             item.copy(
-                description = if (fullText.isNotEmpty()) fullText else item.description,
-                image = if (scrapedImages.isNotEmpty()) scrapedImages.first() else item.image,
-                images = if (scrapedImages.isNotEmpty()) scrapedImages else if (item.image.isNotEmpty()) listOf(item.image) else emptyList(),
-                hasVideo = hasVid
+                description = if (r.text.isNotEmpty()) r.text else item.description,
+                image = if (r.images.isNotEmpty()) r.images.first() else item.image,
+                images = if (r.images.isNotEmpty()) r.images else if (item.image.isNotEmpty()) listOf(item.image) else emptyList(),
+                hasVideo = r.hasVideo,
+                videoUrl = r.videoUrl
             )
         }
 
@@ -257,7 +275,11 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
         if (newsItem.status == "Опубліковано" || newsItem.status == "Відправляється..." || newsItem.status == "В черзі") return
         _newsList.value = _newsList.value.map { if (it.id == newsItem.id) it.copy(status = "Відправляється...") else it }
         viewModelScope.launch(Dispatchers.IO) {
-            val success = telegramBotService.sendToTelegram(newsItem.telegramCaption, if (selectedImages.isNotEmpty()) selectedImages else if (newsItem.image.isNotEmpty()) listOf(newsItem.image) else emptyList())
+            val success = telegramBotService.sendToTelegram(
+                newsItem.telegramCaption,
+                if (selectedImages.isNotEmpty()) selectedImages else if (newsItem.image.isNotEmpty()) listOf(newsItem.image) else emptyList(),
+                newsItem.videoUrl
+            )
             _newsList.value = _newsList.value.map { if (it.id == newsItem.id) it.copy(status = if (success) "Опубліковано" else "Помилка") else it }
             cacheManager.saveNews(_newsList.value)
         }

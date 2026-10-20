@@ -11,6 +11,7 @@ data class NewsItem(
     val source: String = "Новина",
     val image: String = "",
     val images: List<String> = emptyList(),
+    val videoUrl: String = "",
     val hasVideo: Boolean = false,
     val status: String = "В черзі",
     val isEditing: Boolean = false,
