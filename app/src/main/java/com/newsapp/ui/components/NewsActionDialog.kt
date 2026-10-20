@@ -242,6 +242,29 @@ fun NewsActionDialog(
                         ) {
                             Text("🔗 Скопіювати посилання", color = Color(0xFF38BDF8))
                         }
+
+                        if (item.videoUrl.isNotEmpty()) {
+                            Button(
+                                onClick = {
+                                    try {
+                                        val intent = android.content.Intent(
+                                            android.content.Intent.ACTION_VIEW,
+                                            android.net.Uri.parse(item.videoUrl)
+                                        )
+                                        intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                                        context.startActivity(intent)
+                                    } catch (e: Exception) {
+                                        Toast.makeText(context, "Не вдалось відкрити відео", Toast.LENGTH_SHORT).show()
+                                    }
+                                    onDismiss()
+                                },
+                                modifier = Modifier.fillMaxWidth().height(48.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626)),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Text("▶️ Переглянути відео", color = Color.White, fontWeight = FontWeight.Bold)
+                            }
+                        }
                     }
                 } else {
                     Box(

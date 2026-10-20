@@ -64,7 +64,7 @@ fun NewsCard(
                 ) {
                     Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                         Text(text = item.source.uppercase(), color = Color(0xFF818CF8), fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                        if (item.hasVideo) { Text("  🎥 ВІДЕО", color = Color(0xFFEF4444), fontWeight = FontWeight.Bold, fontSize = 12.sp) }
+                        if (item.videoUrl.isNotEmpty()) { Text("  🎬 ВІДЕО", color = Color(0xFFEF4444), fontWeight = FontWeight.Bold, fontSize = 12.sp) }
                     }
 
                     Box(
