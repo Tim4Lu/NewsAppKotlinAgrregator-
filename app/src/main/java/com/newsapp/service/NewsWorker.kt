@@ -81,7 +81,7 @@ class NewsWorker(
             val ogVideo = Regex("<meta[^>]+(?:property|name)=['\"](?:og:video|og:video:url|twitter:player|twitter:player:stream)['\"][^>]+content=['\"]([^'\"]+)['\"]", RegexOption.IGNORE_CASE).find(html)
             if (ogVideo != null) { videoUrl = ogVideo.groupValues[1] }
             if (videoUrl.isEmpty()) {
-                val srcMatch = Regex("<video[^>]*>.*?<source[^>]+src=['\"]([^'\"]+)['\"]", RegexOption.IGNORE_CASE or RegexOption.DOT_MATCHES_ALL).find(html)
+                val srcMatch = Regex("<video[^>]*>.*?<source[^>]+src=['\"]([^'\"]+)['\"]", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL)).find(html)
                 if (srcMatch != null) videoUrl = srcMatch.groupValues[1]
             }
             if (videoUrl.isEmpty()) {
