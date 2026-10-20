@@ -33,6 +33,44 @@ class TelegramBotService {
     }
     private val channelId = "@pronaukyonline"
 
+    /**
+     * NASA/ESA CDN підтримують ?w=&h=&fit= - ріже 5-20 MB до ~200 KB.
+     * v465: прибирає timeout при getJpegBytesFromUrl для великих PNG.
+     */
+    /**
+     * Отримує og:image з HTML статті. Fallback, якщо оригінал битий/великий.
+     */
+    private suspend fun fetchOgImage(articleUrl: String): String? {
+        if (articleUrl.isBlank()) return null
+        return try {
+            val resp = client.get(articleUrl) {
+                io.ktor.client.request.header("User-Agent", "Mozilla/5.0 NewsBot/1.0")
+            }
+            if (resp.status.value !in 200..299) return null
+            val html = resp.bodyAsText()
+            val re = Regex("""<meta[^>]+(?:property|name)=["'](?:og:image|twitter:image)["'][^>]+content=["']([^"']+)["']""", RegexOption.IGNORE_CASE)
+            val m = re.find(html) ?: return null
+            var img = m.groupValues[1]
+            if (!img.startsWith("http")) {
+                val base = java.net.URL(articleUrl)
+                img = base.protocol + "://" + base.host + (if (img.startsWith("/")) img else "/" + img)
+            }
+            img
+        } catch (e: Throwable) {
+            LogManager.log("TG_OG_ERR", "og:image fail: ${e.message}")
+            null
+        }
+    }
+
+    private fun resizeImageUrl(url: String): String {
+        if (url.isBlank()) return url
+        val hosts = listOf("nasa.gov", "esa.int", "spaceinimages")
+        if (hosts.none { url.contains(it, ignoreCase = true) }) return url
+        if (url.contains("?w=") || url.contains("&w=")) return url
+        val sep = if (url.contains("?")) "&" else "?"
+        return url + sep + "w=1200&h=630&fit=crop"
+    }
+
     private fun sanitizeHtml(text: String): String {
         // 1. Ескейпимо все
         var s = text
@@ -64,6 +102,74 @@ class TelegramBotService {
             }
         }
         return inSampleSize
+    }
+
+    /**
+     * v465: sendPhoto(photo=URL) - Telegram качає з CDN замість Ktor.
+     * Прибирає 90% TG_IMG_ERR: timeout.
+     */
+    /**
+     * v465: sendMediaGroup з URL (без attach://). Telegram качає з CDN.
+     */
+    private suspend fun trySendMediaGroupByUrls(urls: List<String>, caption: String, token: String): Boolean {
+        if (urls.size < 2) return false
+        return try {
+            val mediaArray = JSONArray()
+            urls.forEachIndexed { i, u ->
+                val obj = JSONObject().apply {
+                    put("type", "photo")
+                    put("media", u)
+                    if (i == 0 && caption.isNotEmpty()) {
+                        put("caption", caption)
+                        put("parse_mode", "HTML")
+                    }
+                }
+                mediaArray.put(obj)
+            }
+            val resp = client.post("https://api.telegram.org/bot$token/sendMediaGroup") {
+                contentType(ContentType.Application.Json)
+                setBody(JSONObject().apply {
+                    put("chat_id", channelId)
+                    put("media", mediaArray)
+                }.toString())
+            }
+            val body = resp.bodyAsText()
+            val ok = JSONObject(body).optBoolean("ok", false)
+            if (!ok) {
+                val desc = JSONObject(body).optString("description", body.take(120))
+                LogManager.log("TG_GROUP_WARN", "sendMediaGroup(url) fail: $desc")
+            }
+            ok
+        } catch (e: Throwable) {
+            LogManager.log("TG_GROUP_ERR", "sendMediaGroup(url) crash: ${e.message}")
+            false
+        }
+    }
+
+    private suspend fun trySendPhotoByUrl(photoUrl: String, caption: String, token: String): Boolean {
+        return try {
+            val resp = client.post("https://api.telegram.org/bot$token/sendPhoto") {
+                contentType(ContentType.Application.Json)
+                setBody(JSONObject().apply {
+                    put("chat_id", channelId)
+                    put("photo", photoUrl)
+                    if (caption.isNotEmpty()) {
+                        put("caption", caption)
+                        put("parse_mode", "HTML")
+                    }
+                }.toString())
+            }
+            val body = resp.bodyAsText()
+            val ok = JSONObject(body).optBoolean("ok", false)
+            if (!ok) {
+                val desc = JSONObject(body).optString("description", body.take(120))
+                LogManager.log("TG_URL_WARN", "sendPhoto(url) fail: $desc")
+            }
+            ok
+        } catch (e: Throwable) {
+            LogManager.log("TG_URL_ERR", "sendPhoto(url) crash: ${e.message}")
+            false
+        }
     }
 
     private suspend fun getJpegBytesFromUrl(url: String): ByteArray? {
@@ -180,70 +286,89 @@ class TelegramBotService {
             }
 
             if (validUrls.size > 1) {
-                val bytesList = validUrls.mapNotNull { getJpegBytesFromUrl(it) }
-                if (bytesList.size >= 2) {
-                    val response = client.post("https://api.telegram.org/bot$token/sendMediaGroup") {
-                        setBody(MultiPartFormDataContent(formData {
-                            append("chat_id", channelId)
-                            val mediaArray = JSONArray()
-                            bytesList.forEachIndexed { index, _ ->
-                                val mediaObj = JSONObject().apply {
-                                    put("type", "photo")
-                                    put("media", "attach://photo$index")
-                                    if (index == 0 && captionForMedia.isNotEmpty()) { 
-                                        put("caption", captionForMedia)
-                                        put("parse_mode", "HTML"); put("disable_web_page_preview", true) }
-                                }
-                                mediaArray.put(mediaObj)
-                            }
-                            append("media", mediaArray.toString())
-                            bytesList.forEachIndexed { index, bytes ->
-                                append("photo$index", bytes, Headers.build {
-                                    append(HttpHeaders.ContentType, "image/jpeg")
-                                    append(HttpHeaders.ContentDisposition, "filename=\"photo$index.jpg\"")
-                                })
-                            }
-                        }))
+                // v465: спочатку URL (ресайз -> Telegram качає з CDN), потім байти fallback
+                val resizedUrls = validUrls.map { resizeImageUrl(it) }
+                if (trySendMediaGroupByUrls(resizedUrls, captionForMedia, token)) {
+                    mediaSentOk = true
+                    LogManager.log("TG_OK", "Галерея URL x${resizedUrls.size} опублікована")
+                } else {
+                    LogManager.log("TG_WARN", "URL-галерея не пройшла, спроба og:image")
+                    val ogCandidates = mutableListOf<String>()
+                    for (u in validUrls) {
+                        val og = fetchOgImage(u)
+                        if (og != null) ogCandidates.add(og)
                     }
-                    mediaSentOk = JSONObject(response.bodyAsText()).optBoolean("ok", false)
-                    if (!mediaSentOk) LogManager.log("TG_ERR", "Помилка галереї: ${response.bodyAsText()}")
-                } else if (bytesList.size == 1) {
-                    LogManager.log("TG_WARN", "З багатьох фото вижило 1 - надсилаємо як sendPhoto")
-                    val jpegBytes = bytesList.first()
-                    val response = client.post("https://api.telegram.org/bot$token/sendPhoto") {
-                        setBody(MultiPartFormDataContent(formData {
-                            append("chat_id", channelId)
-                            if (captionForMedia.isNotEmpty()) {
-                                append("caption", captionForMedia)
-                                append("parse_mode", "HTML")
+                    if (ogCandidates.size >= 2 && trySendMediaGroupByUrls(ogCandidates.map { resizeImageUrl(it) }, captionForMedia, token)) {
+                        mediaSentOk = true
+                        LogManager.log("TG_OK", "Галерея og:image x${ogCandidates.size} опублікована")
+                    } else {
+                        LogManager.log("TG_WARN", "og:image не вистачило, байти fallback")
+                        val bytesList = validUrls.mapNotNull { getJpegBytesFromUrl(it) }
+                        if (bytesList.size >= 2) {
+                            val response = client.post("https://api.telegram.org/bot$token/sendMediaGroup") {
+                                setBody(MultiPartFormDataContent(formData {
+                                    append("chat_id", channelId)
+                                    val mediaArray = JSONArray()
+                                    bytesList.forEachIndexed { index, _ ->
+                                        val mediaObj = JSONObject().apply {
+                                            put("type", "photo")
+                                            put("media", "attach://photo$index")
+                                            if (index == 0 && captionForMedia.isNotEmpty()) {
+                                                put("caption", captionForMedia)
+                                                put("parse_mode", "HTML"); put("disable_web_page_preview", true)
+                                            }
+                                        }
+                                        mediaArray.put(mediaObj)
+                                    }
+                                    append("media", mediaArray.toString())
+                                    bytesList.forEachIndexed { index, bytes ->
+                                        append("photo$index", bytes, Headers.build {
+                                            append(HttpHeaders.ContentType, "image/jpeg")
+                                            append(HttpHeaders.ContentDisposition, "filename=\"photo$index.jpg\"")
+                                        })
+                                    }
+                                }))
                             }
-                            append("photo", jpegBytes, Headers.build {
-                                append(HttpHeaders.ContentType, "image/jpeg")
-                                append(HttpHeaders.ContentDisposition, "filename=\"image.jpg\"")
-                            })
-                        }))
+                            mediaSentOk = JSONObject(response.bodyAsText()).optBoolean("ok", false)
+                            if (!mediaSentOk) LogManager.log("TG_ERR", "Байтова галерея fail: ${response.bodyAsText().take(150)}")
+                        }
                     }
-                    mediaSentOk = JSONObject(response.bodyAsText()).optBoolean("ok", false)
-                    if (!mediaSentOk) LogManager.log("TG_ERR", "Помилка sendPhoto fallback: ${response.bodyAsText()}")
                 }
+            
             } else if (validUrls.size == 1) {
-                val jpegBytes = getJpegBytesFromUrl(validUrls.first())
-                if (jpegBytes != null) {
-                    val response = client.post("https://api.telegram.org/bot$token/sendPhoto") {
-                        setBody(MultiPartFormDataContent(formData {
-                            append("chat_id", channelId)
-                            if (captionForMedia.isNotEmpty()) {
-                                append("caption", captionForMedia)
-                                append("parse_mode", "HTML")
-                            }
-                            append("photo", jpegBytes, Headers.build {
-                                append(HttpHeaders.ContentType, "image/jpeg")
-                                append(HttpHeaders.ContentDisposition, "filename=\"image.jpg\"")
-                            })
-                        }))
+                // v465: URL -> og:image -> байти
+                val origUrl = validUrls.first()
+                val resized = resizeImageUrl(origUrl)
+                var ok = trySendPhotoByUrl(resized, captionForMedia, token)
+                if (ok) {
+                    LogManager.log("TG_OK", "Фото URL опубліковано (resize)")
+                } else {
+                    val og = fetchOgImage(origUrl)
+                    if (og != null) {
+                        ok = trySendPhotoByUrl(resizeImageUrl(og), captionForMedia, token)
+                        if (ok) LogManager.log("TG_OK", "Фото og:image опубліковано")
                     }
-                    mediaSentOk = JSONObject(response.bodyAsText()).optBoolean("ok", false)
-                    if (!mediaSentOk) LogManager.log("TG_ERR", "Помилка фото: ${response.bodyAsText()}")
+                    if (!ok) {
+                        val jpegBytes = getJpegBytesFromUrl(origUrl)
+                        if (jpegBytes != null) {
+                            val response = client.post("https://api.telegram.org/bot$token/sendPhoto") {
+                                setBody(MultiPartFormDataContent(formData {
+                                    append("chat_id", channelId)
+                                    if (captionForMedia.isNotEmpty()) {
+                                        append("caption", captionForMedia)
+                                        append("parse_mode", "HTML")
+                                    }
+                                    append("photo", jpegBytes, Headers.build {
+                                        append(HttpHeaders.ContentType, "image/jpeg")
+                                        append(HttpHeaders.ContentDisposition, "filename=\"image.jpg\"")
+                                    })
+                                }))
+                            }
+                            ok = JSONObject(response.bodyAsText()).optBoolean("ok", false)
+                            if (!ok) LogManager.log("TG_ERR", "Байтове фото fail: ${response.bodyAsText().take(150)}")
+                        }
+                    }
+                    mediaSentOk = ok
                 }
             }
 
