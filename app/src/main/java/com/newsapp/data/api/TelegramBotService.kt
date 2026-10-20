@@ -33,15 +33,25 @@ class TelegramBotService {
     }
     private val channelId = "@pronaukyonline"
 
-    private fun sanitizeHtml(text: String): String = text
-        .replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-        .replace("&amp;amp;", "&amp;")
-        .replace("&amp;lt;", "&lt;")
-        .replace("&amp;gt;", "&gt;")
-        .replace("&amp;quot;", "&quot;")
-        .replace("&amp;apos;", "&apos;")
+    private fun sanitizeHtml(text: String): String {
+        // 1. Ескейпимо все
+        var s = text
+            .replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+        // 2. Відновлюємо дозволені Telegram-теги
+        val allowedTags = listOf("b", "i", "u", "s", "code", "pre")
+        for (tag in allowedTags) {
+            s = s.replace("&lt;$tag&gt;", "<$tag>")
+            s = s.replace("&lt;/$tag&gt;", "</$tag>")
+        }
+        // 3. Відновлюємо <a href="...">
+        s = s.replace(Regex("&lt;a href=\"(.*?)\"&gt;"), "<a href=\"$1\">")
+        s = s.replace("&lt;/a&gt;", "</a>")
+        // 4. Прибираємо подвійне екранування
+        s = s.replace("&amp;amp;", "&amp;")
+        return s
+    }
 
     private fun calculateInSampleSize(options: BitmapFactory.Options, reqWidth: Int, reqHeight: Int): Int {
         val (height: Int, width: Int) = options.outHeight to options.outWidth
