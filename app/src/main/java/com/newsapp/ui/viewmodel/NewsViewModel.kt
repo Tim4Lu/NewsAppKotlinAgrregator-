@@ -21,6 +21,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 import java.net.URLEncoder
@@ -237,29 +238,29 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         AiRewriter.processAllNewsWithAi(updatedList, getApplication()) { finishedItem ->
-            _newsList.value = _newsList.value.map { current ->
+            _newsList.update { it.map { current ->
                 if (current.id == finishedItem.id || current.title == finishedItem.title) finishedItem else current
-            }
+            } }
             cacheManager.saveNews(_newsList.value)
         }
     }
 
     fun rewriteSingleNews(newsItem: NewsItem) {
         viewModelScope.launch(Dispatchers.IO) {
-            _newsList.value = _newsList.value.map { if (it.id == newsItem.id) it.copy(status = "Переклад...", telegramCaption = "Обробка AI...") else it }
+            _newsList.update { it.map { if (it.id == newsItem.id) it.copy(status = "Переклад...", telegramCaption = "Обробка AI...") else it } }
             AiRewriter.processAllNewsWithAi(listOf(newsItem), getApplication()) { finishedItem ->
-                _newsList.value = _newsList.value.map { if (it.id == newsItem.id) finishedItem else it }
+                _newsList.update { it.map { if (it.id == newsItem.id) finishedItem else it } }
                 cacheManager.saveNews(_newsList.value)
             }
         }
     }
 
     fun toggleEdit(id: String) {
-        _newsList.value = _newsList.value.map { if (it.id == id) it.copy(isEditing = !it.isEditing) else it }
+        _newsList.update { it.map { if (it.id == id) it.copy(isEditing = !it.isEditing) else it } }
     }
 
     fun updateNewsText(id: String, newTitle: String, newText: String) {
-        _newsList.value = _newsList.value.map {
+        _newsList.update { it.map {
             if (it.id == id) {
                 val cleanTitle = newTitle.replace("🚀", "").trim()
                 var cleanDesc = newText
@@ -267,20 +268,20 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
                 if (sourceIndex != -1) cleanDesc = cleanDesc.substring(0, sourceIndex).trimEnd(' ', '\n', '•', '\r')
                 it.copy(description = cleanDesc, telegramCaption = "🚀 <b>$cleanTitle</b> 🚀\n\n$cleanDesc\n\n• <b>Джерело:</b> ${it.source}")
             } else it
-        }
+        } }
         viewModelScope.launch { cacheManager.saveNews(_newsList.value) }
     }
 
     fun sendNews(newsItem: NewsItem, selectedImages: List<String> = emptyList()) {
         if (newsItem.status == "Опубліковано" || newsItem.status == "Відправляється..." || newsItem.status == "В черзі") return
-        _newsList.value = _newsList.value.map { if (it.id == newsItem.id) it.copy(status = "Відправляється...") else it }
+        _newsList.update { it.map { if (it.id == newsItem.id) it.copy(status = "Відправляється...") else it } }
         viewModelScope.launch(Dispatchers.IO) {
             val success = telegramBotService.sendToTelegram(
                 newsItem.telegramCaption,
                 if (selectedImages.isNotEmpty()) selectedImages else if (newsItem.image.isNotEmpty()) listOf(newsItem.image) else emptyList(),
                 newsItem.videoUrl
             )
-            _newsList.value = _newsList.value.map { if (it.id == newsItem.id) it.copy(status = if (success) "Опубліковано" else "Помилка") else it }
+            _newsList.update { it.map { if (it.id == newsItem.id) it.copy(status = if (success) "Опубліковано" else "Помилка") else it } }
             cacheManager.saveNews(_newsList.value)
         }
     }

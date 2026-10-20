@@ -51,6 +51,7 @@ object AiRewriter {
     private var currentKeyIndex = 0
     var lastRequestTimestamp = 0L
     val geminiMutex = Mutex()
+    private val processMutex = Mutex()
 
     private lateinit var prefs: SharedPreferences
     private var isInitialized = false
@@ -242,12 +243,17 @@ object AiRewriter {
     }
 
     suspend fun processAllNewsWithAi(newsList: List<NewsItem>, context: Context? = null, onItemProcessed: suspend (NewsItem) -> Unit) {
+        processMutex.withLock {
+            processAllNewsWithAiInternal(newsList, context, onItemProcessed)
+        }
+    }
+
+    private suspend fun processAllNewsWithAiInternal(newsList: List<NewsItem>, context: Context? = null, onItemProcessed: suspend (NewsItem) -> Unit) {
         // context?.let { NewsProcessingService.start(it) } // Вимкнено для WorkManager
         try {
             val newsToProcess = mutableListOf<NewsItem>()
             for (item in newsList) {
-                if (!processingNewsIds.contains(item.id)) {
-                    processingNewsIds.add(item.id)
+                if (processingNewsIds.add(item.id)) {
                     newsToProcess.add(item)
                 }
             }
@@ -267,7 +273,7 @@ object AiRewriter {
 
                     var consecutiveCrashes = 0
                     while (translatedText == null && attempts < 3 && consecutiveCrashes < 3) {
-                        LogManager.log("AI_PROCESS", "Спроба ${attempts + 1} для новини: '${item.title.take(20)}...'")
+                        LogManager.log("AI_PROCESS", "newsId=${item.id.take(8)} title='${item.title.take(30)}' attempt=${attempts + 1}")
                         
                         if (!hasAnyAvailableKey()) {
                             if (isGloballyBlocked()) {
@@ -281,7 +287,7 @@ object AiRewriter {
                             continue
                         }
                         
-                        val models = listOf("gemini-3.1-flash-lite", "gemini-3.5-flash-lite", "gemini-3.8-flash"); translatedText = generateWithFallback(prompt, models[attempts % 3])
+                        val models = listOf("gemini-3.1-flash-lite", "gemini-3.5-flash-lite", "gemini-3.8-flash"); translatedText = generateWithFallback(prompt, models[attempts % 3], item.id)
                         if (translatedText == "[SAFETY_BLOCK]") break
                         if (translatedText == null) { attempts++; consecutiveCrashes++ } else { consecutiveCrashes = 0 }
                     }
@@ -312,7 +318,7 @@ object AiRewriter {
         } finally { /* context?.let { NewsProcessingService.stop(it) } */ }
     }
 
-    suspend fun callGroqApi(prompt: String, modelName: String = "openai/gpt-oss-120b"): String? {
+    suspend fun callGroqApi(prompt: String, modelName: String = "openai/gpt-oss-120b", newsId: String = ""): String? {
         val apiKey = BuildConfig.GROQ_API_KEY.replace("\"", "").trim()
         if (apiKey.isEmpty()) {
             LogManager.log("AI_GROQ", "skip: key empty")
@@ -380,8 +386,8 @@ object AiRewriter {
         }
     }
 
-    suspend fun generateWithFallback(prompt: String, modelName: String = "gemini-3.8-flash"): String? {
-        val geminiResult = callGeminiApi(prompt, modelName)
+    suspend fun generateWithFallback(prompt: String, modelName: String = "gemini-3.8-flash", newsId: String = ""): String? {
+        val geminiResult = callGeminiApi(prompt, modelName, newsId)
         if (geminiResult != null && geminiResult != "[SAFETY_BLOCK]") {
             return geminiResult
         }
@@ -390,7 +396,7 @@ object AiRewriter {
             return geminiResult
         }
         LogManager.log("AI_FALLBACK", "gemini null -> groq")
-        val groqResult = callGroqApi(prompt)
+        val groqResult = callGroqApi(prompt, newsId = newsId)
         if (groqResult != null) {
             LogManager.log("AI_FALLBACK_OK", "groq recovered")
         } else {
@@ -399,7 +405,7 @@ object AiRewriter {
         return groqResult
     }
 
-    suspend fun callGeminiApi(prompt: String, modelName: String = "gemini-3.8-flash"): String? {
+    suspend fun callGeminiApi(prompt: String, modelName: String = "gemini-3.8-flash", newsId: String = ""): String? {
         enforceRateLimit()
         val active = getActiveKey(modelName)
         
@@ -453,7 +459,7 @@ object AiRewriter {
                 }
                 
                 incrementKeyUsage(keyIndex, modelName)
-                LogManager.log("AI_OK", "✅ Ключ №${keyIndex + 1}: Текст згенеровано (${text.length} симв.)")
+                LogManager.log("AI_OK", "newsId=${newsId.take(8)} ✅ Ключ №${keyIndex + 1}: Текст згенеровано (${text.length} симв.) start='${text.take(40)}'")
                 text
             } else {
                 val errBody = respBody.lowercase()

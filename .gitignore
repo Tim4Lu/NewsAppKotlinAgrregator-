@@ -1,3 +1,8 @@
 *.keystore
 *.keystore
 local.properties
+.gradle/
+.bak_patch/
+compile.log
+wrapper/
+release.keystore
