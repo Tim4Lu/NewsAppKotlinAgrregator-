@@ -233,7 +233,7 @@ object AiRewriter {
         var translatedText: String? = null
         var attempts = 0
         while (translatedText == null && attempts < apiKeys.size) {
-            if (getActiveKey() == null) { delay(10000); attempts++; continue }
+            if (!hasAnyAvailableKey()) { delay(10000); attempts++; continue }
             val models = listOf("gemini-3.1-flash-lite", "gemini-3.5-flash-lite", "gemini-3.8-flash"); translatedText = generateWithFallback(prompt, models[attempts % 3])
             if (translatedText == "[SAFETY_BLOCK]") return "Текст заблоковано фільтрами безпеки Gemini."
             if (translatedText == null) attempts++
