@@ -225,7 +225,10 @@ object AiRewriter {
         } catch (e: Exception) {}
 
         val textToTranslate = if (fullOriginalText.length > 150) fullOriginalText else newsItem.description
-        val prompt = "Ти — науковий перекладач. Зроби повний, детальний та якісний переклад усієї статті українською мовою. Збережи всі абзаци, наукові факти, терміни та деталі оригінального тексту. Нічого не скорочуй.\n\nЗаголовок: ${newsItem.originalTitle.ifEmpty { newsItem.title }}\nТекст: $textToTranslate"
+        val prompt = Prompts.buildTranslatePrompt(
+            newsItem.originalTitle.ifEmpty { newsItem.title },
+            textToTranslate
+        )
         
         var translatedText: String? = null
         var attempts = 0
@@ -255,7 +258,10 @@ object AiRewriter {
             for (item in newsToProcess) {
                 if (isQueueStopped) { onItemProcessed(item.copy(status = "Ліміт AI")); processingNewsIds.remove(item.id); continue }
                 try {
-                    val prompt = "Зроби пост для Telegram українською. СТИСЛО!\n1. Яскравий заголовок.\n2. 2 речення суті.\n3. 3 головні факти булітами (•).\nБез вступів, без \"Ось переклад\", без **. Джерело не пиши.\n\nЗаголовок: ${item.title.replace("\"", "'").replace("\n", " ").replace("🚀", "")}\nТекст: ${item.description.replace("\"", "'").replace("\n", " ")}"
+                    val prompt = Prompts.buildUserPrompt(
+                        item.title.replace("\"", "'").replace("\n", " ").replace("🚀", "").trim(),
+                        item.description.replace("\"", "'").replace("\n", " ").trim()
+                    )
                     var translatedText: String? = null
                     var attempts = 0
 
@@ -322,7 +328,7 @@ object AiRewriter {
                     put("messages", JSONArray().apply {
                         put(JSONObject().apply {
                             put("role", "system")
-                            put("content", "You write Telegram posts in Ukrainian. Rules: 1) Plain text ONLY. 2) NO Markdown (no **, no __, no *, no #, no bullets, no quotes). 3) No preamble like 'Sure' or 'Ось переклад'. 4) No English text except proper nouns. 5) Keep it factual and concise. Output only the final Ukrainian text.")
+                            put("content", Prompts.SYSTEM_POST)
                         })
                         put(JSONObject().apply {
                             put("role", "user")
@@ -411,6 +417,11 @@ object AiRewriter {
             val response = client.post("https://generativelanguage.googleapis.com/v1beta/models/$modelName:generateContent?key=$apiKey") {
                 contentType(ContentType.Application.Json)
                 setBody(JSONObject().apply { 
+                    put("system_instruction", JSONObject().apply {
+                        put("parts", JSONArray().apply {
+                            put(JSONObject().apply { put("text", Prompts.SYSTEM_POST) })
+                        })
+                    })
                     put("contents", JSONArray().apply { put(JSONObject().apply { put("parts", JSONArray().apply { put(JSONObject().apply { put("text", prompt) }) }) }) }) 
                     put("safetySettings", JSONArray().apply {
                         listOf("HARM_CATEGORY_HARASSMENT", "HARM_CATEGORY_HATE_SPEECH", "HARM_CATEGORY_SEXUALLY_EXPLICIT", "HARM_CATEGORY_DANGEROUS_CONTENT").forEach { category ->
