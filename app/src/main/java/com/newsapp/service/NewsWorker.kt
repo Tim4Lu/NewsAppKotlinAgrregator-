@@ -60,36 +60,80 @@ class NewsWorker(
     private suspend fun scrapeArticle(url: String): ScrapeResult {
         try {
             if (url.isEmpty()) return ScrapeResult("", emptyList(), false)
-            
-            val scraperKey = BuildConfig.SCRAPER_API_KEY
-            val finalUrl = if (url.contains("spacenews") || url.contains("space.com") || url.contains("spacedaily") || url.contains("phys.org") || url.contains("universetoday")) {
-                "https://r.jina.ai/${URLEncoder.encode(url, "UTF-8")}"
-            } else { url }
 
-            val response = client.get(finalUrl) { header("User-Agent", "Mozilla/5.0") }
-            val html = response.bodyAsText()
+            // v466: 3-кроковий fetch
+            // 1. Прямий fetch статті (статті рідко заблоковані — блокують RSS)
+            // 2. Google Script proxy (bypass Cloudflare, повертає HTML)
+            // 3. r.jina.ai (markdown, тільки для тексту)
+
+            var html = ""
+            try {
+                val resp = client.get(url) { header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)") }
+                if (resp.status.value in 200..299) {
+                    val h = resp.bodyAsText()
+                    if (h.length > 1000) html = h
+                }
+            } catch (_: Exception) {}
+
+            // Якщо не знайшли og-тегів або сторінка коротка — пробуємо proxy
+            if (html.isEmpty() || (!html.contains("og:image", true) && !html.contains("og:video", true))) {
+                try {
+                    val proxyUrl = "https://script.google.com/macros/s/AKfycbyPXHUAKXY3Cf3UKFumrDfF_LjhTRi5gK6-YGgsnrOgbYmFVn59GbWl860qyEHvtuam/exec?url=" + URLEncoder.encode(url, "UTF-8")
+                    val resp = client.get(proxyUrl)
+                    if (resp.status.value in 200..299) {
+                        val h = resp.bodyAsText()
+                        if (h.length > html.length) html = h
+                    }
+                } catch (_: Exception) {}
+            }
+
+            // Якщо досі немає <p> і og — остання спроба через r.jina.ai
+            if (html.isEmpty() || (!html.contains("<p", true) && !html.contains("og:image", true))) {
+                try {
+                    val jinaUrl = "https://r.jina.ai/" + URLEncoder.encode(url, "UTF-8")
+                    val resp = client.get(jinaUrl)
+                    if (resp.status.value in 200..299) {
+                        val h = resp.bodyAsText()
+                        if (h.length > html.length) html = h
+                    }
+                } catch (_: Exception) {}
+            }
+
+            // Гнучкий regex: content може бути до property або після
+            fun extractMeta(content: String, vararg props: String): String? {
+                val propPattern = props.joinToString("|")
+                val re1 = Regex("<meta[^>]+(?:property|name)=['\"](?:$propPattern)['\"][^>]+content=['\"]([^'\"]+)['\"]", RegexOption.IGNORE_CASE)
+                val re2 = Regex("<meta[^>]+content=['\"]([^'\"]+)['\"][^>]+(?:property|name)=['\"](?:$propPattern)['\"]", RegexOption.IGNORE_CASE)
+                return (re1.find(content) ?: re2.find(content))?.groupValues?.getOrNull(1)
+            }
+
             val imageList = mutableListOf<String>()
-
-            val ogMatch = Regex("<meta[^>]+(?:property|name)=['\"](?:og:image|twitter:image)['\"][^>]+content=['\"]([^'\"]+)['\"]", RegexOption.IGNORE_CASE).find(html)
-            if (ogMatch != null) {
-                var img = ogMatch.groupValues[1]
-                if (!img.startsWith("http")) { val b = java.net.URL(url); img = "${b.protocol}://${b.host}$img" }
+            val ogImage = extractMeta(html, "og:image", "twitter:image")
+            if (ogImage != null) {
+                var img = ogImage
+                if (!img.startsWith("http")) {
+                    val b = java.net.URL(url)
+                    img = b.protocol + "://" + b.host + (if (img.startsWith("/")) img else "/" + img)
+                }
                 imageList.add(img)
             }
 
             var videoUrl = ""
-            val ogVideo = Regex("<meta[^>]+(?:property|name)=['\"](?:og:video|og:video:url|twitter:player|twitter:player:stream)['\"][^>]+content=['\"]([^'\"]+)['\"]", RegexOption.IGNORE_CASE).find(html)
-            if (ogVideo != null) { videoUrl = ogVideo.groupValues[1] }
+            val ogVideo = extractMeta(html, "og:video", "og:video:url", "twitter:player", "twitter:player:stream")
+            if (ogVideo != null) { videoUrl = ogVideo }
             if (videoUrl.isEmpty()) {
                 val srcMatch = Regex("<video[^>]*>.*?<source[^>]+src=['\"]([^'\"]+)['\"]", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL)).find(html)
                 if (srcMatch != null) videoUrl = srcMatch.groupValues[1]
             }
             if (videoUrl.isEmpty()) {
                 val ytMatch = Regex("(?:youtube\\.com/(?:watch\\?v=|embed/|shorts/)|youtu\\.be/)([A-Za-z0-9_-]{11})").find(html)
-                if (ytMatch != null) videoUrl = "https://www.youtube.com/watch?v=${ytMatch.groupValues[1]}"
+                if (ytMatch != null) videoUrl = "https://www.youtube.com/watch?v=" + ytMatch.groupValues[1]
             }
             if (videoUrl.isNotEmpty() && !videoUrl.startsWith("http")) {
-                try { val b = java.net.URL(url); videoUrl = "${b.protocol}://${b.host}$videoUrl" } catch (_: Exception) {}
+                try {
+                    val b = java.net.URL(url)
+                    videoUrl = b.protocol + "://" + b.host + (if (videoUrl.startsWith("/")) videoUrl else "/" + videoUrl)
+                } catch (_: Exception) {}
             }
 
             val cleanHtml = html.replace(Regex("<(nav|header|footer|script|style|button|aside|noscript)[^>]*>[\\s\\S]*?<\\/\\1>", RegexOption.IGNORE_CASE), "")

@@ -48,8 +48,9 @@ class TelegramBotService {
             }
             if (resp.status.value !in 200..299) return null
             val html = resp.bodyAsText()
-            val re = Regex("""<meta[^>]+(?:property|name)=["'](?:og:image|twitter:image)["'][^>]+content=["']([^"']+)["']""", RegexOption.IGNORE_CASE)
-            val m = re.find(html) ?: return null
+            val re1 = Regex("""<meta[^>]+(?:property|name)=["'](?:og:image|twitter:image)["'][^>]+content=["']([^"']+)["']""", RegexOption.IGNORE_CASE)
+            val re2 = Regex("""<meta[^>]+content=["']([^"']+)["'][^>]+(?:property|name)=["'](?:og:image|twitter:image)["']""", RegexOption.IGNORE_CASE)
+            val m = re1.find(html) ?: re2.find(html) ?: return null
             var img = m.groupValues[1]
             if (!img.startsWith("http")) {
                 val base = java.net.URL(articleUrl)
