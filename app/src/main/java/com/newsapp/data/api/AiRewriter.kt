@@ -214,7 +214,14 @@ object AiRewriter {
         return 60_000L
     }
 
-    suspend fun translateFullArticle(newsItem: NewsItem): String? {
+    // v466: публічний лок для ScriptGenerator та інших зовнішніх AI-викликів
+    suspend fun <T> runWithProcessLock(block: suspend () -> T): T = processMutex.withLock { block() }
+
+    suspend fun translateFullArticle(newsItem: NewsItem): String? = processMutex.withLock {
+        translateFullArticleInternal(newsItem)
+    }
+
+    private suspend fun translateFullArticleInternal(newsItem: NewsItem): String? {
         var fullOriginalText = ""
         try {
             if (newsItem.link.isNotEmpty()) {
@@ -287,7 +294,7 @@ object AiRewriter {
                             continue
                         }
                         
-                        val models = listOf("gemini-3.1-flash-lite", "gemini-3.5-flash-lite", "gemini-3.8-flash"); translatedText = generateWithFallback(prompt, models[attempts % 3], item.id)
+                        translatedText = generateWithFallback(prompt, newsId = item.id)
                         if (translatedText == "[SAFETY_BLOCK]") break
                         if (translatedText == null) { attempts++; consecutiveCrashes++ } else { consecutiveCrashes = 0 }
                     }
@@ -324,7 +331,7 @@ object AiRewriter {
             LogManager.log("AI_GROQ", "skip: key empty")
             return null
         }
-        LogManager.log("AI_GROQ_REQ", "-> Groq ($modelName)")
+        LogManager.log("AI_GROQ_REQ", "newsId=${newsId.take(8)} -> Groq ($modelName)")
         return try {
             val response = client.post("https://api.groq.com/openai/v1/chat/completions") {
                 header(io.ktor.http.HttpHeaders.Authorization, "Bearer $apiKey")
@@ -347,7 +354,7 @@ object AiRewriter {
             }
             val respBody = response.bodyAsText()
             val cleanLog = respBody.replace("\n", " ").let { if (it.length > 250) it.take(250) + "..." else it }
-            LogManager.log("AI_GROQ_RES", "status=${response.status.value} body=$cleanLog")
+            LogManager.log("AI_GROQ_RES", "newsId=${newsId.take(8)} status=${response.status.value} body=$cleanLog")
             if (response.status.value == 200) {
                 val json = JSONObject(respBody)
                 val text = json.optJSONArray("choices")
@@ -358,7 +365,7 @@ object AiRewriter {
                     LogManager.log("AI_GROQ_WARN", "empty content")
                     null
                 } else {
-                    LogManager.log("AI_GROQ_OK", "text len=${text.length}")
+                    LogManager.log("AI_GROQ_OK", "newsId=${newsId.take(8)} text len=${text.length}")
                     incrementGroqUsage()
                     text
                 }
@@ -386,21 +393,33 @@ object AiRewriter {
         }
     }
 
-    suspend fun generateWithFallback(prompt: String, modelName: String = "gemini-3.8-flash", newsId: String = ""): String? {
-        val geminiResult = callGeminiApi(prompt, modelName, newsId)
-        if (geminiResult != null && geminiResult != "[SAFETY_BLOCK]") {
-            return geminiResult
+    suspend fun generateWithFallback(prompt: String, modelName: String? = null, newsId: String = ""): String? {
+        val allModels = listOf("gemini-3.1-flash-lite", "gemini-3.5-flash-lite", "gemini-3.8-flash")
+        // v466: пріоритет 3.1 -> 3.5 -> 3.8. Якщо модель передана явно - вона перша, далі інші.
+        val order = if (modelName != null && modelName in allModels) {
+            listOf(modelName) + allModels.filter { it != modelName }
+        } else {
+            allModels
         }
-        if (geminiResult == "[SAFETY_BLOCK]") {
-            LogManager.log("AI_FALLBACK", "safety block, skip groq")
-            return geminiResult
+        for ((idx, model) in order.withIndex()) {
+            if (!hasAnyAvailableKey()) {
+                LogManager.log("AI_FALLBACK", "newsId=${newsId.take(8)} no gemini keys, skip to groq")
+                break
+            }
+            val result = callGeminiApi(prompt, model, newsId)
+            if (result != null && result != "[SAFETY_BLOCK]") return result
+            if (result == "[SAFETY_BLOCK]") {
+                LogManager.log("AI_FALLBACK", "newsId=${newsId.take(8)} safety block, skip groq")
+                return result
+            }
+            if (idx < order.size - 1) delay(1500)
         }
-        LogManager.log("AI_FALLBACK", "gemini null -> groq")
+        LogManager.log("AI_FALLBACK", "newsId=${newsId.take(8)} all gemini failed -> groq")
         val groqResult = callGroqApi(prompt, newsId = newsId)
         if (groqResult != null) {
-            LogManager.log("AI_FALLBACK_OK", "groq recovered")
+            LogManager.log("AI_FALLBACK_OK", "newsId=${newsId.take(8)} groq recovered")
         } else {
-            LogManager.log("AI_FALLBACK_FAIL", "both failed")
+            LogManager.log("AI_FALLBACK_FAIL", "newsId=${newsId.take(8)} all failed")
         }
         return groqResult
     }
@@ -477,9 +496,10 @@ object AiRewriter {
                     LogManager.log("AI_ERR", "❌ Ключ №${keyIndex + 1}: Модель $modelName не знайдено (404).")
                     keyCooldowns["${apiKey}|${modelName}"] = System.currentTimeMillis() + 60_000L
                 } else if (response.status.value == 503) {
-                    val jitter = (Math.random() * 5000).toLong()
-                    val backoff = 15_000L + jitter
-                    LogManager.log("AI_WAIT", "503 Google overload. Pause ${backoff}ms.")
+                    // v466: 503 - transient overload, не quota. 3-5с замість 15-20с
+                    val jitter = (Math.random() * 2000).toLong()
+                    val backoff = 3_000L + jitter
+                    LogManager.log("AI_WAIT", "newsId=${newsId.take(8)} 503 overload. Pause ${backoff}ms.")
                     keyCooldowns["${apiKey}|${modelName}"] = System.currentTimeMillis() + backoff
                 } else {
                     LogManager.log("AI_ERR", "⚠️ Помилка HTTP ${response.status.value}. Пауза 30с.")

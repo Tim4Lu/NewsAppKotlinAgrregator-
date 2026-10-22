@@ -52,7 +52,11 @@ object ScriptGenerator {
         }
     }
 
-    suspend fun generateScript(newsItem: NewsItem, mode: VoiceMode): String? {
+    suspend fun generateScript(newsItem: NewsItem, mode: VoiceMode): String? = AiRewriter.runWithProcessLock {
+        generateScriptInternal(newsItem, mode)
+    }
+
+    private suspend fun generateScriptInternal(newsItem: NewsItem, mode: VoiceMode): String? {
         val cleanTitle = newsItem.title.replace("\"", "'").replace("\n", " ").replace("🚀", "")
         val cleanDesc = newsItem.description.replace("\"", "'").replace("\n", " ")
 
