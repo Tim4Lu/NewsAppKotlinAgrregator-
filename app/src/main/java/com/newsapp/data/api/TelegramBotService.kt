@@ -10,6 +10,7 @@ import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.request.forms.MultiPartFormDataContent
 import io.ktor.client.request.forms.formData
 import io.ktor.client.request.get
+import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
@@ -44,7 +45,7 @@ class TelegramBotService {
         if (articleUrl.isBlank()) return null
         return try {
             val resp = client.get(articleUrl) {
-                io.ktor.client.request.header("User-Agent", "Mozilla/5.0 NewsBot/1.0")
+                header("User-Agent", "Mozilla/5.0 NewsBot/1.0")
             }
             if (resp.status.value !in 200..299) return null
             val html = resp.bodyAsText()
